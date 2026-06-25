@@ -24,13 +24,15 @@ LEARNING_RATE = 0.006
 LR_WARMUP_EPOCHS = 8
 LR_MIN = 0.00008
 LR_DECAY_EPOCHS = 25
-BATCH_DECAY_FACTOR = 0.18
+BATCH_DECAY_FACTOR = 0.05
 DROPOUT = 0.37
 FOCAL_GAMMA = 2
 FOCAL_ALPHA = 0.24
 LABEL_SMOOTHING = 0.01
 EARLY_STOP_PATIENCE = 8
-GAUSSIAN_NOISE = 0.005
+GAUSSIAN_NOISE = 0.006
+GAUSSIAN_NOISE_DECAY_EPOCHS = 50
+GAUSSIAN_NOISE_END = 0.0001
 LOG_DIR = "logs/run4"
 
 
@@ -196,6 +198,26 @@ class LRWarmupDecay(tf.keras.callbacks.Callback):
 
 total_steps = len(x_train) // BATCH_SIZE
 
+class GaussianNoiseDecay(tf.keras.callbacks.Callback):
+    def __init__(self, initial_noise, decay_epochs):
+        super().__init__()
+        self.initial_noise = initial_noise
+        self.decay_epochs = decay_epochs
+        self.noise_layer = None
+    def on_train_begin(self, logs=None):
+        for layer in self.model.layers:
+            if isinstance(layer, tf.keras.layers.GaussianNoise):
+                self.noise_layer = layer
+                break
+    def on_epoch_begin(self, epoch, logs=None):
+        if self.noise_layer is None:
+            return
+        progress = min(1.0, epoch / self.decay_epochs)
+        noise = self.initial_noise + (GAUSSIAN_NOISE_END - self.initial_noise) * progress
+        noise = max(0.0, noise)
+        self.noise_layer.stddev = noise
+        print(f"  Gaussian noise: {noise:.6f}")
+
 class BestEpochLogger(tf.keras.callbacks.Callback):
     def __init__(self):
         self.best_epoch = 0
@@ -212,6 +234,7 @@ class BestEpochLogger(tf.keras.callbacks.Callback):
 callbacks = [
     LRWarmupDecay(warmup_epochs=LR_WARMUP_EPOCHS, target_lr=LEARNING_RATE, decay_epochs=LR_DECAY_EPOCHS, end_lr=LR_MIN, steps_per_epoch=total_steps, batch_decay_factor=BATCH_DECAY_FACTOR),
     tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=EARLY_STOP_PATIENCE, restore_best_weights=True),
+    GaussianNoiseDecay(GAUSSIAN_NOISE, GAUSSIAN_NOISE_DECAY_EPOCHS),
     BestEpochLogger(),
     tf.keras.callbacks.TensorBoard(log_dir=LOG_DIR, histogram_freq=1),
 ]

@@ -18,7 +18,7 @@ from tensorflow.keras import layers
 # ─── Config ────────────────────────────────────────────────────────
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "synthetic" / "data"
 LATENT_DIM = 256
-EPOCHS = 60
+EPOCHS = 80
 BATCH_SIZE = 64
 NUM_CLASSES = 10
 LR = 0.0010
@@ -352,7 +352,7 @@ callbacks = [
     keras.callbacks.EarlyStopping(monitor='val_total_loss', patience=15, restore_best_weights=True),
     GeneratorCheckpoint(generator, best_generator_path),
     BestEpochLogger(vae),
-    keras.callbacks.TensorBoard(log_dir='logs/run2', histogram_freq=1),
+    keras.callbacks.TensorBoard(log_dir='logs/run1', histogram_freq=1),
 ]
 
 history = vae.fit(x_train, y_train, validation_data=(x_test, y_test),
