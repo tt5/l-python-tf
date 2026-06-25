@@ -1,0 +1,70 @@
+## Model Training
+
+Models are trained in the conda `tf` environment and exported to ONNX.
+
+### MNIST Classifier
+```bash
+conda activate tf
+cd ~/data/l/python/tf
+python mnist.py                    # trains and saves mnist_model/
+python convert_to_onnx.py
+```
+
+### CVAE Generator
+```bash
+conda activate tf
+cd ~/data/l/python/tf
+python train_cvae.py               # trains and saves cvae_generator.h5
+python convert_to_onnx.py cvae_generator cvae_generator.onnx
+```
+
+python -m tf2onnx.convert --saved-model mnist_model --output mnist_model.onnx
+python -m tf2onnx.convert --keras cvae_generator.h5 --output cvae_generator.onnx
+
+python -m tf2onnx.convert --keras cvae_generator.h5 --output cvae_generator.onnx && python test_cvae.py
+
+python convert_generator.py && python test_cvae.py
+
+Architecture:
+
+Different activation functions — Try LeakyReLU, GELU, or Swish instead of ReLU
+Residual connections in generator — Skip connections between conv layers
+Multi-scale label injection — Inject label at different resolutions (not just spatial tiling)
+
+One-cycle policy — Single cycle of LR increase then decrease
+Gradient accumulation — Simulate larger batch sizes with smaller physical batches
+Exponential moving average — EMA of generator weights for more stable generation
+
+Regularization: 11. Spectral normalization — Normalize weight matrices instead of activations
+Feature matching loss — Match intermediate feature distributions
+
+Perceptual loss — Use VGG features for reconstruction loss
+Adversarial loss — Add a discriminator for sharper outputs
+KL annealing with free bits — Allow some dimensions to have low KL penalty
+
+Data: 18. Curriculum learning — Start with easy classes, gradually add harder ones 19. Class-balanced sampling — Ensure equal representation of all classes per batch
+
+
+─── Sample generation quality (5000 per class) ───
+  Class 0: 41.9% correctly classified (2094/5000)
+  Class 1: 29.3% correctly classified (1465/5000)
+  Class 2: 40.8% correctly classified (2042/5000)
+  Class 3: 14.7% correctly classified (737/5000)
+  Class 4: 32.6% correctly classified (1631/5000)
+  Class 5: 12.4% correctly classified (618/5000)
+  Class 6: 42.5% correctly classified (2123/5000)
+  Class 7: 61.8% correctly classified (3089/5000)
+  Class 8: 18.3% correctly classified (913/5000)
+  Class 9: 50.9% correctly classified (2543/5000)
+
+─── Real data classification (from synthetic project) ───
+  Class 0: 65.8% correctly classified (3289/5000)
+  Class 1: 94.1% correctly classified (4705/5000)
+  Class 2: 29.0% correctly classified (1451/5000)
+  Class 3: 35.7% correctly classified (1783/5000)
+  Class 4: 9.0% correctly classified (449/5000)
+  Class 5: 97.3% correctly classified (4864/5000)
+  Class 6: 7.0% correctly classified (351/5000)
+  Class 7: 3.4% correctly classified (171/5000)
+  Class 8: 61.1% correctly classified (3057/5000)
+  Class 9: 8.7% correctly classified (437/5000)

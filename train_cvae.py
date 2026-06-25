@@ -1,0 +1,369 @@
+#!/usr/bin/env python3
+"""train_cvae.py
+
+Simple Conditional VAE for synthetic pictogram data.
+Compatible with convert_generator.py for ONNX conversion.
+
+Usage:
+    python train_cvae.py
+"""
+
+import numpy as np
+import os
+from pathlib import Path
+import tensorflow as tf
+from tensorflow import keras
+from tensorflow.keras import layers
+
+# ─── Config ────────────────────────────────────────────────────────
+DATA_DIR = Path(__file__).resolve().parent.parent.parent / "synthetic" / "data"
+LATENT_DIM = 256
+EPOCHS = 60
+BATCH_SIZE = 64
+NUM_CLASSES = 10
+LR = 0.0010
+LR_WARMUP_START = 0.0002
+LR_WARMUP_EPOCHS = 2
+LR_DECAY_EPOCHS = EPOCHS
+LR_END = 0.00005
+KL_WEIGHT_START = 1.6
+KL_WEIGHT_TARGET = 1.5
+KL_WARMUP_EPOCHS = 10
+PIXEL_LOSS_WEIGHT = 1.0
+PERCEPTUAL_LOSS_WEIGHT = 1.0
+FOCAL_LOSS_WEIGHT = 0.2
+FOCAL_LOSS_GAMMA = 1.0
+FOCAL_WEIGHT_START = 0.0
+FOCAL_WEIGHT_END = 0.2
+FOCAL_WARMUP_EPOCHS = 1
+FOCAL_DECAY_EPOCHS = EPOCHS
+GRAD_NOISE_SCALE = 0.02
+GRAD_NOISE_DECAY_EPOCHS = EPOCHS
+
+
+# ─── Data ──────────────────────────────────────────────────────────
+def load_data():
+    x_train, y_train_oh, x_test, y_test_oh = [], [], [], []
+    for c in range(NUM_CLASSES):
+        files = sorted((DATA_DIR / f"class_{c}").glob("*.npy"))
+        split = int(len(files) * 0.5)
+        for f in files[:split]:
+            img = np.load(str(f)).astype(np.float32) / 255.0
+            img = (img > 0.5).astype(np.float32)  # binary thresholding
+            x_train.append(img)
+            y_train_oh.append(c)
+        for f in files[split:]:
+            img = np.load(str(f)).astype(np.float32) / 255.0
+            img = (img > 0.5).astype(np.float32)  # binary thresholding
+            x_test.append(img)
+            y_test_oh.append(c)
+
+    x_train = np.array(x_train).reshape(-1, 28, 28, 1)
+    x_test = np.array(x_test).reshape(-1, 28, 28, 1)
+    y_train = keras.utils.to_categorical(y_train_oh, NUM_CLASSES)
+    y_test = keras.utils.to_categorical(y_test_oh, NUM_CLASSES)
+    return x_train, y_train, x_test, y_test
+
+
+x_train, y_train, x_test, y_test = load_data()
+print(f"Train: {len(x_train)}, Test: {len(x_test)}")
+
+
+# ─── Sampling Layer ────────────────────────────────────────────────
+class Sampling(layers.Layer):
+    def call(self, inputs):
+        z_mean, z_log_var = inputs
+        epsilon = tf.random.normal(tf.shape(z_mean))
+        return z_mean + tf.exp(0.5 * z_log_var) * epsilon
+
+
+# ─── Encoder ──────────────────────────────────────────────────────
+def build_encoder():
+    img = keras.Input(shape=(28, 28, 1), name="image_input")
+    lbl = keras.Input(shape=(NUM_CLASSES,), name="label_input")
+
+    # Conv block 1: 28x28 → 14x14
+    c1 = layers.Conv2D(64, 3, strides=2, padding="same")(img)
+    c1 = layers.Activation("relu")(c1)
+
+    # Conv block 2: 14x14 → 7x7
+    c2 = layers.Conv2D(128, 3, strides=2, padding="same")(c1)
+    c2 = layers.Activation("relu")(c2)
+
+    # Residual connection: project c1 (14x14x64) to match c2 (7x7x128)
+    # Use stride 2 to match spatial dims
+    skip = layers.Conv2D(128, 1, strides=2, padding="same")(c1)
+    c2 = layers.Add()([c2, skip])
+    c2 = layers.Activation("relu")(c2)
+
+    # Conv block 3: 7x7 → 7x7 (stride 1)
+    c3 = layers.Conv2D(256, 3, strides=1, padding="same")(c2)
+    c3 = layers.Activation("relu")(c3)
+
+    # Residual connection: project c2 (7x7x128) to match c3 (7x7x256)
+    skip2 = layers.Conv2D(256, 1, padding="same")(c2)
+    c3 = layers.Add()([c3, skip2])
+    c3 = layers.Activation("relu")(c3)
+
+    x = layers.Flatten()(c3)
+    x = layers.Concatenate()([x, lbl])
+    x = layers.Dense(512, activation="relu")(x)
+    x = layers.Dense(256, activation="relu")(x)
+    z_mean = layers.Dense(LATENT_DIM, name="z_mean")(x)
+    z_log_var = layers.Dense(LATENT_DIM, name="z_log_var")(x)
+    z = Sampling()([z_mean, z_log_var])
+    return keras.Model([img, lbl], [z_mean, z_log_var, z], name="encoder")
+
+
+# ─── Generator ────────────────────────────────────────────────────
+def build_generator():
+    z = keras.Input(shape=(LATENT_DIM,), name="latent_input")
+    lbl = keras.Input(shape=(NUM_CLASSES,), name="label_input")
+
+    # Label embeddings at different spatial scales
+    lbl_7x7 = layers.Dense(7 * 7 * 16, activation="relu")(lbl)
+    lbl_7x7 = layers.Reshape((7, 7, 16))(lbl_7x7)
+
+    lbl_14x14 = layers.Dense(14 * 14 * 16, activation="relu")(lbl)
+    lbl_14x14 = layers.Reshape((14, 14, 16))(lbl_14x14)
+
+    lbl_28x28 = layers.Dense(28 * 28 * 16, activation="relu")(lbl)
+    lbl_28x28 = layers.Reshape((28, 28, 16))(lbl_28x28)
+
+    # Initial projection with label
+    x = layers.Concatenate()([z, lbl])
+    x = layers.Dense(7 * 7 * 256, activation="relu")(x)
+    x = layers.Reshape((7, 7, 256))(x)
+    x = layers.Concatenate()([x, lbl_7x7])  # inject at 7x7
+
+    # 7x7 → 14x14
+    x = layers.Conv2D(128, 3, padding="same", activation="relu")(x)
+    skip_7 = layers.Conv2D(144, 1, padding="same")(x)  # project to 144 (128+16 for label)
+    x = tf.image.resize(x, [14, 14], method='bilinear')
+    x = layers.Conv2D(128, 3, padding="same", activation="relu")(x)
+    x = layers.Concatenate()([x, lbl_14x14])
+    # Residual: project skip_7 to 14x14 and add
+    skip_7_up = tf.image.resize(skip_7, [14, 14], method='bilinear')
+    x = layers.Add()([x, skip_7_up])
+    x = layers.Activation("relu")(x)
+
+    # 14x14 → 28x28
+    x = layers.Conv2D(64, 3, padding="same", activation="relu")(x)
+    skip_14 = layers.Conv2D(80, 1, padding="same")(x)  # project to 80 (64+16 for label)
+    x = tf.image.resize(x, [28, 28], method='bilinear')
+    x = layers.Conv2D(64, 3, padding="same", activation="relu")(x)
+    x = layers.Concatenate()([x, lbl_28x28])
+    # Residual: project skip_14 to 28x28 and add
+    skip_14_up = tf.image.resize(skip_14, [28, 28], method='bilinear')
+    x = layers.Add()([x, skip_14_up])
+    x = layers.Activation("relu")(x)
+
+    x = layers.Conv2D(1, 3, padding="same", activation="sigmoid", dtype="float32")(x)
+    return keras.Model([z, lbl], x, name="generator")
+
+
+# ─── Perceptual Loss Feature Extractor ─────────────────────────────
+def build_feature_extractor():
+    """Use the trained MNIST classifier as feature extractor (ONNX-compatible)."""
+    mnist_path = Path(__file__).resolve().parent / "mnist_model"
+    if mnist_path.exists():
+        cls_model = keras.models.load_model(str(mnist_path), custom_objects={'loss_fn': lambda y_true, y_pred: keras.losses.categorical_crossentropy(y_true, y_pred)})
+        # Remove the final classification layer to get features
+        # Use the output of the penultimate dense layer (before the final Dense(NUM_CLASSES))
+        feature_layer = cls_model.layers[-2].output  # Dense(256) before output
+        feat_model = keras.Model(cls_model.input, feature_layer, name="feature_extractor")
+        return feat_model
+    # Fallback: simple CNN if mnist_model not found
+    inp = keras.Input(shape=(28, 28, 1))
+    x = layers.Conv2D(32, 3, strides=2, padding="same", activation="relu")(inp)
+    x = layers.Conv2D(64, 3, strides=2, padding="same", activation="relu")(x)
+    x = layers.Conv2D(128, 3, strides=2, padding="same", activation="relu")(x)
+    return keras.Model(inp, x, name="feature_extractor")
+
+
+# ─── VAE Model ────────────────────────────────────────────────────
+class VAE(keras.Model):
+    def __init__(self, encoder, generator, **kwargs):
+        super().__init__(**kwargs)
+        self.encoder = encoder
+        self.generator = generator
+        self.feature_extractor = build_feature_extractor()
+        # Freeze feature extractor weights
+        self.feature_extractor.trainable = False
+        self.total_loss_tracker = keras.metrics.Mean(name="total_loss")
+        self.recon_loss_tracker = keras.metrics.Mean(name="recon_loss")
+        self.focal_loss_tracker = keras.metrics.Mean(name="focal_loss")
+        self.kl_loss_tracker = keras.metrics.Mean(name="kl_loss")
+        self.focal_weight_tracker = keras.metrics.Mean(name="focal_weight")
+        self.kl_weight_tracker = keras.metrics.Mean(name="kl_weight")
+        self.epoch_tracker = tf.Variable(0, trainable=False, dtype=tf.int32)
+
+    def on_epoch_begin(self, epoch, logs=None):
+        self.epoch_tracker.assign(epoch)
+
+    def get_lr(self):
+        epoch = tf.cast(self.epoch_tracker, tf.float32)
+        warmup_epochs = tf.cast(LR_WARMUP_EPOCHS, tf.float32)
+        decay_epochs = tf.cast(LR_DECAY_EPOCHS, tf.float32)
+        # Warmup phase
+        warmup_progress = epoch / warmup_epochs
+        warmup_lr = LR_WARMUP_START + (LR - LR_WARMUP_START) * tf.minimum(1.0, warmup_progress)
+        # Decay phase (linear)
+        decay_epoch = epoch - warmup_epochs
+        decay_progress = tf.minimum(1.0, decay_epoch / decay_epochs)
+        decay_lr = LR + (LR_END - LR) * decay_progress
+        return tf.where(epoch < warmup_epochs, warmup_lr, decay_lr)
+
+    def get_kl_weight(self):
+        progress = tf.minimum(1.0, tf.cast(self.epoch_tracker, tf.float32) / tf.cast(KL_WARMUP_EPOCHS, tf.float32))
+        return KL_WEIGHT_START + (KL_WEIGHT_TARGET - KL_WEIGHT_START) * progress
+
+    def get_focal_weight(self):
+        epoch = tf.cast(self.epoch_tracker, tf.float32)
+        warmup_epochs = tf.cast(FOCAL_WARMUP_EPOCHS, tf.float32)
+        decay_epochs = tf.cast(FOCAL_DECAY_EPOCHS, tf.float32)
+        # Warmup phase: FOCAL_WEIGHT_START → FOCAL_LOSS_WEIGHT
+        warmup_progress = tf.minimum(1.0, epoch / warmup_epochs)
+        warmup_weight = FOCAL_WEIGHT_START + (FOCAL_LOSS_WEIGHT - FOCAL_WEIGHT_START) * warmup_progress
+        # Decay phase: FOCAL_LOSS_WEIGHT → FOCAL_WEIGHT_END
+        decay_epoch = epoch - warmup_epochs
+        decay_progress = tf.minimum(1.0, decay_epoch / decay_epochs)
+        decay_weight = FOCAL_LOSS_WEIGHT + (FOCAL_WEIGHT_END - FOCAL_LOSS_WEIGHT) * decay_progress
+        # Select based on phase
+        return tf.where(epoch < warmup_epochs, warmup_weight, decay_weight)
+
+    @property
+    def metrics(self):
+        return [self.total_loss_tracker, self.recon_loss_tracker, self.focal_loss_tracker, self.kl_loss_tracker, self.focal_weight_tracker, self.kl_weight_tracker]
+
+    def train_step(self, data):
+        images, labels = data
+
+        # Update LR with warmup (0.5 → LR)
+        self.optimizer.learning_rate = self.get_lr()
+
+        # Get KL weight with warmup
+        kl_weight = self.get_kl_weight()
+
+        # Get weights before tape
+        focal_w = self.get_focal_weight()
+
+        with tf.GradientTape() as tape:
+            z_mean, z_log_var, z = self.encoder([images, labels])
+            reconstruction = self.generator([z, labels])
+
+            # Pixel-level reconstruction loss (BCE)
+            pixel_loss = tf.reduce_mean(tf.reduce_sum(
+                keras.losses.binary_crossentropy(images, reconstruction), axis=(1, 2)))
+
+            # Perceptual loss (feature-level)
+            real_features = self.feature_extractor(images)
+            fake_features = self.feature_extractor(reconstruction)
+            perceptual_loss = tf.reduce_mean(tf.square(real_features - fake_features))
+
+            # Focal loss (separate term, small weight)
+            p = tf.clip_by_value(reconstruction, 1e-7, 1.0 - 1e-7)
+            p_t = images * p + (1.0 - images) * (1.0 - p)
+            focal_weight = tf.pow(1.0 - p_t, FOCAL_LOSS_GAMMA)
+            bce = keras.losses.binary_crossentropy(images, reconstruction)
+            bce = tf.expand_dims(bce, axis=-1)
+            focal_loss = tf.reduce_mean(tf.reduce_sum(focal_weight * bce, axis=(1, 2, 3)))
+
+            # KL divergence
+            kl_loss = -0.5 * tf.reduce_mean(tf.reduce_sum(
+                1 + z_log_var - tf.square(z_mean) - tf.exp(z_log_var), axis=1))
+
+            # Combined loss
+            total_loss = (PIXEL_LOSS_WEIGHT * pixel_loss +
+                          PERCEPTUAL_LOSS_WEIGHT * perceptual_loss +
+                          focal_w * focal_loss +
+                          kl_weight * kl_loss)
+
+        grads = tape.gradient(total_loss, self.trainable_weights)
+        grads = [tf.clip_by_value(g, -1.0, 1.0) if g is not None else g for g in grads]
+        # Linear decay of gradient noise
+        noise_scale = GRAD_NOISE_SCALE * (1.0 - tf.cast(self.epoch_tracker, tf.float32) / tf.cast(GRAD_NOISE_DECAY_EPOCHS, tf.float32))
+        noise_scale = tf.maximum(0.0, noise_scale)
+        grads = [g + tf.random.normal(tf.shape(g), stddev=noise_scale) if g is not None else g for g in grads]
+        self.optimizer.apply_gradients(zip(grads, self.trainable_weights))
+        self.total_loss_tracker.update_state(total_loss)
+        self.recon_loss_tracker.update_state(pixel_loss)
+        self.focal_loss_tracker.update_state(focal_loss)
+        self.kl_loss_tracker.update_state(kl_loss)
+        self.focal_weight_tracker.update_state(focal_w)
+        self.kl_weight_tracker.update_state(kl_weight)
+        return {m.name: m.result() for m in self.metrics}
+
+    def test_step(self, data):
+        images, labels = data
+        z_mean, z_log_var, z = self.encoder([images, labels])
+        reconstruction = self.generator([z, labels])
+        pixel_loss = tf.reduce_mean(tf.reduce_sum(
+            keras.losses.binary_crossentropy(images, reconstruction), axis=(1, 2)))
+        kl_loss = -0.5 * tf.reduce_mean(tf.reduce_sum(
+            1 + z_log_var - tf.square(z_mean) - tf.exp(z_log_var), axis=1))
+        total_loss = pixel_loss + kl_loss
+        self.total_loss_tracker.update_state(total_loss)
+        self.recon_loss_tracker.update_state(pixel_loss)
+        self.kl_loss_tracker.update_state(kl_loss)
+        return {m.name: m.result() for m in self.metrics}
+
+
+# ─── Train ────────────────────────────────────────────────────────
+encoder = build_encoder()
+generator = build_generator()
+vae = VAE(encoder, generator)
+vae.compile(optimizer=keras.optimizers.Adam(LR))
+
+# ─── Best Epoch Logger ─────────────────────────────────────────────
+class BestEpochLogger(keras.callbacks.Callback):
+    def __init__(self, vae_model):
+        self.vae = vae_model
+        self.best_epoch = 0
+        self.best_loss = float('inf')
+    def on_epoch_begin(self, epoch, logs=None):
+        self.vae.epoch_tracker.assign(epoch)
+    def on_epoch_end(self, epoch, logs=None):
+        val_loss = logs.get('val_total_loss')
+        if val_loss is not None and val_loss < self.best_loss:
+            self.best_loss = val_loss
+            self.best_epoch = epoch
+    def on_train_end(self, logs=None):
+        print(f"\n═══ Best epoch: {self.best_epoch} (val_loss: {self.best_loss:.4f}) ═══")
+
+
+best_generator_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "best_generator.h5")
+
+class GeneratorCheckpoint(keras.callbacks.Callback):
+    def __init__(self, generator, filepath, monitor='val_total_loss'):
+        super().__init__()
+        self.generator = generator
+        self.filepath = filepath
+        self.monitor = monitor
+        self.best_loss = float('inf')
+    def on_epoch_end(self, epoch, logs=None):
+        current_loss = logs.get(self.monitor)
+        if current_loss is not None and current_loss < self.best_loss:
+            self.best_loss = current_loss
+            self.generator.save_weights(self.filepath)
+            print(f"  Saved best generator (val_loss: {current_loss:.4f})")
+
+callbacks = [
+    keras.callbacks.EarlyStopping(monitor='val_total_loss', patience=15, restore_best_weights=True),
+    GeneratorCheckpoint(generator, best_generator_path),
+    BestEpochLogger(vae),
+    keras.callbacks.TensorBoard(log_dir='logs/run2', histogram_freq=1),
+]
+
+history = vae.fit(x_train, y_train, validation_data=(x_test, y_test),
+                  epochs=EPOCHS, batch_size=BATCH_SIZE, callbacks=callbacks, verbose=2)
+
+# ─── Load best generator weights (in case EarlyStopping didn't trigger) ──
+if os.path.exists(best_generator_path):
+    generator.load_weights(best_generator_path)
+    print(f"\nLoaded best generator weights from {best_generator_path}")
+
+# ─── Save ─────────────────────────────────────────────────────────
+save_dir = os.path.dirname(os.path.abspath(__file__))
+generator.save(os.path.join(save_dir, "cvae_generator.h5"))
+print(f"\nGenerator saved to {save_dir}/cvae_generator.h5")

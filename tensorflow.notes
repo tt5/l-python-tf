@@ -1,0 +1,15 @@
+tf_config()
+
+tensorflow
+python
+CUDA
+cuDNN
+GPU drivers
+
+conda install tensorflow=2.10.0=gpu_py39h039f4ff_0 cudatoolkit cudnn
+
+nvtop
+
+conda activate tf
+
+conda install -c nvidia cuda-toolkit=NN.N

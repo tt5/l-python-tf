@@ -1,0 +1,12 @@
+python3 -m pip install tflite-runtime
+
+https://github.com/tensorflow/tensorflow/blob/master/tensorflow/lite/examples/python/README.md
+python -m pip install tflite-runtime
+
+Convert TensorFlow Lite models (*.tflite) to ONNX.
+https://github.com/zhenhuaw-me/tflite2onnx
+
+https://onnxruntime.ai/docs/get-started/training-on-device.html
+https://github.com/oneapi-src/oneDNN
+https://onnxruntime.ai/docs/tutorials/on-device-training/android-app.html
+

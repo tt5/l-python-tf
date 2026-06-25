@@ -1,0 +1,13 @@
+mnist_model
+mnist2_model
+mnist3_model
+**/*.h5
+**/*.tflite
+**/*.onnx
+**/*.png
+data
+__pycache__
+cvae_generator_savedmodel
+logs
+**/*.npy
+**/*.onnx
