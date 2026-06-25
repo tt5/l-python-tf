@@ -127,13 +127,25 @@ c2 = tf.keras.layers.Multiply()([c2, se2])
 sa2 = tf.keras.layers.Conv2D(1, 1, activation='sigmoid')(c2)
 c2 = tf.keras.layers.Multiply()([c2, sa2])
 
-# Flatten + Dense with residual
-x = tf.keras.layers.Flatten()(c2)
+# Multi-scale Conv block 3: 3x3 and 5x5 in parallel (no pooling)
+c3_3 = tf.keras.layers.Conv2D(64, 3, padding='same', activation='relu')(c2)
+c3_5 = tf.keras.layers.Conv2D(64, 5, padding='same', activation='relu')(c2)
+c3 = tf.keras.layers.Concatenate()([c3_3, c3_5])  # 128 channels
+c3 = tf.keras.layers.Dropout(DROPOUT)(c3)
+
+# Flatten + Dense with 2 residual connections
+x = tf.keras.layers.Flatten()(c3)
 x = tf.keras.layers.GaussianNoise(GAUSSIAN_NOISE)(x)
-d1 = tf.keras.layers.Dense(256, activation='relu')(x)
+d1 = tf.keras.layers.Dense(512, activation='relu')(x)
 d1 = tf.keras.layers.Dropout(DROPOUT)(d1)
-p1 = tf.keras.layers.Dense(256)(x)
+p1 = tf.keras.layers.Dense(512)(x)
 x = tf.keras.layers.Add()([d1, p1])
+x = tf.keras.layers.Activation('relu')(x)
+# 2nd residual connection
+d2 = tf.keras.layers.Dense(512, activation='relu')(x)
+d2 = tf.keras.layers.Dropout(DROPOUT)(d2)
+p2 = tf.keras.layers.Dense(512)(x)
+x = tf.keras.layers.Add()([d2, p2])
 x = tf.keras.layers.Activation('relu')(x)
 
 outputs = tf.keras.layers.Dense(NUM_CLASSES)(x)
