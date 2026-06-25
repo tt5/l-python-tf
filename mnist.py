@@ -95,10 +95,8 @@ print(f"Train: {len(x_train)}, Test: {len(x_test)}")
 inputs = tf.keras.layers.Input(shape=(28, 28, 1))
 x = tf.keras.layers.GaussianNoise(GAUSSIAN_NOISE)(inputs)
 
-# Multi-scale Conv block 1: 3x3 and 5x5 in parallel
-c1_3 = tf.keras.layers.Conv2D(32, 3, padding='same', activation='relu')(x)
-c1_5 = tf.keras.layers.Conv2D(32, 5, padding='same', activation='relu')(x)
-c1 = tf.keras.layers.Concatenate()([c1_3, c1_5])  # 64 channels
+# Conv block 1: 28x28 → 14x14
+c1 = tf.keras.layers.SeparableConv2D(64, 3, padding='same', activation='relu')(x)
 c1 = tf.keras.layers.MaxPooling2D(2)(c1)
 c1 = tf.keras.layers.Dropout(DROPOUT)(c1)
 # SE block 1 (channel attention)
@@ -111,10 +109,8 @@ c1 = tf.keras.layers.Multiply()([c1, se1])
 sa1 = tf.keras.layers.Conv2D(1, 1, activation='sigmoid')(c1)
 c1 = tf.keras.layers.Multiply()([c1, sa1])
 
-# Multi-scale Conv block 2: 3x3 and 5x5 in parallel
-c2_3 = tf.keras.layers.Conv2D(64, 3, padding='same', activation='relu')(c1)
-c2_5 = tf.keras.layers.Conv2D(64, 5, padding='same', activation='relu')(c1)
-c2 = tf.keras.layers.Concatenate()([c2_3, c2_5])  # 128 channels
+# Conv block 2: 14x14 → 7x7
+c2 = tf.keras.layers.SeparableConv2D(128, 3, padding='same', activation='relu')(c1)
 c2 = tf.keras.layers.MaxPooling2D(2)(c2)
 c2 = tf.keras.layers.Dropout(DROPOUT)(c2)
 # SE block 2 (channel attention)
@@ -127,10 +123,8 @@ c2 = tf.keras.layers.Multiply()([c2, se2])
 sa2 = tf.keras.layers.Conv2D(1, 1, activation='sigmoid')(c2)
 c2 = tf.keras.layers.Multiply()([c2, sa2])
 
-# Multi-scale Conv block 3: 3x3 and 5x5 in parallel (no pooling)
-c3_3 = tf.keras.layers.Conv2D(64, 3, padding='same', activation='relu')(c2)
-c3_5 = tf.keras.layers.Conv2D(64, 5, padding='same', activation='relu')(c2)
-c3 = tf.keras.layers.Concatenate()([c3_3, c3_5])  # 128 channels
+# Conv block 3: 7x7 → 7x7 (no pooling)
+c3 = tf.keras.layers.SeparableConv2D(128, 3, padding='same', activation='relu')(c2)
 c3 = tf.keras.layers.Dropout(DROPOUT)(c3)
 
 # Flatten + Dense with 2 residual connections
