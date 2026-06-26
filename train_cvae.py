@@ -166,6 +166,9 @@ def build_generator():
     se_init = layers.Dense(256, activation="sigmoid")(se_init)
     se_init = layers.Reshape((1, 1, 256))(se_init)
     x = layers.Multiply()([x, se_init])
+    # Spatial attention before concat
+    sa_init = layers.Conv2D(1, 1, activation='sigmoid')(x)
+    x = layers.Multiply()([x, sa_init])
     x = layers.Concatenate()([x, lbl_7x7])  # inject at 7x7
 
     # 7x7 → 14x14
@@ -182,6 +185,9 @@ def build_generator():
     skip_7 = layers.Conv2D(144, 1, padding="same")(x)  # project to 144 (128+16 for label)
     x = upsample(x, [14, 14])
     x = layers.Conv2D(128, 3, padding="same", activation="relu")(x)
+    # Spatial attention before concat
+    sa14_pre = layers.Conv2D(1, 1, activation='sigmoid')(x)
+    x = layers.Multiply()([x, sa14_pre])
     x = layers.Concatenate()([x, lbl_14x14])
     # Residual: project skip_7 to 14x14 and add
     skip_7_up = upsample(skip_7, [14, 14])
@@ -202,6 +208,9 @@ def build_generator():
     skip_14 = layers.Conv2D(80, 1, padding="same")(x)  # project to 80 (64+16 for label)
     x = upsample(x, [28, 28])
     x = layers.Conv2D(64, 3, padding="same", activation="relu")(x)
+    # Spatial attention before concat
+    sa28_pre = layers.Conv2D(1, 1, activation='sigmoid')(x)
+    x = layers.Multiply()([x, sa28_pre])
     x = layers.Concatenate()([x, lbl_28x28])
     # Residual: project skip_14 to 28x28 and add
     skip_14_up = upsample(skip_14, [28, 28])
