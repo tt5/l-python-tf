@@ -26,8 +26,8 @@ LR_WARMUP_START = 0.0002
 LR_WARMUP_EPOCHS = 3
 LR_DECAY_EPOCHS = EPOCHS
 LR_END = 0.00005
-KL_WEIGHT_START = 1.7
-KL_WEIGHT_TARGET = 1.45
+KL_WEIGHT_START = 1
+KL_WEIGHT_TARGET = 0.5
 KL_WARMUP_EPOCHS = 9
 PIXEL_LOSS_WEIGHT = 1.0
 PERCEPTUAL_LOSS_WEIGHT = 1.0
@@ -167,6 +167,9 @@ def build_generator():
     se7 = layers.Dense(128, activation="sigmoid")(se7)
     se7 = layers.Reshape((1, 1, 128))(se7)
     x = layers.Multiply()([x, se7])
+    # Spatial attention 7x7
+    sa7 = layers.Conv2D(1, 1, activation='sigmoid')(x)
+    x = layers.Multiply()([x, sa7])
     skip_7 = layers.Conv2D(144, 1, padding="same")(x)  # project to 144 (128+16 for label)
     x = upsample(x, [14, 14])
     x = layers.Conv2D(128, 3, padding="same", activation="relu")(x)
@@ -184,6 +187,9 @@ def build_generator():
     se14 = layers.Dense(64, activation="sigmoid")(se14)
     se14 = layers.Reshape((1, 1, 64))(se14)
     x = layers.Multiply()([x, se14])
+    # Spatial attention 14x14
+    sa14 = layers.Conv2D(1, 1, activation='sigmoid')(x)
+    x = layers.Multiply()([x, sa14])
     skip_14 = layers.Conv2D(80, 1, padding="same")(x)  # project to 80 (64+16 for label)
     x = upsample(x, [28, 28])
     x = layers.Conv2D(64, 3, padding="same", activation="relu")(x)
