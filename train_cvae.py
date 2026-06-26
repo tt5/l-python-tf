@@ -19,7 +19,7 @@ from tensorflow.keras import layers
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "synthetic" / "data"
 LATENT_DIM = 512
 EPOCHS = 80
-BATCH_SIZE = 64
+BATCH_SIZE = 128
 NUM_CLASSES = 10
 LR = 0.0011
 LR_WARMUP_START = 0.0002
@@ -124,8 +124,7 @@ def build_encoder():
 
     x = layers.Flatten()(c3)
     x = layers.Concatenate()([x, lbl])
-    x = layers.Dense(512, activation="relu")(x)
-    x = layers.Dense(256, activation="relu")(x)
+    x = layers.Dense(768, activation="relu")(x)
     z_mean = layers.Dense(LATENT_DIM, name="z_mean")(x)
     z_log_var = layers.Dense(LATENT_DIM, name="z_log_var")(x)
     z = Sampling()([z_mean, z_log_var])
@@ -419,7 +418,7 @@ callbacks = [
     keras.callbacks.EarlyStopping(monitor='val_total_loss', patience=10, restore_best_weights=True),
     GeneratorCheckpoint(generator, best_generator_path),
     BestEpochLogger(vae),
-    keras.callbacks.TensorBoard(log_dir='logs/run2', histogram_freq=1),
+    keras.callbacks.TensorBoard(log_dir='logs/run1', histogram_freq=1),
 ]
 
 history = vae.fit(x_train, y_train, validation_data=(x_test, y_test),
