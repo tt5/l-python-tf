@@ -41,6 +41,8 @@ FOCAL_WARMUP_EPOCHS = 1
 FOCAL_DECAY_EPOCHS = EPOCHS
 GRAD_NOISE_SCALE = 0.02
 GRAD_NOISE_DECAY_EPOCHS = EPOCHS
+INFO_NCE_WEIGHT = 0.1
+TEMPERATURE = 0.5
 
 
 # ─── Data ──────────────────────────────────────────────────────────
@@ -339,11 +341,23 @@ class VAE(keras.Model):
             kl_loss = -0.5 * tf.reduce_mean(tf.reduce_sum(
                 1 + z_log_var - tf.square(z_mean) - tf.exp(z_log_var), axis=1))
 
+            # InfoNCE: ensure encoder utilizes latent space
+            # For each batch, compute pairwise similarities
+            batch_size = tf.shape(z)[0]
+            z_norm = tf.math.l2_normalize(z, axis=1)
+            # Similarity matrix: [batch, batch]
+            sim_matrix = tf.matmul(z_norm, z_norm, transpose_b=True) / TEMPERATURE
+            # Labels: diagonal (positive pairs)
+            labels_ce = tf.range(batch_size)
+            info_nce_loss = tf.reduce_mean(
+                tf.nn.sparse_softmax_cross_entropy_with_logits(labels=labels_ce, logits=sim_matrix))
+
             # Combined loss
             total_loss = (PIXEL_LOSS_WEIGHT * pixel_loss +
                           PERCEPTUAL_LOSS_WEIGHT * perceptual_loss +
                           focal_w * focal_loss +
-                          kl_weight * kl_loss)
+                          kl_weight * kl_loss +
+                          INFO_NCE_WEIGHT * info_nce_loss)
 
         grads = tape.gradient(total_loss, self.trainable_weights)
         grads = [tf.clip_by_value(g, -1.0, 1.0) if g is not None else g for g in grads]
@@ -418,7 +432,7 @@ callbacks = [
     keras.callbacks.EarlyStopping(monitor='val_total_loss', patience=10, restore_best_weights=True),
     GeneratorCheckpoint(generator, best_generator_path),
     BestEpochLogger(vae),
-    keras.callbacks.TensorBoard(log_dir='logs/run1', histogram_freq=1),
+    keras.callbacks.TensorBoard(log_dir='logs/run2', histogram_freq=1),
 ]
 
 history = vae.fit(x_train, y_train, validation_data=(x_test, y_test),
