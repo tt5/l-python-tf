@@ -26,15 +26,17 @@ LR_WARMUP_START = 0.0002
 LR_WARMUP_EPOCHS = 3
 LR_DECAY_EPOCHS = EPOCHS
 LR_END = 0.00005
-KL_WEIGHT_START = 1
-KL_WEIGHT_TARGET = 0.5
+KL_WARMUP_START = 1.0
+KL_WEIGHT_START = 0.5
+KL_WEIGHT_TARGET = 0.4
 KL_WARMUP_EPOCHS = 9
+KL_DECAY_EPOCHS = 20
 PIXEL_LOSS_WEIGHT = 1.0
 PERCEPTUAL_LOSS_WEIGHT = 1.0
-FOCAL_LOSS_WEIGHT = 0.2
+FOCAL_LOSS_WEIGHT = 0.3
 FOCAL_LOSS_GAMMA = 1.0
 FOCAL_WEIGHT_START = 0.0
-FOCAL_WEIGHT_END = 0.2
+FOCAL_WEIGHT_END = 0.3
 FOCAL_WARMUP_EPOCHS = 1
 FOCAL_DECAY_EPOCHS = EPOCHS
 GRAD_NOISE_SCALE = 0.02
@@ -267,8 +269,18 @@ class VAE(keras.Model):
         return tf.where(epoch < warmup_epochs, warmup_lr, decay_lr)
 
     def get_kl_weight(self):
-        progress = tf.minimum(1.0, tf.cast(self.epoch_tracker, tf.float32) / tf.cast(KL_WARMUP_EPOCHS, tf.float32))
-        return KL_WEIGHT_START + (KL_WEIGHT_TARGET - KL_WEIGHT_START) * progress
+        epoch = tf.cast(self.epoch_tracker, tf.float32)
+        warmup_epochs = tf.cast(KL_WARMUP_EPOCHS, tf.float32)
+        decay_epochs = tf.cast(KL_DECAY_EPOCHS, tf.float32)
+        # Phase 1: Warmup from KL_WARMUP_START → KL_WEIGHT_START
+        warmup_progress = tf.minimum(1.0, epoch / warmup_epochs)
+        warmup_weight = KL_WARMUP_START + (KL_WEIGHT_START - KL_WARMUP_START) * warmup_progress
+        # Phase 2: Linear decay KL_WEIGHT_START → KL_WEIGHT_TARGET
+        decay_epoch = epoch - warmup_epochs
+        decay_progress = tf.minimum(1.0, decay_epoch / decay_epochs)
+        decay_weight = KL_WEIGHT_START + (KL_WEIGHT_TARGET - KL_WEIGHT_START) * decay_progress
+        # Select phase
+        return tf.where(epoch < warmup_epochs, warmup_weight, decay_weight)
 
     def get_focal_weight(self):
         epoch = tf.cast(self.epoch_tracker, tf.float32)
@@ -407,7 +419,7 @@ callbacks = [
     keras.callbacks.EarlyStopping(monitor='val_total_loss', patience=10, restore_best_weights=True),
     GeneratorCheckpoint(generator, best_generator_path),
     BestEpochLogger(vae),
-    keras.callbacks.TensorBoard(log_dir='logs/run1', histogram_freq=1),
+    keras.callbacks.TensorBoard(log_dir='logs/run2', histogram_freq=1),
 ]
 
 history = vae.fit(x_train, y_train, validation_data=(x_test, y_test),
