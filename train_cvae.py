@@ -17,18 +17,18 @@ from tensorflow.keras import layers
 
 # ─── Config ────────────────────────────────────────────────────────
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "synthetic" / "data"
-LATENT_DIM = 256
+LATENT_DIM = 512
 EPOCHS = 80
 BATCH_SIZE = 64
 NUM_CLASSES = 10
-LR = 0.0010
+LR = 0.0011
 LR_WARMUP_START = 0.0002
-LR_WARMUP_EPOCHS = 2
+LR_WARMUP_EPOCHS = 3
 LR_DECAY_EPOCHS = EPOCHS
 LR_END = 0.00005
-KL_WEIGHT_START = 1.6
-KL_WEIGHT_TARGET = 1.5
-KL_WARMUP_EPOCHS = 10
+KL_WEIGHT_START = 1.7
+KL_WEIGHT_TARGET = 1.45
+KL_WARMUP_EPOCHS = 9
 PIXEL_LOSS_WEIGHT = 1.0
 PERCEPTUAL_LOSS_WEIGHT = 1.0
 FOCAL_LOSS_WEIGHT = 0.2
@@ -85,25 +85,40 @@ def build_encoder():
     # Conv block 1: 28x28 → 14x14
     c1 = layers.Conv2D(64, 3, strides=2, padding="same")(img)
     c1 = layers.Activation("relu")(c1)
+    # SE attention 1
+    se1 = layers.GlobalAveragePooling2D()(c1)
+    se1 = layers.Dense(64 // 4, activation="relu")(se1)
+    se1 = layers.Dense(64, activation="sigmoid")(se1)
+    se1 = layers.Reshape((1, 1, 64))(se1)
+    c1 = layers.Multiply()([c1, se1])
 
     # Conv block 2: 14x14 → 7x7
     c2 = layers.Conv2D(128, 3, strides=2, padding="same")(c1)
     c2 = layers.Activation("relu")(c2)
-
     # Residual connection: project c1 (14x14x64) to match c2 (7x7x128)
-    # Use stride 2 to match spatial dims
     skip = layers.Conv2D(128, 1, strides=2, padding="same")(c1)
     c2 = layers.Add()([c2, skip])
     c2 = layers.Activation("relu")(c2)
+    # SE attention 2
+    se2 = layers.GlobalAveragePooling2D()(c2)
+    se2 = layers.Dense(128 // 4, activation="relu")(se2)
+    se2 = layers.Dense(128, activation="sigmoid")(se2)
+    se2 = layers.Reshape((1, 1, 128))(se2)
+    c2 = layers.Multiply()([c2, se2])
 
     # Conv block 3: 7x7 → 7x7 (stride 1)
     c3 = layers.Conv2D(256, 3, strides=1, padding="same")(c2)
     c3 = layers.Activation("relu")(c3)
-
     # Residual connection: project c2 (7x7x128) to match c3 (7x7x256)
     skip2 = layers.Conv2D(256, 1, padding="same")(c2)
     c3 = layers.Add()([c3, skip2])
     c3 = layers.Activation("relu")(c3)
+    # SE attention 3
+    se3 = layers.GlobalAveragePooling2D()(c3)
+    se3 = layers.Dense(256 // 4, activation="relu")(se3)
+    se3 = layers.Dense(256, activation="sigmoid")(se3)
+    se3 = layers.Reshape((1, 1, 256))(se3)
+    c3 = layers.Multiply()([c3, se3])
 
     x = layers.Flatten()(c3)
     x = layers.Concatenate()([x, lbl])
@@ -114,6 +129,14 @@ def build_encoder():
     z = Sampling()([z_mean, z_log_var])
     return keras.Model([img, lbl], [z_mean, z_log_var, z], name="encoder")
 
+
+# ─── Upsample via Sub-pixel Convolution ────────────────────────────
+def upsample(x, target_size):
+    """Upsample using sub-pixel convolution (depth_to_space)."""
+    channels = x.shape[-1]
+    x = layers.Conv2D(channels * 4, 3, padding='same', activation='relu')(x)
+    x = tf.nn.depth_to_space(x, 2)
+    return x
 
 # ─── Generator ────────────────────────────────────────────────────
 def build_generator():
@@ -138,23 +161,35 @@ def build_generator():
 
     # 7x7 → 14x14
     x = layers.Conv2D(128, 3, padding="same", activation="relu")(x)
+    # SE attention 7x7
+    se7 = layers.GlobalAveragePooling2D()(x)
+    se7 = layers.Dense(128 // 4, activation="relu")(se7)
+    se7 = layers.Dense(128, activation="sigmoid")(se7)
+    se7 = layers.Reshape((1, 1, 128))(se7)
+    x = layers.Multiply()([x, se7])
     skip_7 = layers.Conv2D(144, 1, padding="same")(x)  # project to 144 (128+16 for label)
-    x = tf.image.resize(x, [14, 14], method='bilinear')
+    x = upsample(x, [14, 14])
     x = layers.Conv2D(128, 3, padding="same", activation="relu")(x)
     x = layers.Concatenate()([x, lbl_14x14])
     # Residual: project skip_7 to 14x14 and add
-    skip_7_up = tf.image.resize(skip_7, [14, 14], method='bilinear')
+    skip_7_up = upsample(skip_7, [14, 14])
     x = layers.Add()([x, skip_7_up])
     x = layers.Activation("relu")(x)
 
     # 14x14 → 28x28
     x = layers.Conv2D(64, 3, padding="same", activation="relu")(x)
+    # SE attention 14x14
+    se14 = layers.GlobalAveragePooling2D()(x)
+    se14 = layers.Dense(64 // 4, activation="relu")(se14)
+    se14 = layers.Dense(64, activation="sigmoid")(se14)
+    se14 = layers.Reshape((1, 1, 64))(se14)
+    x = layers.Multiply()([x, se14])
     skip_14 = layers.Conv2D(80, 1, padding="same")(x)  # project to 80 (64+16 for label)
-    x = tf.image.resize(x, [28, 28], method='bilinear')
+    x = upsample(x, [28, 28])
     x = layers.Conv2D(64, 3, padding="same", activation="relu")(x)
     x = layers.Concatenate()([x, lbl_28x28])
     # Residual: project skip_14 to 28x28 and add
-    skip_14_up = tf.image.resize(skip_14, [28, 28], method='bilinear')
+    skip_14_up = upsample(skip_14, [28, 28])
     x = layers.Add()([x, skip_14_up])
     x = layers.Activation("relu")(x)
 
@@ -162,23 +197,34 @@ def build_generator():
     return keras.Model([z, lbl], x, name="generator")
 
 
-# ─── Perceptual Loss Feature Extractor ─────────────────────────────
+# ─── Perceptual Loss Feature Extractor (Multi-layer) ───────────────
 def build_feature_extractor():
-    """Use the trained MNIST classifier as feature extractor (ONNX-compatible)."""
+    """Use the trained MNIST classifier as multi-layer feature extractor."""
     mnist_path = Path(__file__).resolve().parent / "mnist_model"
     if mnist_path.exists():
         cls_model = keras.models.load_model(str(mnist_path), custom_objects={'loss_fn': lambda y_true, y_pred: keras.losses.categorical_crossentropy(y_true, y_pred)})
-        # Remove the final classification layer to get features
-        # Use the output of the penultimate dense layer (before the final Dense(NUM_CLASSES))
-        feature_layer = cls_model.layers[-2].output  # Dense(256) before output
-        feat_model = keras.Model(cls_model.input, feature_layer, name="feature_extractor")
-        return feat_model
-    # Fallback: simple CNN if mnist_model not found
+        # Extract features from multiple layers (after each conv block)
+        # Use GlobalAvgPool on each spatial layer to get fixed-size vectors
+        feature_layers = []
+        for layer in cls_model.layers:
+            if isinstance(layer, (layers.Conv2D, layers.SeparableConv2D)):
+                feature_layers.append(layer.output)
+        if feature_layers:
+            # Global average pool each feature map
+            pooled = []
+            for f in feature_layers:
+                if len(f.shape) == 4:  # (batch, h, w, c)
+                    pooled.append(layers.GlobalAveragePooling2D()(f))
+                else:
+                    pooled.append(f)
+            feat_model = keras.Model(cls_model.input, pooled, name="feature_extractor")
+            return feat_model
+    # Fallback: simple CNN
     inp = keras.Input(shape=(28, 28, 1))
     x = layers.Conv2D(32, 3, strides=2, padding="same", activation="relu")(inp)
     x = layers.Conv2D(64, 3, strides=2, padding="same", activation="relu")(x)
     x = layers.Conv2D(128, 3, strides=2, padding="same", activation="relu")(x)
-    return keras.Model(inp, x, name="feature_extractor")
+    return keras.Model(inp, [x], name="feature_extractor")
 
 
 # ─── VAE Model ────────────────────────────────────────────────────
@@ -256,10 +302,13 @@ class VAE(keras.Model):
             pixel_loss = tf.reduce_mean(tf.reduce_sum(
                 keras.losses.binary_crossentropy(images, reconstruction), axis=(1, 2)))
 
-            # Perceptual loss (feature-level)
+            # Perceptual loss (multi-layer feature-level)
             real_features = self.feature_extractor(images)
             fake_features = self.feature_extractor(reconstruction)
-            perceptual_loss = tf.reduce_mean(tf.square(real_features - fake_features))
+            perceptual_loss = 0.0
+            for rf, ff in zip(real_features, fake_features):
+                perceptual_loss += tf.reduce_mean(tf.square(rf - ff))
+            perceptual_loss /= len(real_features)
 
             # Focal loss (separate term, small weight)
             p = tf.clip_by_value(reconstruction, 1e-7, 1.0 - 1e-7)
@@ -349,7 +398,7 @@ class GeneratorCheckpoint(keras.callbacks.Callback):
             print(f"  Saved best generator (val_loss: {current_loss:.4f})")
 
 callbacks = [
-    keras.callbacks.EarlyStopping(monitor='val_total_loss', patience=15, restore_best_weights=True),
+    keras.callbacks.EarlyStopping(monitor='val_total_loss', patience=10, restore_best_weights=True),
     GeneratorCheckpoint(generator, best_generator_path),
     BestEpochLogger(vae),
     keras.callbacks.TensorBoard(log_dir='logs/run1', histogram_freq=1),
