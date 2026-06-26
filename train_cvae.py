@@ -21,10 +21,10 @@ LATENT_DIM = 512
 EPOCHS = 80
 BATCH_SIZE = 128
 NUM_CLASSES = 10
-LR = 0.0011
+LR = 0.0012
 LR_WARMUP_START = 0.0002
 LR_WARMUP_EPOCHS = 3
-LR_DECAY_EPOCHS = EPOCHS
+LR_DECAY_EPOCHS = 60
 LR_END = 0.00005
 KL_WARMUP_START = 1.0
 KL_WEIGHT_START = 0.5
@@ -160,6 +160,12 @@ def build_generator():
     x = layers.Concatenate()([z, lbl])
     x = layers.Dense(7 * 7 * 256, activation="relu")(x)
     x = layers.Reshape((7, 7, 256))(x)
+    # SE attention on initial projection
+    se_init = layers.GlobalAveragePooling2D()(x)
+    se_init = layers.Dense(256 // 4, activation="relu")(se_init)
+    se_init = layers.Dense(256, activation="sigmoid")(se_init)
+    se_init = layers.Reshape((1, 1, 256))(se_init)
+    x = layers.Multiply()([x, se_init])
     x = layers.Concatenate()([x, lbl_7x7])  # inject at 7x7
 
     # 7x7 → 14x14
@@ -432,7 +438,7 @@ callbacks = [
     keras.callbacks.EarlyStopping(monitor='val_total_loss', patience=10, restore_best_weights=True),
     GeneratorCheckpoint(generator, best_generator_path),
     BestEpochLogger(vae),
-    keras.callbacks.TensorBoard(log_dir='logs/run2', histogram_freq=1),
+    keras.callbacks.TensorBoard(log_dir='logs/run1', histogram_freq=1),
 ]
 
 history = vae.fit(x_train, y_train, validation_data=(x_test, y_test),
