@@ -33,16 +33,11 @@ KL_WARMUP_EPOCHS = 9
 KL_DECAY_EPOCHS = 20
 PIXEL_LOSS_WEIGHT = 1.0
 PERCEPTUAL_LOSS_WEIGHT = 1.0
-FOCAL_LOSS_WEIGHT = 0.03
-FOCAL_LOSS_GAMMA = 1.0
-FOCAL_WEIGHT_START = 0.0
-FOCAL_WEIGHT_END = 0.3
-FOCAL_WARMUP_EPOCHS = 1
-FOCAL_DECAY_EPOCHS = EPOCHS
 GRAD_NOISE_SCALE = 0.02
 GRAD_NOISE_DECAY_EPOCHS = EPOCHS
 INFO_NCE_WEIGHT = 0.1
 TEMPERATURE = 0.5
+DROPOUT = 0.2
 
 
 # ─── Data ──────────────────────────────────────────────────────────
@@ -133,6 +128,7 @@ def build_encoder():
     x = layers.Add()([x, attn])
     x = layers.LayerNormalization()(x)
     x = layers.Flatten()(x)
+    x = layers.Dropout(DROPOUT)(x)
     z_mean = layers.Dense(LATENT_DIM, name="z_mean")(x)
     z_log_var = layers.Dense(LATENT_DIM, name="z_log_var")(x)
     z = Sampling()([z_mean, z_log_var])
@@ -422,7 +418,7 @@ callbacks = [
     keras.callbacks.EarlyStopping(monitor='val_total_loss', patience=10, restore_best_weights=True),
     GeneratorCheckpoint(generator, best_generator_path),
     BestEpochLogger(vae),
-    keras.callbacks.TensorBoard(log_dir='logs/run2', histogram_freq=1),
+    keras.callbacks.TensorBoard(log_dir='logs/run3', histogram_freq=1),
 ]
 
 history = vae.fit(x_train, y_train, validation_data=(x_test, y_test),
