@@ -18,7 +18,7 @@ from tensorflow.keras import layers
 # ─── Config ────────────────────────────────────────────────────────
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "synthetic" / "data"
 LATENT_DIM = 512
-EPOCHS = 80
+EPOCHS = 30
 BATCH_SIZE = 256
 NUM_CLASSES = 10
 LR = 0.002
@@ -27,17 +27,17 @@ LR_WARMUP_EPOCHS = 4
 LR_DECAY_EPOCHS = EPOCHS - LR_WARMUP_EPOCHS
 LR_END = 0.00005
 KL_WARMUP_START = 0.0001
-KL_WEIGHT_START = 0.4
-KL_WEIGHT_TARGET = 0.45
+KL_WEIGHT_START = 0.42
+KL_WEIGHT_TARGET = 0.5
 KL_WARMUP_EPOCHS = 8
 KL_DECAY_EPOCHS = EPOCHS - KL_WARMUP_EPOCHS
-PIXEL_LOSS_WEIGHT = 0.8
-PERCEPTUAL_LOSS_WEIGHT = 1.2
+PIXEL_LOSS_WEIGHT = 0.7
+PERCEPTUAL_LOSS_WEIGHT = 1.3
 GRAD_NOISE_SCALE = 0.01
 GRAD_NOISE_DECAY_EPOCHS = EPOCHS
 INFO_NCE_WEIGHT = 0.1
 TEMPERATURE = 0.5
-DROPOUT = 0.05
+DROPOUT = 0.06
 
 
 # ─── Data ──────────────────────────────────────────────────────────
