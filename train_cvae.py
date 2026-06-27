@@ -18,18 +18,19 @@ from tensorflow.keras import layers
 # ─── Config ────────────────────────────────────────────────────────
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "synthetic" / "data"
 LATENT_DIM = 512
-EPOCHS = 20
-BATCH_SIZE = 256
+EPOCHS = 25
+BATCH_SIZE = 128
 NUM_CLASSES = 10
+PROGRESSIVE_EPOCHS = 4  # Phase 1: 14x14
 LR = 0.002
 LR_WARMUP_START = 0.0002
-LR_WARMUP_EPOCHS = 4
-LR_DECAY_EPOCHS = EPOCHS - LR_WARMUP_EPOCHS
+LR_WARMUP_EPOCHS = PROGRESSIVE_EPOCHS
+LR_DECAY_EPOCHS = 37
 LR_END = 0.00005
 KL_WARMUP_START = 0.00005
 KL_WEIGHT_START = 0.42
 KL_WEIGHT_TARGET = 0.5
-KL_WARMUP_EPOCHS = 8
+KL_WARMUP_EPOCHS = PROGRESSIVE_EPOCHS
 KL_DECAY_EPOCHS = EPOCHS - KL_WARMUP_EPOCHS
 PIXEL_LOSS_WEIGHT = 0.65
 PERCEPTUAL_LOSS_WEIGHT = 1.35
@@ -66,6 +67,11 @@ def load_data():
 
 x_train, y_train, x_test, y_test = load_data()
 print(f"Train: {len(x_train)}, Test: {len(x_test)}")
+
+# ─── Resize helper for progressive growing ─────────────────────────
+def resize_images(images, target_size):
+    """Resize images to target_size using bilinear interpolation."""
+    return tf.image.resize(images, target_size, method='bilinear').numpy()
 
 
 # ─── Sampling Layer ────────────────────────────────────────────────
@@ -130,6 +136,43 @@ def build_encoder():
     return keras.Model([img, lbl], [z_mean, z_log_var, z], name="encoder")
 
 
+# ─── Encoder for 14×14 Phase 1 ─────────────────────────────────────
+def build_encoder_14():
+    img = keras.Input(shape=(14, 14, 1), name="image_input")
+    lbl = keras.Input(shape=(NUM_CLASSES,), name="label_input")
+
+    # Conv block 1: 14x14 → 7x7
+    c1 = layers.Conv2D(64, 3, strides=2, padding="same")(img)
+    c1 = layers.Activation("relu")(c1)
+    se1 = layers.GlobalAveragePooling2D()(c1)
+    se1 = layers.Dense(64 // 4, activation="relu")(se1)
+    se1 = layers.Dense(64, activation="sigmoid")(se1)
+    se1 = layers.Reshape((1, 1, 64))(se1)
+    c1 = layers.Multiply()([c1, se1])
+
+    # Conv block 2: 7x7 → 7x7 (stride 1)
+    c2 = layers.Conv2D(128, 3, strides=1, padding="same")(c1)
+    c2 = layers.Activation("relu")(c2)
+    skip = layers.Conv2D(128, 1, padding="same")(c1)
+    c2 = layers.Add()([c2, skip])
+    c2 = layers.Activation("relu")(c2)
+    se2 = layers.GlobalAveragePooling2D()(c2)
+    se2 = layers.Dense(128 // 4, activation="relu")(se2)
+    se2 = layers.Dense(128, activation="sigmoid")(se2)
+    se2 = layers.Reshape((1, 1, 128))(se2)
+    c2 = layers.Multiply()([c2, se2])
+
+    # Bottleneck
+    x = layers.Flatten()(c2)
+    x = layers.Concatenate()([x, lbl])
+    x = layers.Dense(512, activation="relu")(x)
+    x = layers.Dropout(DROPOUT)(x)
+    z_mean = layers.Dense(LATENT_DIM, name="z_mean")(x)
+    z_log_var = layers.Dense(LATENT_DIM, name="z_log_var")(x)
+    z = Sampling()([z_mean, z_log_var])
+    return keras.Model([img, lbl], [z_mean, z_log_var, z], name="encoder_14")
+
+
 # ─── Upsample via Sub-pixel Convolution ────────────────────────────
 def upsample(x, target_size):
     """Upsample using sub-pixel convolution (depth_to_space)."""
@@ -137,6 +180,41 @@ def upsample(x, target_size):
     x = layers.Conv2D(channels * 4, 3, padding='same', activation='relu')(x)
     x = tf.nn.depth_to_space(x, 2)
     return x
+
+# ─── Generator for 14×14 Phase 1 ────────────────────────────────────
+def build_generator_14():
+    z = keras.Input(shape=(LATENT_DIM,), name="latent_input")
+    lbl = keras.Input(shape=(NUM_CLASSES,), name="label_input")
+
+    def make_film(channels):
+        def film_fn(label):
+            gamma = layers.Dense(channels, activation="sigmoid")(label)
+            beta = layers.Dense(channels)(label)
+            return gamma, beta
+        return film_fn
+
+    # Initial projection to 7x7
+    x = layers.Dense(7 * 7 * 128, activation="relu")(z)
+    x = layers.Reshape((7, 7, 128))(x)
+    gamma7, beta7 = make_film(128)(lbl)
+    gamma7 = layers.Reshape((1, 1, 128))(gamma7)
+    beta7 = layers.Reshape((1, 1, 128))(beta7)
+    x = layers.Multiply()([x, gamma7])
+    x = layers.Add()([x, beta7])
+
+    # 7x7 → 14x14
+    x = layers.Conv2D(64, 3, padding="same", activation="relu")(x)
+    x = upsample(x, [14, 14])
+    x = layers.Conv2D(64, 3, padding="same", activation="relu")(x)
+    gamma14, beta14 = make_film(64)(lbl)
+    gamma14 = layers.Reshape((1, 1, 64))(gamma14)
+    beta14 = layers.Reshape((1, 1, 64))(beta14)
+    x = layers.Multiply()([x, gamma14])
+    x = layers.Add()([x, beta14])
+
+    x = layers.Conv2D(1, 3, padding="same", activation="sigmoid", dtype="float32")(x)
+    return keras.Model([z, lbl], x, name="generator_14")
+
 
 # ─── Generator with FiLM Conditioning ──────────────────────────────
 def build_generator():
@@ -325,21 +403,16 @@ class VAE(keras.Model):
 
         # Get KL weight
         kl_weight = self.get_kl_weight()
+
         with tf.GradientTape() as tape:
             z_mean, z_log_var, z = self.encoder([images, labels])
             reconstruction = self.generator([z, labels])
 
             # Pixel-level reconstruction loss (BCE)
+            # Resize target to match reconstruction size (no-op if same size)
+            target = tf.image.resize(images, tf.shape(reconstruction)[1:3])
             pixel_loss = tf.reduce_mean(tf.reduce_sum(
-                keras.losses.binary_crossentropy(images, reconstruction), axis=(1, 2)))
-
-            # Perceptual loss (multi-layer feature-level)
-            real_features = self.feature_extractor(images)
-            fake_features = self.feature_extractor(reconstruction)
-            perceptual_loss = 0.0
-            for rf, ff in zip(real_features, fake_features):
-                perceptual_loss += tf.reduce_mean(tf.square(rf - ff))
-            perceptual_loss /= len(real_features)
+                keras.losses.binary_crossentropy(target, reconstruction), axis=(1, 2)))
 
             # KL divergence
             kl_loss = -0.5 * tf.reduce_mean(tf.reduce_sum(
@@ -355,6 +428,14 @@ class VAE(keras.Model):
             labels_ce = tf.range(batch_size)
             info_nce_loss = tf.reduce_mean(
                 tf.nn.sparse_softmax_cross_entropy_with_logits(labels=labels_ce, logits=sim_matrix))
+
+            # Perceptual loss (multi-layer feature-level)
+            real_features = self.feature_extractor(images)
+            fake_features = self.feature_extractor(reconstruction)
+            perceptual_loss = 0.0
+            for rf, ff in zip(real_features, fake_features):
+                perceptual_loss += tf.reduce_mean(tf.square(rf - ff))
+            perceptual_loss /= len(real_features)
 
             # Combined loss
             total_loss = (PIXEL_LOSS_WEIGHT * pixel_loss +
@@ -433,11 +514,85 @@ callbacks = [
     keras.callbacks.EarlyStopping(monitor='val_total_loss', patience=10, restore_best_weights=True),
     GeneratorCheckpoint(generator, best_generator_path),
     BestEpochLogger(vae),
-    keras.callbacks.TensorBoard(log_dir='logs/run2', histogram_freq=1),
+    keras.callbacks.TensorBoard(log_dir='logs/run1', histogram_freq=1),
 ]
 
-history = vae.fit(x_train, y_train, validation_data=(x_test, y_test),
-                  epochs=EPOCHS, batch_size=BATCH_SIZE, callbacks=callbacks, verbose=2)
+# ─── Phase 1: Train at 14×14 (progressive growing) ────────────────
+print(f"\n═══ Phase 1: Training at 14×14 for {PROGRESSIVE_EPOCHS} epochs ═══")
+x_train_14 = resize_images(x_train, [14, 14])
+x_test_14 = resize_images(x_test, [14, 14])
+# Add channel dimension if lost
+if len(x_train_14.shape) == 3:
+    x_train_14 = x_train_14[..., np.newaxis]
+    x_test_14 = x_test_14[..., np.newaxis]
+
+# Build 14×14 model for phase 1
+encoder_14 = build_encoder_14()
+generator_14 = build_generator_14()
+
+class VAE14(VAE):
+    """VAE for 14x14 phase without perceptual loss."""
+    def train_step_14(self, data):
+        images, labels = data
+        self.optimizer.learning_rate = self.get_lr()
+        with tf.GradientTape() as tape:
+            z_mean, z_log_var, z = self.encoder([images, labels])
+            reconstruction = self.generator([z, labels])
+            target = tf.image.resize(images, tf.shape(reconstruction)[1:3])
+            pixel_loss = tf.reduce_mean(tf.reduce_sum(
+                keras.losses.binary_crossentropy(target, reconstruction), axis=(1, 2)))
+            kl_loss = -0.5 * tf.reduce_mean(tf.reduce_sum(
+                1 + z_log_var - tf.square(z_mean) - tf.exp(z_log_var), axis=1))
+            batch_size = tf.shape(z)[0]
+            z_norm = tf.math.l2_normalize(z, axis=1)
+            sim_matrix = tf.matmul(z_norm, z_norm, transpose_b=True) / TEMPERATURE
+            labels_ce = tf.range(batch_size)
+            info_nce_loss = tf.reduce_mean(
+                tf.nn.sparse_softmax_cross_entropy_with_logits(labels=labels_ce, logits=sim_matrix))
+            noise_scale = GRAD_NOISE_SCALE * (1.0 - tf.cast(self.epoch_tracker, tf.float32) / tf.cast(GRAD_NOISE_DECAY_EPOCHS, tf.float32))
+            noise_scale = tf.maximum(0.0, noise_scale)
+            total_loss = pixel_loss + kl_loss + INFO_NCE_WEIGHT * info_nce_loss
+        grads = tape.gradient(total_loss, self.trainable_weights)
+        grads = [tf.clip_by_value(g, -1.0, 1.0) if g is not None else g for g in grads]
+        grads = [g + tf.random.normal(tf.shape(g), stddev=noise_scale) if g is not None else g for g in grads]
+        self.optimizer.apply_gradients(zip(grads, self.trainable_weights))
+        self.total_loss_tracker.update_state(total_loss)
+        self.recon_loss_tracker.update_state(pixel_loss)
+        self.kl_loss_tracker.update_state(kl_loss)
+        return {m.name: m.result() for m in self.metrics}
+
+vae_14 = VAE14(encoder_14, generator_14)
+vae_14.compile(optimizer=keras.optimizers.Adam(LR))
+# Use train_step_14 which skips perceptual loss
+vae_14.train_step = vae_14.train_step_14
+
+callbacks_14 = [
+    keras.callbacks.EarlyStopping(monitor='val_total_loss', patience=10, restore_best_weights=True),
+    BestEpochLogger(vae_14),
+    keras.callbacks.TensorBoard(log_dir='logs/run1/phase1', histogram_freq=1),
+]
+
+history1 = vae_14.fit(x_train_14, y_train, validation_data=(x_test_14, y_test),
+                      epochs=PROGRESSIVE_EPOCHS, batch_size=BATCH_SIZE, callbacks=callbacks_14, verbose=2)
+
+# Transfer weights from 14×14 model to 28×28 model
+print("\nTransferring weights from 14×14 model to 28×28 model...")
+# Transfer by layer name - conv layers have matching shapes
+encoder_14_weights = {w.name: w for w in encoder_14.weights}
+for w in encoder.weights:
+    if w.name in encoder_14_weights and w.shape == encoder_14_weights[w.name].shape:
+        w.assign(encoder_14_weights[w.name])
+generator_14_weights = {w.name: w for w in generator_14.weights}
+for w in generator.weights:
+    if w.name in generator_14_weights and w.shape == generator_14_weights[w.name].shape:
+        w.assign(generator_14_weights[w.name])
+print("Weight transfer complete.")
+
+# ─── Phase 2: Fine-tune at 28×28 ───────────────────────────────────
+print(f"\n═══ Phase 2: Fine-tuning at 28×28 for {EPOCHS - PROGRESSIVE_EPOCHS} epochs ═══")
+history2 = vae.fit(x_train, y_train, validation_data=(x_test, y_test),
+                   epochs=EPOCHS, batch_size=BATCH_SIZE, callbacks=callbacks, verbose=2,
+                   initial_epoch=PROGRESSIVE_EPOCHS)
 
 # ─── Load best generator weights (in case EarlyStopping didn't trigger) ──
 if os.path.exists(best_generator_path):
