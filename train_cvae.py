@@ -23,21 +23,21 @@ BATCH_SIZE = 256
 NUM_CLASSES = 10
 LR = 0.002
 LR_WARMUP_START = 0.0002
-LR_WARMUP_EPOCHS = 3
-LR_DECAY_EPOCHS = 60
+LR_WARMUP_EPOCHS = 4
+LR_DECAY_EPOCHS = EPOCHS - LR_WARMUP_EPOCHS
 LR_END = 0.00005
-KL_WARMUP_START = 0.0
-KL_WEIGHT_START = 0.5
-KL_WEIGHT_TARGET = 0.4
-KL_WARMUP_EPOCHS = 9
+KL_WARMUP_START = 0.0001
+KL_WEIGHT_START = 0.4
+KL_WEIGHT_TARGET = 0.45
+KL_WARMUP_EPOCHS = 8
 KL_DECAY_EPOCHS = EPOCHS - KL_WARMUP_EPOCHS
-PIXEL_LOSS_WEIGHT = 0.9
-PERCEPTUAL_LOSS_WEIGHT = 1.1
-GRAD_NOISE_SCALE = 0.02
+PIXEL_LOSS_WEIGHT = 0.8
+PERCEPTUAL_LOSS_WEIGHT = 1.2
+GRAD_NOISE_SCALE = 0.01
 GRAD_NOISE_DECAY_EPOCHS = EPOCHS
 INFO_NCE_WEIGHT = 0.1
 TEMPERATURE = 0.5
-DROPOUT = 0.0
+DROPOUT = 0.05
 
 
 # ─── Data ──────────────────────────────────────────────────────────
@@ -439,7 +439,7 @@ callbacks = [
     keras.callbacks.EarlyStopping(monitor='val_total_loss', patience=10, restore_best_weights=True),
     GeneratorCheckpoint(generator, best_generator_path),
     BestEpochLogger(vae),
-    keras.callbacks.TensorBoard(log_dir='logs/run4', histogram_freq=1),
+    keras.callbacks.TensorBoard(log_dir='logs/run1', histogram_freq=1),
 ]
 
 history = vae.fit(x_train, y_train, validation_data=(x_test, y_test),
