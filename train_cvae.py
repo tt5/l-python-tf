@@ -18,7 +18,7 @@ from tensorflow.keras import layers
 # ─── Config ────────────────────────────────────────────────────────
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "synthetic" / "data"
 LATENT_DIM = 512
-EPOCHS = 30
+EPOCHS = 20
 BATCH_SIZE = 256
 NUM_CLASSES = 10
 LR = 0.002
@@ -26,16 +26,16 @@ LR_WARMUP_START = 0.0002
 LR_WARMUP_EPOCHS = 4
 LR_DECAY_EPOCHS = EPOCHS - LR_WARMUP_EPOCHS
 LR_END = 0.00005
-KL_WARMUP_START = 0.0001
+KL_WARMUP_START = 0.00005
 KL_WEIGHT_START = 0.42
 KL_WEIGHT_TARGET = 0.5
 KL_WARMUP_EPOCHS = 8
 KL_DECAY_EPOCHS = EPOCHS - KL_WARMUP_EPOCHS
-PIXEL_LOSS_WEIGHT = 0.7
-PERCEPTUAL_LOSS_WEIGHT = 1.3
-GRAD_NOISE_SCALE = 0.01
+PIXEL_LOSS_WEIGHT = 0.65
+PERCEPTUAL_LOSS_WEIGHT = 1.35
+GRAD_NOISE_SCALE = 0.015
 GRAD_NOISE_DECAY_EPOCHS = EPOCHS
-INFO_NCE_WEIGHT = 0.1
+INFO_NCE_WEIGHT = 0.11
 TEMPERATURE = 0.5
 DROPOUT = 0.06
 
@@ -439,7 +439,7 @@ callbacks = [
     keras.callbacks.EarlyStopping(monitor='val_total_loss', patience=10, restore_best_weights=True),
     GeneratorCheckpoint(generator, best_generator_path),
     BestEpochLogger(vae),
-    keras.callbacks.TensorBoard(log_dir='logs/run1', histogram_freq=1),
+    keras.callbacks.TensorBoard(log_dir='logs/run2', histogram_freq=1),
 ]
 
 history = vae.fit(x_train, y_train, validation_data=(x_test, y_test),
