@@ -19,25 +19,25 @@ from tensorflow.keras import layers
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "synthetic" / "data"
 LATENT_DIM = 512
 EPOCHS = 80
-BATCH_SIZE = 128
+BATCH_SIZE = 256
 NUM_CLASSES = 10
-LR = 0.0012
+LR = 0.002
 LR_WARMUP_START = 0.0002
 LR_WARMUP_EPOCHS = 3
 LR_DECAY_EPOCHS = 60
 LR_END = 0.00005
-KL_WARMUP_START = 1.0
+KL_WARMUP_START = 0.0
 KL_WEIGHT_START = 0.5
 KL_WEIGHT_TARGET = 0.4
 KL_WARMUP_EPOCHS = 9
-KL_DECAY_EPOCHS = 20
-PIXEL_LOSS_WEIGHT = 1.0
-PERCEPTUAL_LOSS_WEIGHT = 1.0
+KL_DECAY_EPOCHS = EPOCHS - KL_WARMUP_EPOCHS
+PIXEL_LOSS_WEIGHT = 0.9
+PERCEPTUAL_LOSS_WEIGHT = 1.1
 GRAD_NOISE_SCALE = 0.02
 GRAD_NOISE_DECAY_EPOCHS = EPOCHS
 INFO_NCE_WEIGHT = 0.1
 TEMPERATURE = 0.5
-DROPOUT = 0.2
+DROPOUT = 0.0
 
 
 # ─── Data ──────────────────────────────────────────────────────────
@@ -119,6 +119,7 @@ def build_encoder():
     se3 = layers.Reshape((1, 1, 256))(se3)
     c3 = layers.Multiply()([c3, se3])
 
+    # Bottleneck
     x = layers.Flatten()(c3)
     x = layers.Concatenate()([x, lbl])
     x = layers.Dense(768, activation="relu")(x)
@@ -143,38 +144,46 @@ def upsample(x, target_size):
     x = tf.nn.depth_to_space(x, 2)
     return x
 
-# ─── Generator ────────────────────────────────────────────────────
+# ─── Generator with FiLM Conditioning ──────────────────────────────
 def build_generator():
     z = keras.Input(shape=(LATENT_DIM,), name="latent_input")
     lbl = keras.Input(shape=(NUM_CLASSES,), name="label_input")
 
-    # Label embeddings at different spatial scales
-    lbl_7x7 = layers.Dense(7 * 7 * 16, activation="relu")(lbl)
-    lbl_7x7 = layers.Reshape((7, 7, 16))(lbl_7x7)
+    # FiLM helper: produce scale (gamma) and shift (beta) from label
+    def make_film(channels):
+        def film_fn(label):
+            gamma = layers.Dense(channels, activation="sigmoid")(label)  # [0, 1] range
+            beta = layers.Dense(channels)(label)
+            return gamma, beta
+        return film_fn
 
-    lbl_14x14 = layers.Dense(14 * 14 * 16, activation="relu")(lbl)
-    lbl_14x14 = layers.Reshape((14, 14, 16))(lbl_14x14)
-
-    lbl_28x28 = layers.Dense(28 * 28 * 16, activation="relu")(lbl)
-    lbl_28x28 = layers.Reshape((28, 28, 16))(lbl_28x28)
-
-    # Initial projection with label
-    x = layers.Concatenate()([z, lbl])
-    x = layers.Dense(7 * 7 * 256, activation="relu")(x)
+    # Initial projection
+    x = layers.Dense(7 * 7 * 256, activation="relu")(z)
     x = layers.Reshape((7, 7, 256))(x)
+    # FiLM at 7x7
+    gamma7, beta7 = make_film(256)(lbl)
+    gamma7 = layers.Reshape((1, 1, 256))(gamma7)
+    beta7 = layers.Reshape((1, 1, 256))(beta7)
+    x = layers.Multiply()([x, gamma7])
+    x = layers.Add()([x, beta7])
     # SE attention on initial projection
     se_init = layers.GlobalAveragePooling2D()(x)
     se_init = layers.Dense(256 // 4, activation="relu")(se_init)
     se_init = layers.Dense(256, activation="sigmoid")(se_init)
     se_init = layers.Reshape((1, 1, 256))(se_init)
     x = layers.Multiply()([x, se_init])
-    # Spatial attention before concat
+    # Spatial attention before conv
     sa_init = layers.Conv2D(1, 1, activation='sigmoid')(x)
     x = layers.Multiply()([x, sa_init])
-    x = layers.Concatenate()([x, lbl_7x7])  # inject at 7x7
 
     # 7x7 → 14x14
     x = layers.Conv2D(128, 3, padding="same", activation="relu")(x)
+    # FiLM at 7x7 (after conv)
+    gamma7c, beta7c = make_film(128)(lbl)
+    gamma7c = layers.Reshape((1, 1, 128))(gamma7c)
+    beta7c = layers.Reshape((1, 1, 128))(beta7c)
+    x = layers.Multiply()([x, gamma7c])
+    x = layers.Add()([x, beta7c])
     # SE attention 7x7
     se7 = layers.GlobalAveragePooling2D()(x)
     se7 = layers.Dense(128 // 4, activation="relu")(se7)
@@ -184,13 +193,18 @@ def build_generator():
     # Spatial attention 7x7
     sa7 = layers.Conv2D(1, 1, activation='sigmoid')(x)
     x = layers.Multiply()([x, sa7])
-    skip_7 = layers.Conv2D(144, 1, padding="same")(x)  # project to 144 (128+16 for label)
+    skip_7 = layers.Conv2D(128, 1, padding="same")(x)
     x = upsample(x, [14, 14])
     x = layers.Conv2D(128, 3, padding="same", activation="relu")(x)
-    # Spatial attention before concat
+    # FiLM at 14x14
+    gamma14, beta14 = make_film(128)(lbl)
+    gamma14 = layers.Reshape((1, 1, 128))(gamma14)
+    beta14 = layers.Reshape((1, 1, 128))(beta14)
+    x = layers.Multiply()([x, gamma14])
+    x = layers.Add()([x, beta14])
+    # Spatial attention before residual
     sa14_pre = layers.Conv2D(1, 1, activation='sigmoid')(x)
     x = layers.Multiply()([x, sa14_pre])
-    x = layers.Concatenate()([x, lbl_14x14])
     # Residual: project skip_7 to 14x14 and add
     skip_7_up = upsample(skip_7, [14, 14])
     x = layers.Add()([x, skip_7_up])
@@ -198,6 +212,12 @@ def build_generator():
 
     # 14x14 → 28x28
     x = layers.Conv2D(64, 3, padding="same", activation="relu")(x)
+    # FiLM at 28x28
+    gamma28, beta28 = make_film(64)(lbl)
+    gamma28 = layers.Reshape((1, 1, 64))(gamma28)
+    beta28 = layers.Reshape((1, 1, 64))(beta28)
+    x = layers.Multiply()([x, gamma28])
+    x = layers.Add()([x, beta28])
     # SE attention 14x14
     se14 = layers.GlobalAveragePooling2D()(x)
     se14 = layers.Dense(64 // 4, activation="relu")(se14)
@@ -207,17 +227,18 @@ def build_generator():
     # Spatial attention 14x14
     sa14 = layers.Conv2D(1, 1, activation='sigmoid')(x)
     x = layers.Multiply()([x, sa14])
-    skip_14 = layers.Conv2D(80, 1, padding="same")(x)  # project to 80 (64+16 for label)
+    skip_14 = layers.Conv2D(64, 1, padding="same")(x)
     x = upsample(x, [28, 28])
     x = layers.Conv2D(64, 3, padding="same", activation="relu")(x)
-    # Spatial attention before concat
+    # FiLM at output resolution
+    gamma28c, beta28c = make_film(64)(lbl)
+    gamma28c = layers.Reshape((1, 1, 64))(gamma28c)
+    beta28c = layers.Reshape((1, 1, 64))(beta28c)
+    x = layers.Multiply()([x, gamma28c])
+    x = layers.Add()([x, beta28c])
+    # Spatial attention
     sa28_pre = layers.Conv2D(1, 1, activation='sigmoid')(x)
     x = layers.Multiply()([x, sa28_pre])
-    x = layers.Concatenate()([x, lbl_28x28])
-    # Residual: project skip_14 to 28x28 and add
-    skip_14_up = upsample(skip_14, [28, 28])
-    x = layers.Add()([x, skip_14_up])
-    x = layers.Activation("relu")(x)
 
     x = layers.Conv2D(1, 3, padding="same", activation="sigmoid", dtype="float32")(x)
     return keras.Model([z, lbl], x, name="generator")
@@ -418,7 +439,7 @@ callbacks = [
     keras.callbacks.EarlyStopping(monitor='val_total_loss', patience=10, restore_best_weights=True),
     GeneratorCheckpoint(generator, best_generator_path),
     BestEpochLogger(vae),
-    keras.callbacks.TensorBoard(log_dir='logs/run3', histogram_freq=1),
+    keras.callbacks.TensorBoard(log_dir='logs/run4', histogram_freq=1),
 ]
 
 history = vae.fit(x_train, y_train, validation_data=(x_test, y_test),
