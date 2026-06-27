@@ -33,7 +33,7 @@ KL_WARMUP_EPOCHS = 9
 KL_DECAY_EPOCHS = 20
 PIXEL_LOSS_WEIGHT = 1.0
 PERCEPTUAL_LOSS_WEIGHT = 1.0
-FOCAL_LOSS_WEIGHT = 0.3
+FOCAL_LOSS_WEIGHT = 0.03
 FOCAL_LOSS_GAMMA = 1.0
 FOCAL_WEIGHT_START = 0.0
 FOCAL_WEIGHT_END = 0.3
@@ -127,6 +127,12 @@ def build_encoder():
     x = layers.Flatten()(c3)
     x = layers.Concatenate()([x, lbl])
     x = layers.Dense(768, activation="relu")(x)
+    # Self-attention bottleneck (treat as sequence of tokens)
+    x = layers.Reshape((1, 768))(x)
+    attn = tf.keras.layers.MultiHeadAttention(num_heads=4, key_dim=192)(x, x)
+    x = layers.Add()([x, attn])
+    x = layers.LayerNormalization()(x)
+    x = layers.Flatten()(x)
     z_mean = layers.Dense(LATENT_DIM, name="z_mean")(x)
     z_log_var = layers.Dense(LATENT_DIM, name="z_log_var")(x)
     z = Sampling()([z_mean, z_log_var])
@@ -262,9 +268,7 @@ class VAE(keras.Model):
         self.feature_extractor.trainable = False
         self.total_loss_tracker = keras.metrics.Mean(name="total_loss")
         self.recon_loss_tracker = keras.metrics.Mean(name="recon_loss")
-        self.focal_loss_tracker = keras.metrics.Mean(name="focal_loss")
         self.kl_loss_tracker = keras.metrics.Mean(name="kl_loss")
-        self.focal_weight_tracker = keras.metrics.Mean(name="focal_weight")
         self.kl_weight_tracker = keras.metrics.Mean(name="kl_weight")
         self.epoch_tracker = tf.Variable(0, trainable=False, dtype=tf.int32)
 
@@ -298,36 +302,18 @@ class VAE(keras.Model):
         # Select phase
         return tf.where(epoch < warmup_epochs, warmup_weight, decay_weight)
 
-    def get_focal_weight(self):
-        epoch = tf.cast(self.epoch_tracker, tf.float32)
-        warmup_epochs = tf.cast(FOCAL_WARMUP_EPOCHS, tf.float32)
-        decay_epochs = tf.cast(FOCAL_DECAY_EPOCHS, tf.float32)
-        # Warmup phase: FOCAL_WEIGHT_START → FOCAL_LOSS_WEIGHT
-        warmup_progress = tf.minimum(1.0, epoch / warmup_epochs)
-        warmup_weight = FOCAL_WEIGHT_START + (FOCAL_LOSS_WEIGHT - FOCAL_WEIGHT_START) * warmup_progress
-        # Decay phase: FOCAL_LOSS_WEIGHT → FOCAL_WEIGHT_END
-        decay_epoch = epoch - warmup_epochs
-        decay_progress = tf.minimum(1.0, decay_epoch / decay_epochs)
-        decay_weight = FOCAL_LOSS_WEIGHT + (FOCAL_WEIGHT_END - FOCAL_LOSS_WEIGHT) * decay_progress
-        # Select based on phase
-        return tf.where(epoch < warmup_epochs, warmup_weight, decay_weight)
-
     @property
     def metrics(self):
-        return [self.total_loss_tracker, self.recon_loss_tracker, self.focal_loss_tracker, self.kl_loss_tracker, self.focal_weight_tracker, self.kl_weight_tracker]
+        return [self.total_loss_tracker, self.recon_loss_tracker, self.kl_loss_tracker, self.kl_weight_tracker]
 
     def train_step(self, data):
         images, labels = data
 
-        # Update LR with warmup (0.5 → LR)
+        # Update LR with warmup
         self.optimizer.learning_rate = self.get_lr()
 
-        # Get KL weight with warmup
+        # Get KL weight
         kl_weight = self.get_kl_weight()
-
-        # Get weights before tape
-        focal_w = self.get_focal_weight()
-
         with tf.GradientTape() as tape:
             z_mean, z_log_var, z = self.encoder([images, labels])
             reconstruction = self.generator([z, labels])
@@ -343,14 +329,6 @@ class VAE(keras.Model):
             for rf, ff in zip(real_features, fake_features):
                 perceptual_loss += tf.reduce_mean(tf.square(rf - ff))
             perceptual_loss /= len(real_features)
-
-            # Focal loss (separate term, small weight)
-            p = tf.clip_by_value(reconstruction, 1e-7, 1.0 - 1e-7)
-            p_t = images * p + (1.0 - images) * (1.0 - p)
-            focal_weight = tf.pow(1.0 - p_t, FOCAL_LOSS_GAMMA)
-            bce = keras.losses.binary_crossentropy(images, reconstruction)
-            bce = tf.expand_dims(bce, axis=-1)
-            focal_loss = tf.reduce_mean(tf.reduce_sum(focal_weight * bce, axis=(1, 2, 3)))
 
             # KL divergence
             kl_loss = -0.5 * tf.reduce_mean(tf.reduce_sum(
@@ -370,7 +348,6 @@ class VAE(keras.Model):
             # Combined loss
             total_loss = (PIXEL_LOSS_WEIGHT * pixel_loss +
                           PERCEPTUAL_LOSS_WEIGHT * perceptual_loss +
-                          focal_w * focal_loss +
                           kl_weight * kl_loss +
                           INFO_NCE_WEIGHT * info_nce_loss)
 
@@ -383,9 +360,7 @@ class VAE(keras.Model):
         self.optimizer.apply_gradients(zip(grads, self.trainable_weights))
         self.total_loss_tracker.update_state(total_loss)
         self.recon_loss_tracker.update_state(pixel_loss)
-        self.focal_loss_tracker.update_state(focal_loss)
         self.kl_loss_tracker.update_state(kl_loss)
-        self.focal_weight_tracker.update_state(focal_w)
         self.kl_weight_tracker.update_state(kl_weight)
         return {m.name: m.result() for m in self.metrics}
 
@@ -447,7 +422,7 @@ callbacks = [
     keras.callbacks.EarlyStopping(monitor='val_total_loss', patience=10, restore_best_weights=True),
     GeneratorCheckpoint(generator, best_generator_path),
     BestEpochLogger(vae),
-    keras.callbacks.TensorBoard(log_dir='logs/run1', histogram_freq=1),
+    keras.callbacks.TensorBoard(log_dir='logs/run2', histogram_freq=1),
 ]
 
 history = vae.fit(x_train, y_train, validation_data=(x_test, y_test),
