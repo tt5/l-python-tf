@@ -21,24 +21,29 @@ LATENT_DIM = 512
 EPOCHS = 25
 BATCH_SIZE = 128
 NUM_CLASSES = 10
-PROGRESSIVE_EPOCHS = 4  # Phase 1: 14x14
+PROGRESSIVE_EPOCHS = 6  # Phase 1: 14x14
 LR = 0.002
-LR_WARMUP_START = 0.0002
-LR_WARMUP_EPOCHS = PROGRESSIVE_EPOCHS
-LR_DECAY_EPOCHS = 37
-LR_END = 0.00005
-KL_WARMUP_START = 0.00005
-KL_WEIGHT_START = 0.42
-KL_WEIGHT_TARGET = 0.5
+LR_WARMUP_START = 0.0005
+LR_WARMUP_EPOCHS = PROGRESSIVE_EPOCHS - 2
+LR_DECAY_EPOCHS = EPOCHS - LR_WARMUP_EPOCHS
+LR_END = 0.0001
+KL_WARMUP_START = 0.5
+KL_WEIGHT_START = 0.5
+KL_WEIGHT_TARGET = 0.45
 KL_WARMUP_EPOCHS = PROGRESSIVE_EPOCHS
 KL_DECAY_EPOCHS = EPOCHS - KL_WARMUP_EPOCHS
-PIXEL_LOSS_WEIGHT = 0.65
-PERCEPTUAL_LOSS_WEIGHT = 1.35
+PIXEL_LOSS_WEIGHT = 0.5
+PERCEPTUAL_LOSS_WEIGHT = 2
 GRAD_NOISE_SCALE = 0.015
 GRAD_NOISE_DECAY_EPOCHS = EPOCHS
 INFO_NCE_WEIGHT = 0.11
 TEMPERATURE = 0.5
-DROPOUT = 0.06
+DROPOUT = 0.15
+# Phase 1 (14x14) specific config
+PHA1_PIXEL_LOSS_WEIGHT = 1.0
+PHA1_KL_WEIGHT = 0.6
+PHA1_INFO_NCE_WEIGHT = 0.5
+PHA1_KL_WARMUP_EPOCHS = 1
 
 
 # ─── Data ──────────────────────────────────────────────────────────
@@ -201,16 +206,40 @@ def build_generator_14():
     beta7 = layers.Reshape((1, 1, 128))(beta7)
     x = layers.Multiply()([x, gamma7])
     x = layers.Add()([x, beta7])
+    x = layers.Dropout(DROPOUT)(x)
+
+    # Conv block: 7x7 (with SE + spatial attention)
+    c1 = layers.Conv2D(64, 3, padding="same", activation="relu")(x)
+    c1 = layers.Dropout(DROPOUT)(c1)
+    se1 = layers.GlobalAveragePooling2D()(c1)
+    se1 = layers.Dense(64 // 4, activation="relu")(se1)
+    se1 = layers.Dense(64, activation="sigmoid")(se1)
+    se1 = layers.Reshape((1, 1, 64))(se1)
+    c1 = layers.Multiply()([c1, se1])
+    sa1 = layers.Conv2D(1, 1, activation='sigmoid')(c1)
+    c1 = layers.Multiply()([c1, sa1])
 
     # 7x7 → 14x14
+    x = upsample(c1, [14, 14])
     x = layers.Conv2D(64, 3, padding="same", activation="relu")(x)
-    x = upsample(x, [14, 14])
-    x = layers.Conv2D(64, 3, padding="same", activation="relu")(x)
+    x = layers.Dropout(DROPOUT)(x)
     gamma14, beta14 = make_film(64)(lbl)
     gamma14 = layers.Reshape((1, 1, 64))(gamma14)
     beta14 = layers.Reshape((1, 1, 64))(beta14)
     x = layers.Multiply()([x, gamma14])
     x = layers.Add()([x, beta14])
+    # SE + spatial attention
+    se2 = layers.GlobalAveragePooling2D()(x)
+    se2 = layers.Dense(64 // 4, activation="relu")(se2)
+    se2 = layers.Dense(64, activation="sigmoid")(se2)
+    se2 = layers.Reshape((1, 1, 64))(se2)
+    x = layers.Multiply()([x, se2])
+    sa2 = layers.Conv2D(1, 1, activation='sigmoid')(x)
+    x = layers.Multiply()([x, sa2])
+    # Skip connection from c1 (project to match channels)
+    skip = layers.Conv2D(64, 1, padding="same")(c1)
+    skip_up = upsample(skip, [14, 14])
+    x = layers.Add()([x, skip_up])
 
     x = layers.Conv2D(1, 3, padding="same", activation="sigmoid", dtype="float32")(x)
     return keras.Model([z, lbl], x, name="generator_14")
@@ -551,7 +580,9 @@ class VAE14(VAE):
                 tf.nn.sparse_softmax_cross_entropy_with_logits(labels=labels_ce, logits=sim_matrix))
             noise_scale = GRAD_NOISE_SCALE * (1.0 - tf.cast(self.epoch_tracker, tf.float32) / tf.cast(GRAD_NOISE_DECAY_EPOCHS, tf.float32))
             noise_scale = tf.maximum(0.0, noise_scale)
-            total_loss = pixel_loss + kl_loss + INFO_NCE_WEIGHT * info_nce_loss
+            total_loss = (PHA1_PIXEL_LOSS_WEIGHT * pixel_loss +
+                          PHA1_KL_WEIGHT * kl_loss +
+                          PHA1_INFO_NCE_WEIGHT * info_nce_loss)
         grads = tape.gradient(total_loss, self.trainable_weights)
         grads = [tf.clip_by_value(g, -1.0, 1.0) if g is not None else g for g in grads]
         grads = [g + tf.random.normal(tf.shape(g), stddev=noise_scale) if g is not None else g for g in grads]
