@@ -46,16 +46,16 @@ Data: 18. Curriculum learning — Start with easy classes, gradually add harder 
 
 
 ─── Sample generation quality (5000 per class) ───
-  Class 0: 90.1% correctly classified (4503/5000)
-  Class 1: 65.8% correctly classified (3289/5000)
-  Class 2: 19.6% correctly classified (981/5000)
-  Class 3: 21.6% correctly classified (1082/5000)
-  Class 4: 14.1% correctly classified (703/5000)
-  Class 5: 28.8% correctly classified (1442/5000)
-  Class 6: 9.2% correctly classified (462/5000)
-  Class 7: 37.6% correctly classified (1878/5000)
-  Class 8: 71.9% correctly classified (3595/5000)
-  Class 9: 21.2% correctly classified (1059/5000)
+  Class 0: 85.2% correctly classified (4261/5000)
+  Class 1: 78.3% correctly classified (3915/5000)
+  Class 2: 44.1% correctly classified (2206/5000)
+  Class 3: 35.4% correctly classified (1770/5000)
+  Class 4: 32.8% correctly classified (1638/5000)
+  Class 5: 35.9% correctly classified (1794/5000)
+  Class 6: 22.9% correctly classified (1146/5000)
+  Class 7: 51.8% correctly classified (2588/5000)
+  Class 8: 40.8% correctly classified (2040/5000)
+  Class 9: 43.5% correctly classified (2173/5000)
 
 ─── Real data classification (from synthetic project) ───
   Class 0: 98.8% correctly classified (4942/5000)
