@@ -18,32 +18,41 @@ from tensorflow.keras import layers
 # ─── Config ────────────────────────────────────────────────────────
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "synthetic" / "data"
 LATENT_DIM = 512
+PHA1_LATENT_DIM = 128
 EPOCHS = 25
 BATCH_SIZE = 128
 NUM_CLASSES = 10
-PROGRESSIVE_EPOCHS = 6  # Phase 1: 14x14
-LR = 0.002
-LR_WARMUP_START = 0.0005
-LR_WARMUP_EPOCHS = PROGRESSIVE_EPOCHS - 2
+PROGRESSIVE_EPOCHS = 8  # Phase 1: 14x14
+LR = 0.001
+LR_WARMUP_START = 0
+LR_WARMUP_EPOCHS = 1
 LR_DECAY_EPOCHS = EPOCHS - LR_WARMUP_EPOCHS
-LR_END = 0.0001
-KL_WARMUP_START = 0.5
-KL_WEIGHT_START = 0.5
+LR_END = 0.0005
+KL_WARMUP_START = 0.05
+KL_WEIGHT_START = 0.6
 KL_WEIGHT_TARGET = 0.45
 KL_WARMUP_EPOCHS = PROGRESSIVE_EPOCHS
 KL_DECAY_EPOCHS = EPOCHS - KL_WARMUP_EPOCHS
-PIXEL_LOSS_WEIGHT = 0.5
-PERCEPTUAL_LOSS_WEIGHT = 2
-GRAD_NOISE_SCALE = 0.015
+PIXEL_LOSS_WEIGHT = 0.2
+PERCEPTUAL_LOSS_WEIGHT = 1.5
+GRAD_NOISE_SCALE = 0.005
 GRAD_NOISE_DECAY_EPOCHS = EPOCHS
 INFO_NCE_WEIGHT = 0.11
 TEMPERATURE = 0.5
-DROPOUT = 0.15
+DROPOUT = 0.3
+# Phase 2 KL schedule (configurable start)
+PHA2_KL_WARMUP_START = 0
+PHA2_KL_WEIGHT_START = 0.5
+PHA2_KL_WEIGHT_TARGET = 0.4
+PHA2_KL_WARMUP_EPOCHS = 1
+PHA2_KL_DECAY_EPOCHS = EPOCHS
 # Phase 1 (14x14) specific config
 PHA1_PIXEL_LOSS_WEIGHT = 1.0
-PHA1_KL_WEIGHT = 0.6
-PHA1_INFO_NCE_WEIGHT = 0.5
+PHA1_KL_WEIGHT = 0.5
 PHA1_KL_WARMUP_EPOCHS = 1
+PHA1_KL_WARMUP_START = 0
+PHA1_KL_WEIGHT_START = 0.5
+PHA1_INFO_NCE_WEIGHT = 0.5
 
 
 # ─── Data ──────────────────────────────────────────────────────────
@@ -172,8 +181,8 @@ def build_encoder_14():
     x = layers.Concatenate()([x, lbl])
     x = layers.Dense(512, activation="relu")(x)
     x = layers.Dropout(DROPOUT)(x)
-    z_mean = layers.Dense(LATENT_DIM, name="z_mean")(x)
-    z_log_var = layers.Dense(LATENT_DIM, name="z_log_var")(x)
+    z_mean = layers.Dense(PHA1_LATENT_DIM, name="z_mean")(x)
+    z_log_var = layers.Dense(PHA1_LATENT_DIM, name="z_log_var")(x)
     z = Sampling()([z_mean, z_log_var])
     return keras.Model([img, lbl], [z_mean, z_log_var, z], name="encoder_14")
 
@@ -188,7 +197,7 @@ def upsample(x, target_size):
 
 # ─── Generator for 14×14 Phase 1 ────────────────────────────────────
 def build_generator_14():
-    z = keras.Input(shape=(LATENT_DIM,), name="latent_input")
+    z = keras.Input(shape=(PHA1_LATENT_DIM,), name="latent_input")
     lbl = keras.Input(shape=(NUM_CLASSES,), name="label_input")
 
     def make_film(channels):
@@ -408,17 +417,25 @@ class VAE(keras.Model):
 
     def get_kl_weight(self):
         epoch = tf.cast(self.epoch_tracker, tf.float32)
-        warmup_epochs = tf.cast(KL_WARMUP_EPOCHS, tf.float32)
-        decay_epochs = tf.cast(KL_DECAY_EPOCHS, tf.float32)
-        # Phase 1: Warmup from KL_WARMUP_START → KL_WEIGHT_START
-        warmup_progress = tf.minimum(1.0, epoch / warmup_epochs)
-        warmup_weight = KL_WARMUP_START + (KL_WEIGHT_START - KL_WARMUP_START) * warmup_progress
-        # Phase 2: Linear decay KL_WEIGHT_START → KL_WEIGHT_TARGET
-        decay_epoch = epoch - warmup_epochs
-        decay_progress = tf.minimum(1.0, decay_epoch / decay_epochs)
-        decay_weight = KL_WEIGHT_START + (KL_WEIGHT_TARGET - KL_WEIGHT_START) * decay_progress
-        # Select phase
-        return tf.where(epoch < warmup_epochs, warmup_weight, decay_weight)
+        kl_epoch = epoch - tf.cast(PROGRESSIVE_EPOCHS, tf.float32)
+        warmup_epochs = tf.cast(PHA2_KL_WARMUP_EPOCHS, tf.float32)
+        decay_epochs = tf.cast(PHA2_KL_DECAY_EPOCHS, tf.float32)
+        start = tf.constant(PHA2_KL_WARMUP_START, dtype=tf.float32)
+        mid = tf.constant(PHA2_KL_WEIGHT_START, dtype=tf.float32)
+        end = tf.constant(PHA2_KL_WEIGHT_TARGET, dtype=tf.float32)
+        zero = tf.constant(0.0, dtype=tf.float32)
+        warmup_progress = tf.clip_by_value(kl_epoch / warmup_epochs, 0.0, 1.0)
+        warmup_weight = start + (mid - start) * warmup_progress
+        decay_epoch = kl_epoch - warmup_epochs
+        decay_progress = tf.clip_by_value(decay_epoch / decay_epochs, 0.0, 1.0)
+        decay_weight = mid + (end - mid) * decay_progress
+        # Phase 1 (kl_epoch < 0): constant start
+        # Phase 2 (0 <= kl_epoch < warmup): warmup
+        # Phase 3 (kl_epoch >= warmup): decay
+        is_phase1 = tf.cast(kl_epoch < zero, tf.float32)
+        is_phase2 = tf.cast(tf.logical_and(kl_epoch >= zero, kl_epoch < warmup_epochs), tf.float32)
+        is_phase3 = tf.cast(kl_epoch >= warmup_epochs, tf.float32)
+        return start * is_phase1 + warmup_weight * is_phase2 + decay_weight * is_phase3
 
     @property
     def metrics(self):
@@ -543,7 +560,7 @@ callbacks = [
     keras.callbacks.EarlyStopping(monitor='val_total_loss', patience=10, restore_best_weights=True),
     GeneratorCheckpoint(generator, best_generator_path),
     BestEpochLogger(vae),
-    keras.callbacks.TensorBoard(log_dir='logs/run1', histogram_freq=1),
+    keras.callbacks.TensorBoard(log_dir='logs/run2', histogram_freq=1),
 ]
 
 # ─── Phase 1: Train at 14×14 (progressive growing) ────────────────
@@ -580,8 +597,13 @@ class VAE14(VAE):
                 tf.nn.sparse_softmax_cross_entropy_with_logits(labels=labels_ce, logits=sim_matrix))
             noise_scale = GRAD_NOISE_SCALE * (1.0 - tf.cast(self.epoch_tracker, tf.float32) / tf.cast(GRAD_NOISE_DECAY_EPOCHS, tf.float32))
             noise_scale = tf.maximum(0.0, noise_scale)
+            # Phase 1 KL with configurable warmup
+            epoch = tf.cast(self.epoch_tracker, tf.float32)
+            kl_warmup_epochs = tf.cast(PHA1_KL_WARMUP_EPOCHS, tf.float32)
+            kl_warmup_progress = tf.minimum(1.0, epoch / kl_warmup_epochs)
+            kl_weight = PHA1_KL_WARMUP_START + (PHA1_KL_WEIGHT_START - PHA1_KL_WARMUP_START) * kl_warmup_progress
             total_loss = (PHA1_PIXEL_LOSS_WEIGHT * pixel_loss +
-                          PHA1_KL_WEIGHT * kl_loss +
+                          kl_weight * kl_loss +
                           PHA1_INFO_NCE_WEIGHT * info_nce_loss)
         grads = tape.gradient(total_loss, self.trainable_weights)
         grads = [tf.clip_by_value(g, -1.0, 1.0) if g is not None else g for g in grads]
@@ -600,7 +622,7 @@ vae_14.train_step = vae_14.train_step_14
 callbacks_14 = [
     keras.callbacks.EarlyStopping(monitor='val_total_loss', patience=10, restore_best_weights=True),
     BestEpochLogger(vae_14),
-    keras.callbacks.TensorBoard(log_dir='logs/run1/phase1', histogram_freq=1),
+    keras.callbacks.TensorBoard(log_dir='logs/run2/phase1', histogram_freq=1),
 ]
 
 history1 = vae_14.fit(x_train_14, y_train, validation_data=(x_test_14, y_test),
