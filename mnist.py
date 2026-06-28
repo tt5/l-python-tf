@@ -20,7 +20,7 @@ DATA_DIR = Path(__file__).resolve().parent.parent.parent / "synthetic" / "data"
 NUM_CLASSES = 10
 EPOCHS = 50
 BATCH_SIZE = 128
-LEARNING_RATE = 0.0053
+LEARNING_RATE = 0.003
 LR_WARMUP_EPOCHS = 7
 LR_MIN = 0.00008
 LR_DECAY_EPOCHS = 26
@@ -33,7 +33,7 @@ EARLY_STOP_PATIENCE = 8
 GAUSSIAN_NOISE = 0.006
 GAUSSIAN_NOISE_DECAY_EPOCHS = 50
 GAUSSIAN_NOISE_END = 0.0001
-LOG_DIR = "logs/run5"
+LOG_DIR = "logs/run4"
 
 
 def load_synthetic():
