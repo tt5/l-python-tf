@@ -33,7 +33,7 @@ EARLY_STOP_PATIENCE = 8
 GAUSSIAN_NOISE = 0.005
 GAUSSIAN_NOISE_DECAY_EPOCHS = 50
 GAUSSIAN_NOISE_END = 0.0001
-LOG_DIR = "logs/run4"
+LOG_DIR = "logs/run6"
 
 
 def load_synthetic():
@@ -91,58 +91,71 @@ def load_synthetic():
 print(f"Train: {len(x_train)}, Test: {len(x_test)}")
 
 # ─── Build & train model ───────────────────────────────────────────
-# Residual Conv2D with label smoothing and LR warmup
-inputs = tf.keras.layers.Input(shape=(28, 28, 1))
-x = tf.keras.layers.GaussianNoise(GAUSSIAN_NOISE)(inputs)
+# Residual Conv2D with label smoothing and LR warmu
+L = tf.keras.layers
+inputs = L.Input(shape=(28, 28, 1))
+x = L.GaussianNoise(GAUSSIAN_NOISE)(inputs)
+
+# CBAM: Convolutional Block Attention Module
+def channel_attention(x, reduction=16):
+    """Channel Attention (SE) - avg+max pooling."""
+    channels = x.shape[-1]
+    gap = tf.reduce_mean(x, axis=[1, 2], keepdims=True)
+    gmp = tf.reduce_max(x, axis=[1, 2], keepdims=True)
+    mlp = tf.keras.Sequential([
+        L.Dense(channels // reduction, activation='relu'),
+        L.Dense(channels, activation='sigmoid')
+    ])
+    attn = tf.add(mlp(gap), mlp(gmp))
+    return tf.multiply(x, attn)
+
+def spatial_attention(x):
+    """Spatial Attention - Conv2D 7x7."""
+    avg_pool = tf.reduce_mean(x, axis=-1, keepdims=True)
+    max_pool = tf.reduce_max(x, axis=-1, keepdims=True)
+    concat = tf.concat([avg_pool, max_pool], axis=-1)
+    attn = L.Conv2D(1, 7, padding='same', activation='sigmoid')(concat)
+    return tf.multiply(x, attn)
+
+def cbam_block(x):
+    """CBAM: Channel attention -> Spatial attention."""
+    x = channel_attention(x)
+    x = spatial_attention(x)
+    return x
 
 # Conv block 1: 28x28 → 14x14
-c1 = tf.keras.layers.SeparableConv2D(64, 3, padding='same', activation='relu')(x)
-c1 = tf.keras.layers.MaxPooling2D(2)(c1)
-c1 = tf.keras.layers.Dropout(DROPOUT)(c1)
-# SE block 1 (channel attention)
-se1 = tf.keras.layers.GlobalAveragePooling2D()(c1)
-se1 = tf.keras.layers.Dense(64 // 4, activation='relu')(se1)
-se1 = tf.keras.layers.Dense(64, activation='sigmoid')(se1)
-se1 = tf.keras.layers.Reshape((1, 1, 64))(se1)
-c1 = tf.keras.layers.Multiply()([c1, se1])
-# Spatial attention 1
-sa1 = tf.keras.layers.Conv2D(1, 1, activation='sigmoid')(c1)
-c1 = tf.keras.layers.Multiply()([c1, sa1])
+c1 = L.SeparableConv2D(64, 3, padding='same', activation='relu')(x)
+c1 = L.MaxPooling2D(2)(c1)
+c1 = L.Dropout(DROPOUT)(c1)
+c1 = cbam_block(c1)
 
 # Conv block 2: 14x14 → 7x7
-c2 = tf.keras.layers.SeparableConv2D(128, 3, padding='same', activation='relu')(c1)
-c2 = tf.keras.layers.MaxPooling2D(2)(c2)
-c2 = tf.keras.layers.Dropout(DROPOUT)(c2)
-# SE block 2 (channel attention)
-se2 = tf.keras.layers.GlobalAveragePooling2D()(c2)
-se2 = tf.keras.layers.Dense(128 // 4, activation='relu')(se2)
-se2 = tf.keras.layers.Dense(128, activation='sigmoid')(se2)
-se2 = tf.keras.layers.Reshape((1, 1, 128))(se2)
-c2 = tf.keras.layers.Multiply()([c2, se2])
-# Spatial attention 2
-sa2 = tf.keras.layers.Conv2D(1, 1, activation='sigmoid')(c2)
-c2 = tf.keras.layers.Multiply()([c2, sa2])
+c2 = L.SeparableConv2D(128, 3, padding='same', activation='relu')(c1)
+c2 = L.MaxPooling2D(2)(c2)
+c2 = L.Dropout(DROPOUT)(c2)
+c2 = cbam_block(c2)
 
 # Conv block 3: 7x7 → 7x7 (no pooling)
-c3 = tf.keras.layers.SeparableConv2D(128, 3, padding='same', activation='relu')(c2)
-c3 = tf.keras.layers.Dropout(DROPOUT)(c3)
+c3 = L.SeparableConv2D(128, 3, padding='same', activation='relu')(c2)
+c3 = L.Dropout(DROPOUT)(c3)
+c3 = cbam_block(c3)
 
 # Flatten + Dense with 2 residual connections
-x = tf.keras.layers.Flatten()(c3)
-x = tf.keras.layers.GaussianNoise(GAUSSIAN_NOISE)(x)
-d1 = tf.keras.layers.Dense(512, activation='relu')(x)
-d1 = tf.keras.layers.Dropout(DROPOUT)(d1)
-p1 = tf.keras.layers.Dense(512)(x)
-x = tf.keras.layers.Add()([d1, p1])
-x = tf.keras.layers.Activation('relu')(x)
+x = L.Flatten()(c3)
+x = L.GaussianNoise(GAUSSIAN_NOISE)(x)
+d1 = L.Dense(512, activation='relu')(x)
+d1 = L.Dropout(DROPOUT)(d1)
+p1 = L.Dense(512)(x)
+x = L.Add()([d1, p1])
+x = L.Activation('relu')(x)
 # 2nd residual connection
-d2 = tf.keras.layers.Dense(512, activation='relu')(x)
-d2 = tf.keras.layers.Dropout(DROPOUT)(d2)
-p2 = tf.keras.layers.Dense(512)(x)
-x = tf.keras.layers.Add()([d2, p2])
-x = tf.keras.layers.Activation('relu')(x)
+d2 = L.Dense(512, activation='relu')(x)
+d2 = L.Dropout(DROPOUT)(d2)
+p2 = L.Dense(512)(x)
+x = L.Add()([d2, p2])
+x = L.Activation('relu')(x)
 
-outputs = tf.keras.layers.Dense(NUM_CLASSES)(x)
+outputs = L.Dense(NUM_CLASSES)(x)
 model = tf.keras.Model(inputs=inputs, outputs=outputs)
 
 # ─── Focal Loss with Label Smoothing ────────────────────────────────
@@ -212,7 +225,7 @@ class GaussianNoiseDecay(tf.keras.callbacks.Callback):
         self.noise_layer = None
     def on_train_begin(self, logs=None):
         for layer in self.model.layers:
-            if isinstance(layer, tf.keras.layers.GaussianNoise):
+            if isinstance(layer, L.GaussianNoise):
                 self.noise_layer = layer
                 break
     def on_epoch_begin(self, epoch, logs=None):
