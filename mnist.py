@@ -260,29 +260,5 @@ callbacks = [
 
 model.fit(x_train, y_train, epochs=EPOCHS, batch_size=BATCH_SIZE, validation_data=(x_test, y_test), callbacks=callbacks)
 
-# ─── Stats ─────────────────────────────────────────────────────────
-print("\n─── Per-class stats ───")
-preds = model.predict(x_test).argmax(axis=1)
-for c in range(NUM_CLASSES):
-    mask = y_test == c
-    class_total = mask.sum()
-    class_correct = (preds[mask] == c).sum()
-    class_acc = class_correct / class_total if class_total > 0 else 0
-    probs = tf.nn.softmax(model.predict(x_test[mask])).numpy()
-    avg_conf = probs[:, c].mean() if class_total > 0 else 0
-    print(f"  Class {class_correct}/{class_total} correct, avg conf: {avg_conf:.3f}")
-
-# ─── Confusion Matrix ──────────────────────────────────────────────
-print("\n─── Confusion Matrix (predicted →) ───")
-print("     " + "  ".join(f"{c:3d}" for c in range(NUM_CLASSES)))
-cm = np.zeros((NUM_CLASSES, NUM_CLASSES), dtype=int)
-for true_c in range(NUM_CLASSES):
-    mask = y_test == true_c
-    for pred_c in range(NUM_CLASSES):
-        cm[true_c, pred_c] = int((preds[mask] == pred_c).sum())
-for true_c in range(NUM_CLASSES):
-    row = "  ".join(f"{cm[true_c, pred_c]:3d}" for pred_c in range(NUM_CLASSES))
-    print(f"  {true_c}: {row}")
-
 model.save('mnist_model')
-print("\nModel saved to mnist_model/")
+print("\\nModel saved to mnist_model/")
