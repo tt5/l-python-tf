@@ -45,28 +45,28 @@ cls_output_name = cls_session.get_outputs()[0].name
 SAMPLES_PER_CLASS = 5000
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "synthetic" / "data"
 
-# ─── Generation quality ─────────────────────────────────────────────
-print(f"\n─── Sample generation quality ({SAMPLES_PER_CLASS} per class) ───")
-
-for c in range(NUM_CLASSES):
-    label_oh = np.zeros((SAMPLES_PER_CLASS, NUM_CLASSES), dtype=np.float32)
-    label_oh[:, c] = 1.0
-
-    noise = np.random.normal(size=(SAMPLES_PER_CLASS, LATENT_DIM)).astype(np.float32)
-
-    gen_inputs = {
-        latent_input_name: noise,
-        label_input_name: label_oh,
-    }
-    gen_images = gen_session.run([gen_output_name], gen_inputs)[0][:, :, :, 0]
-
-    preds = cls_session.run(
-        [cls_output_name],
-        {cls_input_name: gen_images.reshape(-1, 28, 28, 1).astype(np.float32)}
-    )[0]
-    preds = preds.argmax(axis=1)
-    accuracy = (preds == c).mean()
-    print(f"  Class {c}: {accuracy*100:.1f}% correctly classified ({int((preds == c).sum())}/{SAMPLES_PER_CLASS})")
+## ─── Generation quality ─────────────────────────────────────────────
+#print(f"\n─── Sample generation quality ({SAMPLES_PER_CLASS} per class) ───")
+#
+#for c in range(NUM_CLASSES):
+#    label_oh = np.zeros((SAMPLES_PER_CLASS, NUM_CLASSES), dtype=np.float32)
+#    label_oh[:, c] = 1.0
+#
+#    noise = np.random.normal(size=(SAMPLES_PER_CLASS, LATENT_DIM)).astype(np.float32)
+#
+#    gen_inputs = {
+#        latent_input_name: noise,
+#        label_input_name: label_oh,
+#    }
+#    gen_images = gen_session.run([gen_output_name], gen_inputs)[0][:, :, :, 0]
+#
+#    preds = cls_session.run(
+#        [cls_output_name],
+#        {cls_input_name: gen_images.reshape(-1, 28, 28, 1).astype(np.float32)}
+#    )[0]
+#    preds = preds.argmax(axis=1)
+#    accuracy = (preds == c).mean()
+#    print(f"  Class {c}: {accuracy*100:.1f}% correctly classified ({int((preds == c).sum())}/{SAMPLES_PER_CLASS})")
 
 # ─── Real data classification ────────────────────────────────────────
 print(f"\n─── Real data classification (from synthetic project) ───")
