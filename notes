@@ -68,3 +68,15 @@ Data: 18. Curriculum learning — Start with easy classes, gradually add harder 
   Class 7: 89.6% correctly classified (4479/5000)
   Class 8: 82.1% correctly classified (4106/5000)
   Class 9: 64.6% correctly classified (3230/5000)
+
+─── Real data classification (from synthetic project) ───
+  Class 0: 98.1% correctly classified (4903/5000)
+  Class 1: 90.3% correctly classified (4513/5000)
+  Class 2: 84.4% correctly classified (4222/5000)
+  Class 3: 88.4% correctly classified (4421/5000)
+  Class 4: 57.8% correctly classified (2888/5000)
+  Class 5: 88.6% correctly classified (4431/5000)
+  Class 6: 83.6% correctly classified (4180/5000)
+  Class 7: 89.2% correctly classified (4460/5000)
+  Class 8: 75.4% correctly classified (3771/5000)
+  Class 9: 74.9% correctly classified (3746/5000)
