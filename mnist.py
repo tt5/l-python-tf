@@ -18,12 +18,12 @@ np.set_printoptions(linewidth=np.inf)
 
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "synthetic" / "data"
 NUM_CLASSES = 5
-EPOCHS = 60
+EPOCHS = 70
 BATCH_SIZE = 128
-LEARNING_RATE = 0.004
+LEARNING_RATE = 0.005
 LR_WARMUP_EPOCHS = 7
 LR_MIN = 0.0001
-LR_DECAY_EPOCHS = EPOCHS
+LR_DECAY_EPOCHS = 26
 BATCH_DECAY_FACTOR = 0.05
 DROPOUT = 0.30
 DENSE_SIZE = 512
