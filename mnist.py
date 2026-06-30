@@ -17,24 +17,59 @@ np.set_printoptions(threshold=sys.maxsize)
 np.set_printoptions(linewidth=np.inf)
 
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "synthetic" / "data"
-NUM_CLASSES = 10
-EPOCHS = 50
+NUM_CLASSES = 5
+EPOCHS = 60
 BATCH_SIZE = 128
-LEARNING_RATE = 0.006
+LEARNING_RATE = 0.004
 LR_WARMUP_EPOCHS = 7
 LR_MIN = 0.0001
-LR_DECAY_EPOCHS = 26
+LR_DECAY_EPOCHS = EPOCHS
 BATCH_DECAY_FACTOR = 0.05
-DROPOUT = 0.50
+DROPOUT = 0.30
 DENSE_SIZE = 512
+L2_DECAY = 1e-5
 FOCAL_GAMMA = 2.5
 FOCAL_ALPHA = 0.24
-LABEL_SMOOTHING = 0.05
-EARLY_STOP_PATIENCE = 5
+LABEL_SMOOTHING = 0.1
+EARLY_STOP_PATIENCE = 10
 GAUSSIAN_NOISE = 0.005
 GAUSSIAN_NOISE_DECAY_EPOCHS = 50
 GAUSSIAN_NOISE_END = 0.0001
 LOG_DIR = "logs/run6"
+
+
+AUGMENT = True  # On-the-fly augmentation: random rotate/transpose
+
+
+class AugmentGenerator(tf.keras.utils.Sequence):
+    """Data generator with on-the-fly rotation (0/90/180/270) and transpose."""
+    def __init__(self, images, labels, batch_size, augment=True):
+        self.images = images
+        self.labels = labels
+        self.batch_size = batch_size
+        self.augment = augment
+        self.indices = np.arange(len(images))
+    
+    def __len__(self):
+        return len(self.images) // self.batch_size
+    
+    def __getitem__(self, idx):
+        batch_idx = self.indices[idx * self.batch_size:(idx + 1) * self.batch_size]
+        images = self.images[batch_idx].copy()
+        labels = self.labels[batch_idx]
+        
+        if self.augment:
+            for i in range(len(images)):
+                k = np.random.randint(0, 4)  # 0-3 rotations
+                if k > 0:
+                    images[i] = np.rot90(images[i], k=k)
+                if np.random.random() < 0.5:
+                    images[i] = np.transpose(images[i], (1, 0, 2))
+        
+        return images, labels
+    
+    def on_epoch_end(self):
+        np.random.shuffle(self.indices)
 
 
 def load_synthetic():
@@ -56,7 +91,7 @@ def load_synthetic():
             sys.exit(1)
 
         # Split 50% train, 50% test
-        split_idx = int(len(files) * 0.8)
+        split_idx = int(len(files) * 0.5)
         train_files = files[:split_idx]
         test_files = files[split_idx:]
 
@@ -125,34 +160,34 @@ def cbam_block(x):
     return x
 
 # Conv block 1: 28x28 → 14x14
-c1 = L.SeparableConv2D(64, 3, padding='same', activation='relu')(x)
+c1 = L.SeparableConv2D(64, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_DECAY))(x)
 c1 = L.MaxPooling2D(2)(c1)
 c1 = L.Dropout(DROPOUT)(c1)
 c1 = cbam_block(c1)
 
 # Conv block 2: 14x14 → 7x7
-c2 = L.SeparableConv2D(128, 3, padding='same', activation='relu')(c1)
+c2 = L.SeparableConv2D(128, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_DECAY))(c1)
 c2 = L.MaxPooling2D(2)(c2)
 c2 = L.Dropout(DROPOUT)(c2)
 c2 = cbam_block(c2)
 
 # Conv block 3: 7x7 → 7x7 (no pooling)
-c3 = L.SeparableConv2D(128, 3, padding='same', activation='relu')(c2)
+c3 = L.SeparableConv2D(128, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_DECAY))(c2)
 c3 = L.Dropout(DROPOUT)(c3)
 c3 = cbam_block(c3)
 
 # Flatten + Dense with 2 residual connections
 x = L.Flatten()(c3)
 x = L.GaussianNoise(GAUSSIAN_NOISE)(x)
-d1 = L.Dense(DENSE_SIZE, activation='relu')(x)
+d1 = L.Dense(DENSE_SIZE, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_DECAY))(x)
 d1 = L.Dropout(DROPOUT)(d1)
-p1 = L.Dense(DENSE_SIZE)(x)
+p1 = L.Dense(DENSE_SIZE, kernel_regularizer=tf.keras.regularizers.l2(L2_DECAY))(x)
 x = L.Add()([d1, p1])
 x = L.Activation('relu')(x)
 # 2nd residual connection
-d2 = L.Dense(DENSE_SIZE, activation='relu')(x)
+d2 = L.Dense(DENSE_SIZE, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_DECAY))(x)
 d2 = L.Dropout(DROPOUT)(d2)
-p2 = L.Dense(DENSE_SIZE)(x)
+p2 = L.Dense(DENSE_SIZE, kernel_regularizer=tf.keras.regularizers.l2(L2_DECAY))(x)
 x = L.Add()([d2, p2])
 x = L.Activation('relu')(x)
 
@@ -259,7 +294,11 @@ callbacks = [
     tf.keras.callbacks.TensorBoard(log_dir=LOG_DIR, histogram_freq=1),
 ]
 
-model.fit(x_train, y_train, epochs=EPOCHS, batch_size=BATCH_SIZE, validation_data=(x_test, y_test), callbacks=callbacks)
+if AUGMENT:
+    train_gen = AugmentGenerator(x_train, y_train, BATCH_SIZE, augment=True)
+    model.fit(train_gen, epochs=EPOCHS, validation_data=(x_test, y_test), callbacks=callbacks)
+else:
+    model.fit(x_train, y_train, epochs=EPOCHS, batch_size=BATCH_SIZE, validation_data=(x_test, y_test), callbacks=callbacks)
 
 model.save('mnist_model')
 print("\\nModel saved to mnist_model/")

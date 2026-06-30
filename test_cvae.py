@@ -10,9 +10,13 @@ Usage:
 
 import onnxruntime as ort
 import numpy as np
+import argparse
 from pathlib import Path
 
-NUM_CLASSES = 10
+parser = argparse.ArgumentParser()
+parser.add_argument("--num-classes", type=int, default=10, help="Number of classes to evaluate (default: 10)")
+args = parser.parse_args()
+NUM_CLASSES = args.num_classes
 
 save_dir = Path(__file__).resolve().parent
 
