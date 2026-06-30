@@ -18,7 +18,7 @@ np.set_printoptions(linewidth=np.inf)
 
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "synthetic" / "data"
 NUM_CLASSES = 5
-EPOCHS = 70
+EPOCHS = 50
 BATCH_SIZE = 128
 LEARNING_RATE = 0.005
 LR_WARMUP_EPOCHS = 7
@@ -29,13 +29,13 @@ DROPOUT = 0.30
 DENSE_SIZE = 512
 L2_DECAY = 1e-5
 FOCAL_GAMMA = 2.5
-FOCAL_ALPHA = 0.24
+FOCAL_ALPHA = [0.178, 0.1852, 0.2255, 0.2087, 0.2026]
 LABEL_SMOOTHING = 0.1
-EARLY_STOP_PATIENCE = 10
+EARLY_STOP_PATIENCE = 8
 GAUSSIAN_NOISE = 0.005
 GAUSSIAN_NOISE_DECAY_EPOCHS = 50
 GAUSSIAN_NOISE_END = 0.0001
-LOG_DIR = "logs/run6"
+LOG_DIR = "logs/run5"
 
 
 AUGMENT = True  # On-the-fly augmentation: random rotate/transpose
@@ -196,7 +196,9 @@ model = tf.keras.Model(inputs=inputs, outputs=outputs)
 
 # ─── Focal Loss with Label Smoothing ────────────────────────────────
 def focal_loss_with_smoothing(gamma=2.0, alpha=0.25, smoothing=0.1):
-    """Focal loss with label smoothing."""
+    """Focal loss with label smoothing and optional per-class alpha weights."""
+    alpha_tf = tf.constant(alpha, dtype=tf.float32)
+
     def loss_fn(y_true, y_pred):
         y_true = tf.cast(tf.squeeze(y_true), tf.int32)
         y_true_one_hot = tf.one_hot(y_true, NUM_CLASSES)
@@ -204,7 +206,7 @@ def focal_loss_with_smoothing(gamma=2.0, alpha=0.25, smoothing=0.1):
         y_true_smooth = y_true_one_hot * (1.0 - smoothing) + smoothing / NUM_CLASSES
         ce = tf.keras.losses.categorical_crossentropy(y_true_smooth, y_pred, from_logits=True)
         p = tf.exp(-ce)
-        focal_weight = alpha * tf.pow(1.0 - p, gamma)
+        focal_weight = tf.gather(alpha_tf, y_true) * tf.pow(1.0 - p, gamma)
         return tf.reduce_mean(focal_weight * ce)
     return loss_fn
 
