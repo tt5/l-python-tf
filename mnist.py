@@ -17,7 +17,7 @@ np.set_printoptions(threshold=sys.maxsize)
 np.set_printoptions(linewidth=np.inf)
 
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "synthetic" / "data"
-NUM_CLASSES = 5
+NUM_CLASSES = 6
 EPOCHS = 50
 BATCH_SIZE = 128
 LEARNING_RATE = 0.005
@@ -29,13 +29,13 @@ DROPOUT = 0.30
 DENSE_SIZE = 512
 L2_DECAY = 1e-5
 FOCAL_GAMMA = 2.5
-FOCAL_ALPHA = [0.178, 0.1852, 0.2255, 0.2087, 0.2026]
+FOCAL_ALPHA = [0.1528, 0.1568, 0.1888, 0.1794, 0.1707, 0.1514]
 LABEL_SMOOTHING = 0.1
 EARLY_STOP_PATIENCE = 8
 GAUSSIAN_NOISE = 0.005
 GAUSSIAN_NOISE_DECAY_EPOCHS = 50
 GAUSSIAN_NOISE_END = 0.0001
-LOG_DIR = "logs/run5"
+LOG_DIR = "logs/run6"
 
 
 AUGMENT = True  # On-the-fly augmentation: random rotate/transpose

@@ -80,3 +80,12 @@ Data: 18. Curriculum learning — Start with easy classes, gradually add harder 
   Class 7: 89.2% correctly classified (4460/5000)
   Class 8: 75.4% correctly classified (3771/5000)
   Class 9: 74.9% correctly classified (3746/5000)
+
+─── Per-class validation accuracy ───
+  Class 0: 99.6%
+  Class 1: 96.0%
+  Class 2: 80.4%
+  Class 3: 87.7%
+  Class 4: 83.5%
+  Class 5: 99.6%
+  Average: 91.1%
