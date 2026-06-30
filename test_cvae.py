@@ -43,7 +43,7 @@ cls_input_name = cls_session.get_inputs()[0].name
 cls_output_name = cls_session.get_outputs()[0].name
 
 SAMPLES_PER_CLASS = 5000
-DATA_DIR = Path(__file__).resolve().parent.parent.parent / "synthetic" / "data"
+DATA_DIR = Path(__file__).resolve().parent.parent.parent / "synthetic" / "test_data"
 
 ## ─── Generation quality ─────────────────────────────────────────────
 #print(f"\n─── Sample generation quality ({SAMPLES_PER_CLASS} per class) ───")

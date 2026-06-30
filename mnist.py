@@ -25,7 +25,8 @@ LR_WARMUP_EPOCHS = 7
 LR_MIN = 0.0001
 LR_DECAY_EPOCHS = 26
 BATCH_DECAY_FACTOR = 0.05
-DROPOUT = 0.20
+DROPOUT = 0.50
+DENSE_SIZE = 512
 FOCAL_GAMMA = 2.5
 FOCAL_ALPHA = 0.24
 LABEL_SMOOTHING = 0.05
@@ -55,7 +56,7 @@ def load_synthetic():
             sys.exit(1)
 
         # Split 50% train, 50% test
-        split_idx = int(len(files) * 0.5)
+        split_idx = int(len(files) * 0.8)
         train_files = files[:split_idx]
         test_files = files[split_idx:]
 
@@ -143,15 +144,15 @@ c3 = cbam_block(c3)
 # Flatten + Dense with 2 residual connections
 x = L.Flatten()(c3)
 x = L.GaussianNoise(GAUSSIAN_NOISE)(x)
-d1 = L.Dense(512, activation='relu')(x)
+d1 = L.Dense(DENSE_SIZE, activation='relu')(x)
 d1 = L.Dropout(DROPOUT)(d1)
-p1 = L.Dense(512)(x)
+p1 = L.Dense(DENSE_SIZE)(x)
 x = L.Add()([d1, p1])
 x = L.Activation('relu')(x)
 # 2nd residual connection
-d2 = L.Dense(512, activation='relu')(x)
+d2 = L.Dense(DENSE_SIZE, activation='relu')(x)
 d2 = L.Dropout(DROPOUT)(d2)
-p2 = L.Dense(512)(x)
+p2 = L.Dense(DENSE_SIZE)(x)
 x = L.Add()([d2, p2])
 x = L.Activation('relu')(x)
 
