@@ -25,17 +25,15 @@ LR_WARMUP_EPOCHS = 7
 LR_MIN = 0.0001
 LR_DECAY_EPOCHS = 26
 BATCH_DECAY_FACTOR = 0.05
-DROPOUT = 0.30
+DROPOUT = 0.40
 DENSE_SIZE = 512
 L2_DECAY = 1e-5
-FOCAL_GAMMA = 2.5
-FOCAL_ALPHA = [0.1528, 0.1568, 0.1888, 0.1794, 0.1707, 0.1514]
-LABEL_SMOOTHING = 0.1
+GCE_Q = 0.5
 EARLY_STOP_PATIENCE = 8
 GAUSSIAN_NOISE = 0.005
 GAUSSIAN_NOISE_DECAY_EPOCHS = 50
 GAUSSIAN_NOISE_END = 0.0001
-LOG_DIR = "logs/run6"
+LOG_DIR = "logs/run5"
 
 
 AUGMENT = True  # On-the-fly augmentation: random rotate/transpose
@@ -194,23 +192,20 @@ x = L.Activation('relu')(x)
 outputs = L.Dense(NUM_CLASSES)(x)
 model = tf.keras.Model(inputs=inputs, outputs=outputs)
 
-# ─── Focal Loss with Label Smoothing ────────────────────────────────
-def focal_loss_with_smoothing(gamma=2.0, alpha=0.25, smoothing=0.1):
-    """Focal loss with label smoothing and optional per-class alpha weights."""
-    alpha_tf = tf.constant(alpha, dtype=tf.float32)
-
+# ─── GCE Loss ────────────────────────────────────────────────────────
+def gce_loss(q=0.5):
+    """Generalized Cross Entropy loss."""
     def loss_fn(y_true, y_pred):
         y_true = tf.cast(tf.squeeze(y_true), tf.int32)
         y_true_one_hot = tf.one_hot(y_true, NUM_CLASSES)
-        # Label smoothing: 0.9 for correct class, 0.1/9 for others
-        y_true_smooth = y_true_one_hot * (1.0 - smoothing) + smoothing / NUM_CLASSES
-        ce = tf.keras.losses.categorical_crossentropy(y_true_smooth, y_pred, from_logits=True)
-        p = tf.exp(-ce)
-        focal_weight = tf.gather(alpha_tf, y_true) * tf.pow(1.0 - p, gamma)
-        return tf.reduce_mean(focal_weight * ce)
+        p = tf.nn.softmax(y_pred)
+        p_t = tf.reduce_sum(y_true_one_hot * p, axis=-1)
+        p_t_safe = tf.clip_by_value(p_t, 1e-7, 1.0)
+        # GCE: (1 - p_t^q) / q
+        return tf.reduce_mean((1.0 - tf.pow(p_t_safe, q)) / q)
     return loss_fn
 
-loss_fn = focal_loss_with_smoothing(gamma=FOCAL_GAMMA, alpha=FOCAL_ALPHA, smoothing=LABEL_SMOOTHING)
+loss_fn = gce_loss(q=GCE_Q)
 model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=LEARNING_RATE, clipvalue=1.0),
               loss=loss_fn, metrics=['accuracy'])
 

@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """probe_classes.py
 
-Quick probe to estimate per-class difficulty.
-Trains a lightweight model for PROBE_EPOCHS with standard cross-entropy,
-then computes per-class validation accuracy and derives focal-loss alpha weights.
+Lightweight probe model for quick training runs.
+Mirrors mnist.py architecture (CBAM + residual dense blocks).
+Saves model to mnist_model/ for manual ONNX conversion and evaluation.
 
 Usage:
     python probe_classes.py
@@ -19,7 +19,7 @@ from pathlib import Path
 # ── Defaults (CLI can override) ─────────────────────────────────────
 PROBE_EPOCHS = 10
 BATCH_SIZE = 128
-DENSE_SIZE = 256          # smaller than main model (512)
+DENSE_SIZE = 512          # same as main model
 DROPOUT = 0.30
 L2_DECAY = 1e-5
 LEARNING_RATE = 0.005
@@ -71,50 +71,72 @@ def load_synthetic():
 (x_train, y_train), (x_test, y_test) = load_synthetic()
 print(f"Train: {len(x_train)}, Test: {len(x_test)}")
 
-# ── Lightweight probe model ──────────────────────────────────────────
+# ── CBAM (same as mnist.py) ──────────────────────────────────────────
 L = tf.keras.layers
+# CBAM: Convolutional Block Attention Module
+def channel_attention(x, reduction=16):
+    channels = x.shape[-1]
+    gap = tf.reduce_mean(x, axis=[1, 2], keepdims=True)
+    gmp = tf.reduce_max(x, axis=[1, 2], keepdims=True)
+    mlp = tf.keras.Sequential([
+        L.Dense(channels // reduction, activation='relu'),
+        L.Dense(channels, activation='sigmoid')
+    ])
+    attn = tf.add(mlp(gap), mlp(gmp))
+    return tf.multiply(x, attn)
+
+def spatial_attention(x):
+    avg_pool = tf.reduce_mean(x, axis=-1, keepdims=True)
+    max_pool = tf.reduce_max(x, axis=-1, keepdims=True)
+    concat = tf.concat([avg_pool, max_pool], axis=-1)
+    attn = L.Conv2D(1, 7, padding='same', activation='sigmoid')(concat)
+    return tf.multiply(x, attn)
+
+def cbam_block(x):
+    x = channel_attention(x)
+    x = spatial_attention(x)
+    return x
+
 inputs = L.Input(shape=(28, 28, 1))
 x = inputs
 
-# Single CBAM-like block (simpler: no separable depthwise, plain Conv2D)
-x = L.Conv2D(32, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_DECAY))(x)
-x = L.MaxPooling2D(2)(x)
-x = L.Dropout(DROPOUT)(x)
+# CBAM attention blocks (same as mnist.py)
+c1 = L.SeparableConv2D(64, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_DECAY))(x)
+c1 = L.MaxPooling2D(2)(c1)
+c1 = L.Dropout(DROPOUT)(c1)
+c1 = cbam_block(c1)
 
-# Channel attention (SE)
-channels = x.shape[-1]
-gap = tf.reduce_mean(x, axis=[1, 2], keepdims=True)
-gmp = tf.reduce_max(x, axis=[1, 2], keepdims=True)
-mlp = tf.keras.Sequential([
-    L.Dense(channels // 8, activation='relu'),
-    L.Dense(channels, activation='sigmoid')
-])
-x = tf.multiply(x, tf.add(mlp(gap), mlp(gmp)))
+# Conv block 2: 14x14 → 7x7
+c2 = L.SeparableConv2D(128, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_DECAY))(c1)
+c2 = L.MaxPooling2D(2)(c2)
+c2 = L.Dropout(DROPOUT)(c2)
+c2 = cbam_block(c2)
 
-# Spatial attention
-avg_pool = tf.reduce_mean(x, axis=-1, keepdims=True)
-max_pool = tf.reduce_max(x, axis=-1, keepdims=True)
-concat = tf.concat([avg_pool, max_pool], axis=-1)
-x = tf.multiply(x, L.Conv2D(1, 7, padding='same', activation='sigmoid')(concat))
+# Conv block 3: 7x7 → 7x7
+c3 = L.SeparableConv2D(128, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_DECAY))(c2)
+c3 = L.Dropout(DROPOUT)(c3)
+c3 = cbam_block(c3)
 
-# Second conv block
-x = L.Conv2D(64, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_DECAY))(x)
-x = L.MaxPooling2D(2)(x)
-x = L.Dropout(DROPOUT)(x)
+# Flatten + Dense with residual connections
+x = L.Flatten()(c3)
+d1 = L.Dense(DENSE_SIZE, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_DECAY))(x)
+d1 = L.Dropout(DROPOUT)(d1)
+p1 = L.Dense(DENSE_SIZE, kernel_regularizer=tf.keras.regularizers.l2(L2_DECAY))(x)
+x = L.Add()([d1, p1])
+x = L.Activation('relu')(x)
 
-# Flatten + dense
-x = L.Flatten()(x)
-x = L.Dense(DENSE_SIZE, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_DECAY))(x)
-x = L.Dropout(DROPOUT)(x)
-x = L.Dense(DENSE_SIZE, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_DECAY))(x)
-x = L.Dropout(DROPOUT)(x)
+d2 = L.Dense(DENSE_SIZE, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_DECAY))(x)
+d2 = L.Dropout(DROPOUT)(d2)
+p2 = L.Dense(DENSE_SIZE, kernel_regularizer=tf.keras.regularizers.l2(L2_DECAY))(x)
+x = L.Add()([d2, p2])
+x = L.Activation('relu')(x)
 
 outputs = L.Dense(NUM_CLASSES)(x)
 model = tf.keras.Model(inputs, outputs)
 
 loss_fn = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)
 model.compile(
-    optimizer=tf.keras.optimizers.Adam(learning_rate=LEARNING_RATE),
+    optimizer=tf.keras.optimizers.Adam(learning_rate=LEARNING_RATE, clipvalue=1.0),
     loss=loss_fn,
     metrics=['accuracy']
 )
@@ -128,35 +150,7 @@ model.fit(
     verbose=0
 )
 
-# ── Per-class accuracy ──────────────────────────────────────────────
-y_pred_logits = model.predict(x_test, verbose=0)
-y_pred = np.argmax(y_pred_logits, axis=1)
-
-per_class_acc = {}
-for c in range(NUM_CLASSES):
-    mask = (y_test == c)
-    if np.sum(mask) == 0:
-        per_class_acc[c] = 0.0
-    else:
-        per_class_acc[c] = np.mean(y_pred[mask] == y_test[mask])
-
-print("\n─── Per-class validation accuracy ───")
-for c in range(NUM_CLASSES):
-    print(f"  Class {c}: {per_class_acc[c]*100:.1f}%")
-avg_acc = np.mean([per_class_acc[c] for c in range(NUM_CLASSES)])
-print(f"  Average: {avg_acc*100:.1f}%")
-
-# ── Derive focal alpha weights ──────────────────────────────────────
-# alpha_i ∝ 1 / acc_i  (inverse difficulty)
-accs = np.array([per_class_acc[c] for c in range(NUM_CLASSES)], dtype=np.float32)
-# avoid division by zero
-accs = np.clip(accs, 1e-6, 1.0)
-raw_alpha = 1.0 / accs
-alpha = raw_alpha / np.sum(raw_alpha)
-
-print("\n─── Suggested focal alpha weights ───")
-for c in range(NUM_CLASSES):
-    print(f"  Class {c}: {alpha[c]:.4f}")
-print(f"  Sum: {np.sum(alpha):.4f}")
-print("\nPaste these into mnist.py as:")
-print(f"  FOCAL_ALPHA = {list(np.round(alpha, 4))}")
+# ── Save ─────────────────────────────────────────────────────────────
+out_dir = Path(__file__).resolve().parent / "mnist_model_probe"
+model.save(out_dir)
+print(f"\nModel saved to {out_dir}/")

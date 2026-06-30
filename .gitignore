@@ -1,6 +1,7 @@
 mnist_model
 mnist2_model
 mnist3_model
+mnist_model_probe
 **/*.h5
 **/*.tflite
 **/*.onnx

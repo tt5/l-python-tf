@@ -21,7 +21,7 @@ LATENT_DIM = 512
 PHA1_LATENT_DIM = 128
 EPOCHS = 30
 BATCH_SIZE = 128
-NUM_CLASSES = 10
+NUM_CLASSES = 6
 PROGRESSIVE_EPOCHS = 8  # Phase 1: 14x14
 LR = 0.001
 LR_WARMUP_START = 0
@@ -560,7 +560,7 @@ callbacks = [
     keras.callbacks.EarlyStopping(monitor='val_total_loss', patience=10, restore_best_weights=True),
     GeneratorCheckpoint(generator, best_generator_path),
     BestEpochLogger(vae),
-    keras.callbacks.TensorBoard(log_dir='logs/run2', histogram_freq=1),
+    keras.callbacks.TensorBoard(log_dir='logs/run1', histogram_freq=1),
 ]
 
 # ─── Phase 1: Train at 14×14 (progressive growing) ────────────────
@@ -622,7 +622,7 @@ vae_14.train_step = vae_14.train_step_14
 callbacks_14 = [
     keras.callbacks.EarlyStopping(monitor='val_total_loss', patience=10, restore_best_weights=True),
     BestEpochLogger(vae_14),
-    keras.callbacks.TensorBoard(log_dir='logs/run2/phase1', histogram_freq=1),
+    keras.callbacks.TensorBoard(log_dir='logs/run1/phase1', histogram_freq=1),
 ]
 
 history1 = vae_14.fit(x_train_14, y_train, validation_data=(x_test_14, y_test),
