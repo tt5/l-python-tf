@@ -45,6 +45,9 @@ LR_END = 0.0001
 L2_REG = 0.00001
 KL_FREE_BITS = 0.05
 DROPOUT = 0.2
+AUGMENT = True
+AUGMENT_ROTATION = 0.1
+AUGMENT_TRANSLATION = 0.1
 
 def load_pbm(path):
     """Load a P4 PBM file and return a 2D numpy array of 0/1 float32."""
@@ -230,6 +233,11 @@ class CVAE(tf.keras.Model):
 
     def train_step(self, data):
         images, labels = data
+        if AUGMENT:
+            k = tf.random.uniform((), minval=0, maxval=4, dtype=tf.int32)
+            images = tf.image.rot90(images, k)
+            if tf.random.uniform(()) > 0.5:
+                images = tf.image.transpose(images)
         with tf.GradientTape() as tape:
             z_mean, z_log_var, z = self.encoder([images, labels])
             reconstruction = self.generator([z, labels])
