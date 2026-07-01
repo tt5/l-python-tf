@@ -136,7 +136,7 @@ def main():
     ])
 
     loss_fn = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)
-    model.compile(optimizer='adam', loss=loss_fn, metrics=['accuracy'])
+    model.compile(optimizer=tf.keras.optimizers.Adam(clipnorm=1.0), loss=loss_fn, metrics=['accuracy'])
 
     print("\nModel summary:")
     model.summary()

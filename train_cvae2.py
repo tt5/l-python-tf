@@ -33,6 +33,8 @@ LEARNING_RATE = 1e-3
 NUM_CLASSES = None  # derived from data + low_conf
 TARGET_SIZE = 28
 LOW_CONF_THRESHOLD = 0.6
+RECON_LOSS_WEIGHT = 1.0
+KL_WEIGHT = 0.5
 
 def load_pbm(path):
     """Load a P4 PBM file and return a 2D numpy array of 0/1 float32."""
@@ -197,7 +199,7 @@ class CVAE(tf.keras.Model):
                     axis=1
                 )
             )
-            total_loss = recon_loss + kl_loss
+            total_loss = (RECON_LOSS_WEIGHT * recon_loss) + (KL_WEIGHT * kl_loss)
 
         grads = tape.gradient(total_loss, self.trainable_weights)
         self.optimizer.apply_gradients(zip(grads, self.trainable_weights))
@@ -225,7 +227,7 @@ class CVAE(tf.keras.Model):
                 axis=1
             )
         )
-        total_loss = recon_loss + kl_loss
+        total_loss = (RECON_LOSS_WEIGHT * recon_loss) + (KL_WEIGHT * kl_loss)
 
         self.total_loss_tracker.update_state(total_loss)
         self.recon_loss_tracker.update_state(recon_loss)
