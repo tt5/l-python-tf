@@ -33,7 +33,6 @@ LEARNING_RATE = 0.002
 NUM_CLASSES = None  # derived from data + low_conf
 TARGET_SIZE = 28
 LOW_CONF_THRESHOLD = 0.6
-RECON_LOSS_WEIGHT = 1.0
 KL_WEIGHT = 0.5
 KL_WARMUP_EPOCHS = 2
 KL_DECAY_EPOCHS = EPOCHS // 2
@@ -46,6 +45,9 @@ L2_REG = 0.00001
 KL_FREE_BITS = 0.05
 DROPOUT = 0.2
 AUGMENT = True
+RECON_LOSS_WEIGHT = 0.5
+PERCEPTUAL_LOSS_WEIGHT = 0.5
+PERCEPTUAL_EXTRACTOR_PATH = Path(__file__).parent / "mnist2_model"
 
 def load_pbm(path):
     """Load a P4 PBM file and return a 2D numpy array of 0/1 float32."""
@@ -242,18 +244,20 @@ def build_generator():
 
 # ─── CVAE ────────────────────────────────────────────────────────
 class CVAE(tf.keras.Model):
-    def __init__(self, encoder, generator, **kwargs):
+    def __init__(self, encoder, generator, perceptual_extractor=None, **kwargs):
         super().__init__(**kwargs)
         self.encoder = encoder
         self.generator = generator
+        self.perceptual_extractor = perceptual_extractor
         self.total_loss_tracker = tf.keras.metrics.Mean(name="total_loss")
         self.recon_loss_tracker = tf.keras.metrics.Mean(name="recon_loss")
         self.kl_loss_tracker = tf.keras.metrics.Mean(name="kl_loss")
+        self.perceptual_loss_tracker = tf.keras.metrics.Mean(name="perceptual_loss")
         self.kl_weight = 0.0
 
     @property
     def metrics(self):
-        return [self.total_loss_tracker, self.recon_loss_tracker, self.kl_loss_tracker]
+        return [self.total_loss_tracker, self.recon_loss_tracker, self.kl_loss_tracker, self.perceptual_loss_tracker]
 
     def train_step(self, data):
         images, labels = data
@@ -282,7 +286,16 @@ class CVAE(tf.keras.Model):
             kl_per_dim = -0.5 * (1 + z_log_var - tf.square(z_mean) - tf.exp(z_log_var))
             kl_per_dim = tf.maximum(kl_per_dim, KL_FREE_BITS)
             kl_loss = tf.reduce_mean(tf.reduce_sum(kl_per_dim, axis=1))
-            total_loss = (RECON_LOSS_WEIGHT * recon_loss) + (float(self.kl_weight) * kl_loss)
+
+            perceptual_loss = 0.0
+            if self.perceptual_extractor is not None:
+                real_input = tf.squeeze(images, -1)
+                fake_input = tf.squeeze(reconstruction, -1)
+                real_feats = self.perceptual_extractor(real_input, training=False)
+                fake_feats = self.perceptual_extractor(fake_input, training=False)
+                perceptual_loss = tf.reduce_mean(tf.reduce_sum(tf.square(real_feats - fake_feats), axis=-1))
+
+            total_loss = (RECON_LOSS_WEIGHT * recon_loss) + (PERCEPTUAL_LOSS_WEIGHT * perceptual_loss) + (float(self.kl_weight) * kl_loss)
 
         grads = tape.gradient(total_loss, self.trainable_weights)
         self.optimizer.apply_gradients(zip(grads, self.trainable_weights))
@@ -290,6 +303,7 @@ class CVAE(tf.keras.Model):
         self.total_loss_tracker.update_state(total_loss)
         self.recon_loss_tracker.update_state(recon_loss)
         self.kl_loss_tracker.update_state(kl_loss)
+        self.perceptual_loss_tracker.update_state(perceptual_loss)
 
         return {m.name: m.result() for m in self.metrics}
 
@@ -308,11 +322,20 @@ class CVAE(tf.keras.Model):
         kl_per_dim = tf.maximum(kl_per_dim, KL_FREE_BITS)
         kl_loss = tf.reduce_mean(tf.reduce_sum(kl_per_dim, axis=1))
 
-        total_loss = (RECON_LOSS_WEIGHT * recon_loss) + (float(self.kl_weight) * kl_loss)
+        perceptual_loss = 0.0
+        if self.perceptual_extractor is not None:
+            real_input = tf.squeeze(images, -1)
+            fake_input = tf.squeeze(reconstruction, -1)
+            real_feats = self.perceptual_extractor(real_input, training=False)
+            fake_feats = self.perceptual_extractor(fake_input, training=False)
+            perceptual_loss = tf.reduce_mean(tf.reduce_sum(tf.square(real_feats - fake_feats), axis=-1))
+
+        total_loss = (RECON_LOSS_WEIGHT * recon_loss) + (PERCEPTUAL_LOSS_WEIGHT * perceptual_loss) + (float(self.kl_weight) * kl_loss)
 
         self.total_loss_tracker.update_state(total_loss)
         self.recon_loss_tracker.update_state(recon_loss)
         self.kl_loss_tracker.update_state(kl_loss)
+        self.perceptual_loss_tracker.update_state(perceptual_loss)
 
         return {m.name: m.result() for m in self.metrics}
 
@@ -322,6 +345,14 @@ class CVAE(tf.keras.Model):
         if noise is None:
             noise = tf.random.normal(shape=(1, LATENT_DIM))
         return self.generator([noise, label_oh])
+
+
+def build_perceptual_extractor():
+    """Load frozen mnist2 classifier and build a sub-model from input to conv features."""
+    base = tf.keras.models.load_model(str(PERCEPTUAL_EXTRACTOR_PATH), compile=False)
+    base.trainable = False
+    model = tf.keras.Model(inputs=base.input, outputs=base.output, name="perceptual_extractor")
+    return model
 
 
 class KLWarmup(tf.keras.callbacks.Callback):
@@ -368,7 +399,8 @@ def main():
 
     encoder = build_encoder()
     generator = build_generator()
-    cvae = CVAE(encoder, generator)
+    perceptual_extractor = build_perceptual_extractor()
+    cvae = CVAE(encoder, generator, perceptual_extractor=perceptual_extractor)
     cvae.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=LEARNING_RATE, clipnorm=1.0))
 
     print("Encoder summary:")
