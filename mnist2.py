@@ -46,7 +46,7 @@ PBM_DIR = args.data_dir
 IMG_SIZE = 22
 TARGET_SIZE = 28
 LOW_CONF_THRESHOLD = 0.6
-EPOCHS = 20
+EPOCHS = 30
 DROPOUT = 0.45
 BASE_LR = 0.002
 WARMUP_EPOCHS = 3
@@ -211,6 +211,12 @@ def main():
     x = L.Dense(192)(x)
     x = L.Add()([x_main, x])
     x = L.Activation('relu')(x)
+
+    # Squeeze-and-excitation on 192-d features
+    se = L.Dense(192 // 16, activation='relu')(x)
+    se = L.Dense(192, activation='sigmoid')(se)
+    x = L.Multiply()([x, se])
+
     x = L.Dropout(DROPOUT)(x)
     outputs = L.Dense(NUM_CLASSES)(x)
     model = tf.keras.Model(inputs=inputs, outputs=outputs)
