@@ -37,7 +37,7 @@ except Exception:
             return super()._resource_apply_sparse(grad, var, indices, apply_state)
 
 DEFAULT_PBM_DIR = Path(__file__).resolve().parent / "../../telephonegame/data/pbm"
-TB_LOG_DIR = Path(__file__).resolve().parent / "logs" / "mnist2"
+TB_LOG_DIR = Path(__file__).resolve().parent / "logs" / "mnist1"
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--data-dir", type=Path, default=DEFAULT_PBM_DIR, help="PBM data directory")
@@ -204,7 +204,9 @@ def main():
     # Build model
     L = tf.keras.layers
     inputs = L.Input(shape=(TARGET_SIZE, TARGET_SIZE))
-    x = L.Flatten()(inputs)
+    x = L.Reshape((TARGET_SIZE, TARGET_SIZE, 1))(inputs)
+    x = L.Conv2D(32, 7, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(1e-5))(x)
+    x = L.Flatten()(x)
     x = L.Dense(384, activation='relu')(x)
     x = L.Dropout(DROPOUT)(x)
     x_main = L.Dense(192, activation='relu')(x)
