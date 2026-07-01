@@ -18,6 +18,24 @@ import numpy as np
 import sys
 from pathlib import Path
 
+try:
+    from tensorflow_addons.optimizers import AdamW
+except Exception:
+    class AdamW(tf.keras.optimizers.Adam):
+        def __init__(self, weight_decay=0.0, **kwargs):
+            super().__init__(**kwargs)
+            self.weight_decay = weight_decay
+
+        def _resource_apply_dense(self, grad, var, apply_state=None):
+            if self.weight_decay > 0:
+                grad = grad + self.weight_decay * var
+            return super()._resource_apply_dense(grad, var, apply_state)
+
+        def _resource_apply_sparse(self, grad, var, indices, apply_state=None):
+            if self.weight_decay > 0:
+                grad = grad + tf.gather(self.weight_decay * var, indices)
+            return super()._resource_apply_sparse(grad, var, indices, apply_state)
+
 DEFAULT_PBM_DIR = Path(__file__).resolve().parent / "../../telephonegame/data/pbm"
 
 parser = argparse.ArgumentParser()
@@ -28,6 +46,7 @@ IMG_SIZE = 22
 TARGET_SIZE = 28
 LOW_CONF_THRESHOLD = 0.6
 EPOCHS = 20
+DROPOUT = 0.4
 
 
 def load_pbm(path):
@@ -125,18 +144,36 @@ def main():
     y_train, y_test = labels[:split], labels[split:]
     print(f"\nTrain: {len(x_train)}, Test: {len(x_test)}")
 
+    # ─── Data augmentation: rotations + transpose ──────────────────
+    def augment_batch(batch):
+        rot90 = np.rot90(batch, k=1, axes=(1, 2))
+        rot180 = np.rot90(batch, k=2, axes=(1, 2))
+        rot270 = np.rot90(batch, k=3, axes=(1, 2))
+        transposed = np.transpose(batch, axes=(0, 2, 1))
+        return np.concatenate([batch, rot90, rot180, rot270, transposed], axis=0)
+
+    x_train = augment_batch(x_train)
+    y_train = np.concatenate([y_train, y_train, y_train, y_train, y_train], axis=0)
+
+    aug_seed = 42
+    rng = np.random.default_rng(aug_seed)
+    perm = rng.permutation(len(x_train))
+    x_train = x_train[perm]
+    y_train = y_train[perm]
+    print(f"After augmentation: Train: {len(x_train)}, Test: {len(x_test)}")
+
     # Build model
     model = tf.keras.models.Sequential([
         tf.keras.layers.Flatten(input_shape=(TARGET_SIZE, TARGET_SIZE)),
         tf.keras.layers.Dense(256, activation='relu'),
-        tf.keras.layers.Dropout(0.3),
+        tf.keras.layers.Dropout(DROPOUT),
         tf.keras.layers.Dense(128, activation='relu'),
-        tf.keras.layers.Dropout(0.3),
+        tf.keras.layers.Dropout(DROPOUT),
         tf.keras.layers.Dense(NUM_CLASSES)
     ])
 
     loss_fn = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)
-    model.compile(optimizer=tf.keras.optimizers.Adam(clipnorm=1.0), loss=loss_fn, metrics=['accuracy'])
+    model.compile(optimizer=AdamW(clipnorm=1.0, weight_decay=1e-5), loss=loss_fn, metrics=['accuracy'])
 
     print("\nModel summary:")
     model.summary()
