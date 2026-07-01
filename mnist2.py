@@ -48,16 +48,18 @@ TARGET_SIZE = 28
 LOW_CONF_THRESHOLD = 0.6
 EPOCHS = 20
 DROPOUT = 0.45
-BASE_LR = 0.001
+BASE_LR = 0.002
 WARMUP_EPOCHS = 3
 DECAY_EPOCHS = 12
 LR_START = 0.00005
 LR_END = 0.00001
-POLY_EPSILON = 1.0
+POLY_EPSILON = 2
 
 
-def poly_loss(labels, logits, epsilon=1.0):
+def poly_loss(labels, logits, epsilon=None):
     """CE + 0.25 * (1 - p_t)^2."""
+    if epsilon is None:
+        epsilon = POLY_EPSILON
     ce = tf.keras.losses.sparse_categorical_crossentropy(labels, logits, from_logits=True)
     probs = tf.nn.softmax(logits, axis=-1)
     labels_one_hot = tf.one_hot(tf.cast(labels, tf.int32), depth=tf.shape(logits)[-1])
