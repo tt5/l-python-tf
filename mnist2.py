@@ -27,6 +27,7 @@ PBM_DIR = args.data_dir
 IMG_SIZE = 22
 TARGET_SIZE = 28
 LOW_CONF_THRESHOLD = 0.6
+EPOCHS = 30
 
 
 def load_pbm(path):
@@ -140,9 +141,15 @@ def main():
     print("\nModel summary:")
     model.summary()
 
-    print(f"\nTraining for 20 epochs...")
-    model.fit(x_train, y_train, epochs=20, batch_size=128,
-              validation_data=(x_test, y_test))
+    print(f"\nTraining for {EPOCHS} epochs...")
+    early_stopping = tf.keras.callbacks.EarlyStopping(
+        monitor='val_loss',
+        patience=8,
+        restore_best_weights=True
+    )
+    model.fit(x_train, y_train, epochs=EPOCHS, batch_size=128,
+              validation_data=(x_test, y_test),
+              callbacks=[early_stopping])
 
     print("\nFinal evaluation:")
     model.evaluate(x_test, y_test, verbose=2)
