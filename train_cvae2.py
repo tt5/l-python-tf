@@ -33,17 +33,18 @@ LEARNING_RATE = 0.002
 NUM_CLASSES = None  # derived from data + low_conf
 TARGET_SIZE = 28
 LOW_CONF_THRESHOLD = 0.6
-RECON_LOSS_WEIGHT = 2.0
+RECON_LOSS_WEIGHT = 1.0
 KL_WEIGHT = 0.5
-KL_WARMUP_EPOCHS = 1
-KL_DECAY_EPOCHS = EPOCHS
-KL_WEIGHT_END = 0.05
-LR_WARMUP_EPOCHS = 2
+KL_WARMUP_EPOCHS = 2
+KL_DECAY_EPOCHS = EPOCHS // 2
+KL_WEIGHT_END = 0.1
+LR_WARMUP_EPOCHS = 5
 LR_START = 0.0
-LR_DECAY_EPOCHS = EPOCHS
-LR_END = 0.00001
-L2_REG = 1e-5
-KL_FREE_BITS = 0.1
+LR_DECAY_EPOCHS = EPOCHS // 2
+LR_END = 0.0001
+L2_REG = 0.00001
+KL_FREE_BITS = 0.05
+DROPOUT = 0.2
 
 def load_pbm(path):
     """Load a P4 PBM file and return a 2D numpy array of 0/1 float32."""
@@ -94,7 +95,7 @@ def load_dataset():
 
         img = load_pbm(f)
         img_28 = upscale(img, TARGET_SIZE, TARGET_SIZE)
-        img_28 = (img_28 > 0.5).astype(np.float32)
+        img_28 = img_28.astype(np.float32)
 
         images.append(img_28)
 
@@ -170,7 +171,7 @@ def build_encoder():
     x = tf.keras.layers.Concatenate()([x, label_input])
     x = tf.keras.layers.Dense(128, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = tf.keras.layers.LayerNormalization()(x)
-    x = tf.keras.layers.Dropout(0.2)(x)
+    x = tf.keras.layers.Dropout(DROPOUT)(x)
 
     z_mean = tf.keras.layers.Dense(LATENT_DIM, name="z_mean", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     z_log_var = tf.keras.layers.Dense(LATENT_DIM, name="z_log_var", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
@@ -191,7 +192,7 @@ def build_generator():
     x = tf.keras.layers.LayerNormalization()(x)
     x = tf.keras.layers.Conv2DTranspose(32, 3, strides=2, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = tf.keras.layers.LayerNormalization()(x)
-    x = tf.keras.layers.Dropout(0.2)(x)
+    x = tf.keras.layers.Dropout(DROPOUT)(x)
     x = tf.keras.layers.Conv2D(1, 3, padding="same", activation="sigmoid")(x)
 
     return tf.keras.Model([latent_input, label_input], x, name="generator")
