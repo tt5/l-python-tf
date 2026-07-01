@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """test_cvae2.py
 
-Test the mnist2 classifier (ONNX) on 22x22 PBM images from telephonegame/data/pbm_test.
+Test the mnist2 classifier (ONNX) on 22x22 PBM images from telephonegame/data/pbm_test,
+and generation quality of cvae2_generator.onnx using mnist2_model.onnx as judge.
+
 Mirrors mnist2.py dataset handling: upscales to 28x28, derives labels including low_conf.
 
 Usage:
@@ -16,9 +18,11 @@ import onnxruntime as ort
 SCRIPT_DIR = Path(__file__).resolve().parent
 DEFAULT_PBM_DIR = SCRIPT_DIR.parent.parent / "telephonegame" / "data" / "pbm_test"
 DEFAULT_CLS_MODEL = SCRIPT_DIR / "mnist2_model.onnx"
+DEFAULT_GEN_MODEL = SCRIPT_DIR / "cvae2_generator.onnx"
 
 TARGET_SIZE = 28
 LOW_CONF_THRESHOLD = 0.6
+SAMPLES_PER_CLASS = 5000
 
 
 def load_pbm(path):
@@ -58,13 +62,15 @@ def upscale(grid, dst_h, dst_w):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Test mnist2 classifier on PBM test set")
+    parser = argparse.ArgumentParser(description="Test mnist2 classifier on PBM test set and generator quality")
     parser.add_argument("--pbm-dir", type=Path, default=DEFAULT_PBM_DIR, help="PBM test directory")
     parser.add_argument("--cls-model", type=Path, default=DEFAULT_CLS_MODEL, help="Classifier ONNX path")
+    parser.add_argument("--gen-model", type=Path, default=DEFAULT_GEN_MODEL, help="Generator ONNX path")
     args = parser.parse_args()
 
     pbm_dir = args.pbm_dir
     cls_model = args.cls_model
+    gen_model = args.gen_model
 
     files = sorted(pbm_dir.glob("*.pbm"))
     print(f"Loading {len(files)} PBM images from {pbm_dir}...")
@@ -107,7 +113,8 @@ def main():
     print(f"\nLabel distribution (low_conf threshold={LOW_CONF_THRESHOLD}):")
     for c in range(NUM_CLASSES):
         count = int(np.sum(labels == c))
-        print(f"  {c if c < max_label + 1 else 'low_conf'}: {count}")
+        name = str(c) if c < max_label + 1 else "low_conf"
+        print(f"  {name}: {count}")
     print(f"  low_conf_count={low_conf_count}")
 
     # Load classifier
@@ -122,7 +129,6 @@ def main():
     )[0]
     probs = raw  # logits expected for mnist2 model
 
-    # mnist2 model input is (N, 28, 28), output logits (N, NUM_CLASSES)
     preds = probs.argmax(axis=1)
 
     print("\n─── Per-class accuracy ───")
@@ -132,13 +138,62 @@ def main():
         mask = labels == c
         n = int(mask.sum())
         if n == 0:
-            print(f"  Class {c if c < max_label + 1 else 'low_conf'}: no data")
+            name = str(c) if c < max_label + 1 else "low_conf"
+            print(f"  Class {name}: no data")
             continue
         correct = int((preds[mask] == c).sum())
         total_correct += correct
-        print(f"  Class {c if c < max_label + 1 else 'low_conf'}: {correct}/{n} = {correct/n*100:.1f}%")
+        name = str(c) if c < max_label + 1 else "low_conf"
+        print(f"  Class {name}: {correct}/{n} = {correct/n*100:.1f}%")
 
     print(f"\nOverall accuracy: {total_correct}/{total_samples} = {total_correct/total_samples*100:.1f}%")
+
+    # Generation quality test
+    print(f"\n─── Generation quality ({SAMPLES_PER_CLASS} per class) ───")
+    print(f"Loading generator ({gen_model})...")
+    gen_session = ort.InferenceSession(str(gen_model))
+    gen_input_names = [inp.name for inp in gen_session.get_inputs()]
+    gen_output_name = gen_session.get_outputs()[0].name
+
+    input_0_shape = gen_session.get_inputs()[0].shape[1]
+    input_1_shape = gen_session.get_inputs()[1].shape[1]
+
+    if input_0_shape == NUM_CLASSES:
+        label_input_name = gen_input_names[0]
+        latent_input_name = gen_input_names[1]
+        LATENT_DIM = input_1_shape
+    else:
+        latent_input_name = gen_input_names[0]
+        label_input_name = gen_input_names[1]
+        LATENT_DIM = input_0_shape
+
+    print(f"  Latent dim: {LATENT_DIM}")
+    print(f"  Conditioning input: {label_input_name}")
+
+    for c in range(NUM_CLASSES):
+        label_oh = np.zeros((SAMPLES_PER_CLASS, NUM_CLASSES), dtype=np.float32)
+        label_oh[:, c] = 1.0
+        noise = np.random.normal(size=(SAMPLES_PER_CLASS, LATENT_DIM)).astype(np.float32)
+
+        gen_inputs = {
+            latent_input_name: noise,
+            label_input_name: label_oh,
+        }
+        gen_images = gen_session.run([gen_output_name], gen_inputs)[0]
+
+        # Generator output is (N, 28, 28, 1) per train_cvae2.py export
+        gen_images = gen_images[:, :, :, 0]
+        gen_images = (gen_images > 0.5).astype(np.float32)
+
+        raw = cls_session.run(
+            [cls_output_name],
+            {cls_input_name: gen_images.reshape(-1, TARGET_SIZE, TARGET_SIZE)}
+        )[0]
+        preds = raw.argmax(axis=1)
+        correct = preds == c
+        accuracy = correct.mean()
+        print(f"  Class {c}: {accuracy*100:.1f}% correctly classified ({int(correct.sum())}/{SAMPLES_PER_CLASS})")
+
     print("\nDone!")
 
 

@@ -46,7 +46,7 @@ IMG_SIZE = 22
 TARGET_SIZE = 28
 LOW_CONF_THRESHOLD = 0.6
 EPOCHS = 20
-DROPOUT = 0.4
+DROPOUT = 0.45
 
 
 def load_pbm(path):
@@ -165,9 +165,9 @@ def main():
     # Build model
     model = tf.keras.models.Sequential([
         tf.keras.layers.Flatten(input_shape=(TARGET_SIZE, TARGET_SIZE)),
-        tf.keras.layers.Dense(256, activation='relu'),
+        tf.keras.layers.Dense(384, activation='relu'),
         tf.keras.layers.Dropout(DROPOUT),
-        tf.keras.layers.Dense(128, activation='relu'),
+        tf.keras.layers.Dense(192, activation='relu'),
         tf.keras.layers.Dropout(DROPOUT),
         tf.keras.layers.Dense(NUM_CLASSES)
     ])
