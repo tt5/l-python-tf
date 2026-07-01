@@ -37,6 +37,7 @@ except Exception:
             return super()._resource_apply_sparse(grad, var, indices, apply_state)
 
 DEFAULT_PBM_DIR = Path(__file__).resolve().parent / "../../telephonegame/data/pbm"
+TB_LOG_DIR = Path(__file__).resolve().parent / "logs" / "mnist1"
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--data-dir", type=Path, default=DEFAULT_PBM_DIR, help="PBM data directory")
@@ -217,7 +218,7 @@ def main():
     )
     model.fit(x_train, y_train, epochs=EPOCHS, batch_size=128,
               validation_data=(x_test, y_test),
-              callbacks=[early_stopping, lr_schedule])
+              callbacks=[early_stopping, lr_schedule, tf.keras.callbacks.TensorBoard(log_dir=str(TB_LOG_DIR), update_freq='epoch')])
 
     print("\nFinal evaluation:")
     model.evaluate(x_test, y_test, verbose=2)
