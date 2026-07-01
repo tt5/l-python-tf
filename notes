@@ -89,3 +89,13 @@ Data: 18. Curriculum learning — Start with easy classes, gradually add harder 
   Class 4: 83.5%
   Class 5: 99.6%
   Average: 91.1%
+
+---
+─── Per-class accuracy ───
+  Class 0: 460/466 = 98.7%
+  Class 1: 620/692 = 89.6%
+  Class 2: 484/543 = 89.1%
+  Class 3: 354/485 = 73.0%
+  Class 4: 474/517 = 91.7%
+  Class 5: 525/534 = 98.3%
+  Class low_conf: 176/667 = 26.4%

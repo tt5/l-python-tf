@@ -206,6 +206,9 @@ def main():
     inputs = L.Input(shape=(TARGET_SIZE, TARGET_SIZE))
     x = L.Reshape((TARGET_SIZE, TARGET_SIZE, 1))(inputs)
     x = L.Conv2D(32, 7, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(1e-5))(x)
+    x = L.Conv2D(64, 3, strides=2, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(1e-5))(x)
+    x = L.LayerNormalization()(x)
+    # Pooled conv output at 14x14 for multi-scale feature extraction
     x = L.Flatten()(x)
     x = L.Dense(384, activation='relu')(x)
     x = L.Dropout(DROPOUT)(x)
