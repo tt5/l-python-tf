@@ -47,6 +47,30 @@ TARGET_SIZE = 28
 LOW_CONF_THRESHOLD = 0.6
 EPOCHS = 20
 DROPOUT = 0.45
+BASE_LR = 0.0005
+WARMUP_EPOCHS = 3
+DECAY_EPOCHS = 12
+LR_START = 0.00005
+LR_END = 0.00001
+
+
+class LinearLRSchedule(tf.keras.callbacks.Callback):
+    def __init__(self, lr_start, lr_peak, lr_end, warmup_epochs, decay_epochs):
+        self.lr_start = lr_start
+        self.lr_peak = lr_peak
+        self.lr_end = lr_end
+        self.warmup_epochs = warmup_epochs
+        self.decay_epochs = decay_epochs
+
+    def on_epoch_begin(self, epoch, logs=None):
+        if epoch < self.warmup_epochs:
+            lr = self.lr_start + (self.lr_peak - self.lr_start) * (epoch / max(1, self.warmup_epochs - 1))
+        elif epoch < self.warmup_epochs + self.decay_epochs:
+            t = (epoch - self.warmup_epochs) / max(1, self.decay_epochs - 1)
+            lr = self.lr_peak + (self.lr_end - self.lr_peak) * t
+        else:
+            lr = self.lr_end
+        tf.keras.backend.set_value(self.model.optimizer.lr, float(lr))
 
 
 def load_pbm(path):
@@ -173,7 +197,7 @@ def main():
     ])
 
     loss_fn = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)
-    model.compile(optimizer=AdamW(clipnorm=1.0, weight_decay=1e-5), loss=loss_fn, metrics=['accuracy'])
+    model.compile(optimizer=AdamW(clipnorm=1.0, weight_decay=1e-5, learning_rate=BASE_LR), loss=loss_fn, metrics=['accuracy'])
 
     print("\nModel summary:")
     model.summary()
@@ -184,9 +208,16 @@ def main():
         patience=8,
         restore_best_weights=True
     )
+    lr_schedule = LinearLRSchedule(
+        lr_start=LR_START,
+        lr_peak=BASE_LR,
+        lr_end=LR_END,
+        warmup_epochs=WARMUP_EPOCHS,
+        decay_epochs=DECAY_EPOCHS
+    )
     model.fit(x_train, y_train, epochs=EPOCHS, batch_size=128,
               validation_data=(x_test, y_test),
-              callbacks=[early_stopping])
+              callbacks=[early_stopping, lr_schedule])
 
     print("\nFinal evaluation:")
     model.evaluate(x_test, y_test, verbose=2)
