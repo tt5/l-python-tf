@@ -29,12 +29,21 @@ PBM_DIR = args.data_dir
 LATENT_DIM = 64
 EPOCHS = 50
 BATCH_SIZE = 128
-LEARNING_RATE = 1e-3
+LEARNING_RATE = 0.002
 NUM_CLASSES = None  # derived from data + low_conf
 TARGET_SIZE = 28
 LOW_CONF_THRESHOLD = 0.6
-RECON_LOSS_WEIGHT = 1.0
+RECON_LOSS_WEIGHT = 2.0
 KL_WEIGHT = 0.5
+KL_WARMUP_EPOCHS = 1
+KL_DECAY_EPOCHS = EPOCHS
+KL_WEIGHT_END = 0.05
+LR_WARMUP_EPOCHS = 2
+LR_START = 0.0
+LR_DECAY_EPOCHS = EPOCHS
+LR_END = 0.00001
+L2_REG = 1e-5
+KL_FREE_BITS = 0.1
 
 def load_pbm(path):
     """Load a P4 PBM file and return a 2D numpy array of 0/1 float32."""
@@ -140,17 +149,31 @@ def build_encoder():
     image_input = tf.keras.layers.Input(shape=(28, 28, 1), name="image_input")
     label_input = tf.keras.layers.Input(shape=(NUM_CLASSES,), name="label_input")
 
-    x = tf.keras.layers.Conv2D(32, 3, strides=2, padding="same", activation="relu")(image_input)
+    x = tf.keras.layers.Conv2D(32, 3, strides=2, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(image_input)
     x = tf.keras.layers.LayerNormalization()(x)
-    x = tf.keras.layers.Conv2D(64, 3, strides=2, padding="same", activation="relu")(x)
+    x = tf.keras.layers.Conv2D(64, 3, strides=2, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = tf.keras.layers.LayerNormalization()(x)
+    # Residual conv block
+    x_res = x
+    x = tf.keras.layers.Conv2D(64, 3, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
+    x = tf.keras.layers.LayerNormalization()(x)
+    x = tf.keras.layers.Conv2D(64, 3, padding="same", activation=None, kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
+    x = tf.keras.layers.LayerNormalization()(x)
+    x = tf.keras.layers.Add()([x, x_res])
+    x = tf.keras.layers.Activation("relu")(x)
+    # SE block
+    se = tf.keras.layers.GlobalAveragePooling2D()(x)
+    se = tf.keras.layers.Dense(64 // 4, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(se)
+    se = tf.keras.layers.Dense(64, activation="sigmoid", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(se)
+    x = tf.keras.layers.Multiply()([x, se])
     x = tf.keras.layers.Flatten()(x)
     x = tf.keras.layers.Concatenate()([x, label_input])
-    x = tf.keras.layers.Dense(128, activation="relu")(x)
+    x = tf.keras.layers.Dense(128, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = tf.keras.layers.LayerNormalization()(x)
+    x = tf.keras.layers.Dropout(0.2)(x)
 
-    z_mean = tf.keras.layers.Dense(LATENT_DIM, name="z_mean")(x)
-    z_log_var = tf.keras.layers.Dense(LATENT_DIM, name="z_log_var")(x)
+    z_mean = tf.keras.layers.Dense(LATENT_DIM, name="z_mean", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
+    z_log_var = tf.keras.layers.Dense(LATENT_DIM, name="z_log_var", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     z = Sampling()([z_mean, z_log_var])
 
     return tf.keras.Model([image_input, label_input], [z_mean, z_log_var, z], name="encoder")
@@ -161,13 +184,14 @@ def build_generator():
     label_input = tf.keras.layers.Input(shape=(NUM_CLASSES,), name="label_input")
 
     x = tf.keras.layers.Concatenate()([latent_input, label_input])
-    x = tf.keras.layers.Dense(7 * 7 * 64, activation="relu")(x)
+    x = tf.keras.layers.Dense(7 * 7 * 64, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = tf.keras.layers.Reshape((7, 7, 64))(x)
 
-    x = tf.keras.layers.Conv2DTranspose(64, 3, strides=2, padding="same", activation="relu")(x)
+    x = tf.keras.layers.Conv2DTranspose(64, 3, strides=2, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = tf.keras.layers.LayerNormalization()(x)
-    x = tf.keras.layers.Conv2DTranspose(32, 3, strides=2, padding="same", activation="relu")(x)
+    x = tf.keras.layers.Conv2DTranspose(32, 3, strides=2, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = tf.keras.layers.LayerNormalization()(x)
+    x = tf.keras.layers.Dropout(0.2)(x)
     x = tf.keras.layers.Conv2D(1, 3, padding="same", activation="sigmoid")(x)
 
     return tf.keras.Model([latent_input, label_input], x, name="generator")
@@ -181,6 +205,7 @@ class CVAE(tf.keras.Model):
         self.total_loss_tracker = tf.keras.metrics.Mean(name="total_loss")
         self.recon_loss_tracker = tf.keras.metrics.Mean(name="recon_loss")
         self.kl_loss_tracker = tf.keras.metrics.Mean(name="kl_loss")
+        self.kl_weight = 0.0
 
     @property
     def metrics(self):
@@ -198,13 +223,10 @@ class CVAE(tf.keras.Model):
                     axis=(1, 2)
                 )
             )
-            kl_loss = -0.5 * tf.reduce_mean(
-                tf.reduce_sum(
-                    1 + z_log_var - tf.square(z_mean) - tf.exp(z_log_var),
-                    axis=1
-                )
-            )
-            total_loss = (RECON_LOSS_WEIGHT * recon_loss) + (KL_WEIGHT * kl_loss)
+            kl_per_dim = -0.5 * (1 + z_log_var - tf.square(z_mean) - tf.exp(z_log_var))
+            kl_per_dim = tf.maximum(kl_per_dim, KL_FREE_BITS)
+            kl_loss = tf.reduce_mean(tf.reduce_sum(kl_per_dim, axis=1))
+            total_loss = (RECON_LOSS_WEIGHT * recon_loss) + (float(self.kl_weight) * kl_loss)
 
         grads = tape.gradient(total_loss, self.trainable_weights)
         self.optimizer.apply_gradients(zip(grads, self.trainable_weights))
@@ -226,13 +248,11 @@ class CVAE(tf.keras.Model):
                 axis=(1, 2)
             )
         )
-        kl_loss = -0.5 * tf.reduce_mean(
-            tf.reduce_sum(
-                1 + z_log_var - tf.square(z_mean) - tf.exp(z_log_var),
-                axis=1
-            )
-        )
-        total_loss = (RECON_LOSS_WEIGHT * recon_loss) + (KL_WEIGHT * kl_loss)
+        kl_per_dim = -0.5 * (1 + z_log_var - tf.square(z_mean) - tf.exp(z_log_var))
+        kl_per_dim = tf.maximum(kl_per_dim, KL_FREE_BITS)
+        kl_loss = tf.reduce_mean(tf.reduce_sum(kl_per_dim, axis=1))
+
+        total_loss = (RECON_LOSS_WEIGHT * recon_loss) + (float(self.kl_weight) * kl_loss)
 
         self.total_loss_tracker.update_state(total_loss)
         self.recon_loss_tracker.update_state(recon_loss)
@@ -247,6 +267,45 @@ class CVAE(tf.keras.Model):
             noise = tf.random.normal(shape=(1, LATENT_DIM))
         return self.generator([noise, label_oh])
 
+
+class KLWarmup(tf.keras.callbacks.Callback):
+    def __init__(self, cvae, warmup_epochs, kl_weight_final, decay_epochs, kl_weight_end):
+        self.cvae = cvae
+        self.warmup_epochs = warmup_epochs
+        self.kl_weight_final = kl_weight_final
+        self.decay_epochs = decay_epochs
+        self.kl_weight_end = kl_weight_end
+
+    def on_epoch_begin(self, epoch, logs=None):
+        if epoch < self.warmup_epochs:
+            weight = self.kl_weight_final * (epoch / max(1, self.warmup_epochs - 1))
+        elif epoch < self.warmup_epochs + self.decay_epochs:
+            t = (epoch - self.warmup_epochs) / max(1, self.decay_epochs - 1)
+            weight = self.kl_weight_final + (self.kl_weight_end - self.kl_weight_final) * t
+        else:
+            weight = self.kl_weight_end
+        self.cvae.kl_weight = float(weight)
+
+
+class LRWarmup(tf.keras.callbacks.Callback):
+    def __init__(self, lr_start, lr_peak, warmup_epochs, lr_end, decay_epochs):
+        self.lr_start = lr_start
+        self.lr_peak = lr_peak
+        self.warmup_epochs = warmup_epochs
+        self.lr_end = lr_end
+        self.decay_epochs = decay_epochs
+
+    def on_epoch_begin(self, epoch, logs=None):
+        if epoch < self.warmup_epochs:
+            lr = self.lr_start + (self.lr_peak - self.lr_start) * (epoch / max(1, self.warmup_epochs - 1))
+        elif epoch < self.warmup_epochs + self.decay_epochs:
+            t = (epoch - self.warmup_epochs) / max(1, self.decay_epochs - 1)
+            lr = self.lr_peak + (self.lr_end - self.lr_peak) * t
+        else:
+            lr = self.lr_end
+        if self.model is not None and self.model.optimizer is not None:
+            tf.keras.backend.set_value(self.model.optimizer.lr, float(lr))
+
 # ─── Build & train ───────────────────────────────────────────────
 def main():
     x_train, y_train, x_test, y_test = load_dataset()
@@ -254,7 +313,7 @@ def main():
     encoder = build_encoder()
     generator = build_generator()
     cvae = CVAE(encoder, generator)
-    cvae.compile(optimizer=tf.keras.optimizers.Adam(LEARNING_RATE))
+    cvae.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=LEARNING_RATE, clipnorm=1.0))
 
     print("Encoder summary:")
     encoder.summary()
@@ -273,12 +332,14 @@ def main():
         write_graph=True,
         update_freq="epoch",
     )
+    kl_warmup = KLWarmup(cvae, warmup_epochs=KL_WARMUP_EPOCHS, kl_weight_final=KL_WEIGHT, decay_epochs=KL_DECAY_EPOCHS, kl_weight_end=KL_WEIGHT_END)
+    lr_warmup = LRWarmup(lr_start=LR_START, lr_peak=LEARNING_RATE, warmup_epochs=LR_WARMUP_EPOCHS, lr_end=LR_END, decay_epochs=LR_DECAY_EPOCHS)
     cvae.fit(
         x_train, y_train,
         validation_data=(x_test, y_test),
         epochs=EPOCHS,
         batch_size=BATCH_SIZE,
-        callbacks=[early_stopping, tensorboard_callback],
+        callbacks=[early_stopping, tensorboard_callback, kl_warmup, lr_warmup],
     )
 
     # ─── Save as ONNX ──────────────────────────────────────────────
