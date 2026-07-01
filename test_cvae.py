@@ -12,6 +12,7 @@ import onnxruntime as ort
 import numpy as np
 import argparse
 from pathlib import Path
+import tensorflow as tf
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--num-classes", type=int, default=10, help="Number of classes to evaluate (default: 10)")
@@ -64,13 +65,16 @@ DATA_DIR = Path(__file__).resolve().parent.parent.parent / "synthetic" / "test_d
 #    }
 #    gen_images = gen_session.run([gen_output_name], gen_inputs)[0][:, :, :, 0]
 #
-#    preds = cls_session.run(
+#    raw = cls_session.run(
 #        [cls_output_name],
 #        {cls_input_name: gen_images.reshape(-1, 28, 28, 1).astype(np.float32)}
 #    )[0]
-#    preds = preds.argmax(axis=1)
-#    accuracy = (preds == c).mean()
-#    print(f"  Class {c}: {accuracy*100:.1f}% correctly classified ({int((preds == c).sum())}/{SAMPLES_PER_CLASS})")
+#    probs = tf.nn.softmax(raw, axis=-1).numpy()
+#    preds = probs.argmax(axis=1)
+#    correct = preds == c
+#    accuracy = correct.mean()
+#    conf = float(probs[correct, c].mean()) if correct.any() else 0.0
+#    print(f"  Class {c}: {accuracy*100:.1f}% correctly classified ({int(correct.sum())}/{SAMPLES_PER_CLASS}), avg confidence: {conf*100:.1f}%")
 
 # ─── Real data classification ────────────────────────────────────────
 print(f"\n─── Real data classification (from synthetic project) ───")
