@@ -141,10 +141,13 @@ def build_encoder():
     label_input = tf.keras.layers.Input(shape=(NUM_CLASSES,), name="label_input")
 
     x = tf.keras.layers.Conv2D(32, 3, strides=2, padding="same", activation="relu")(image_input)
+    x = tf.keras.layers.LayerNormalization()(x)
     x = tf.keras.layers.Conv2D(64, 3, strides=2, padding="same", activation="relu")(x)
+    x = tf.keras.layers.LayerNormalization()(x)
     x = tf.keras.layers.Flatten()(x)
     x = tf.keras.layers.Concatenate()([x, label_input])
     x = tf.keras.layers.Dense(128, activation="relu")(x)
+    x = tf.keras.layers.LayerNormalization()(x)
 
     z_mean = tf.keras.layers.Dense(LATENT_DIM, name="z_mean")(x)
     z_log_var = tf.keras.layers.Dense(LATENT_DIM, name="z_log_var")(x)
@@ -162,7 +165,9 @@ def build_generator():
     x = tf.keras.layers.Reshape((7, 7, 64))(x)
 
     x = tf.keras.layers.Conv2DTranspose(64, 3, strides=2, padding="same", activation="relu")(x)
+    x = tf.keras.layers.LayerNormalization()(x)
     x = tf.keras.layers.Conv2DTranspose(32, 3, strides=2, padding="same", activation="relu")(x)
+    x = tf.keras.layers.LayerNormalization()(x)
     x = tf.keras.layers.Conv2D(1, 3, padding="same", activation="sigmoid")(x)
 
     return tf.keras.Model([latent_input, label_input], x, name="generator")
@@ -263,7 +268,7 @@ def main():
         restore_best_weights=True
     )
     tensorboard_callback = tf.keras.callbacks.TensorBoard(
-        log_dir=str(Path(__file__).parent / "logs" / "train_cvae1"),
+        log_dir=str(Path(__file__).parent / "logs" / "train_cvae2"),
         histogram_freq=1,
         write_graph=True,
         update_freq="epoch",
