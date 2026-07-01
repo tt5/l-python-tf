@@ -40,8 +40,8 @@ KL_DECAY_EPOCHS = EPOCHS // 2
 KL_WEIGHT_END = 0.1
 LR_WARMUP_EPOCHS = 5
 LR_START = 0.0
-LR_DECAY_EPOCHS = EPOCHS // 2
-LR_END = 0.0001
+LR_DECAY_EPOCHS = EPOCHS - EPOCHS // 4
+LR_END = 0.00005
 L2_REG = 0.00001
 KL_FREE_BITS = 0.05
 DROPOUT = 0.2
@@ -175,8 +175,15 @@ def build_encoder():
     x = tf.keras.layers.Concatenate()([b1, b3, b5])
     x = tf.keras.layers.Conv2D(64, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = tf.keras.layers.LayerNormalization()(x)
+    # Label pathway
+    label_emb = tf.keras.layers.Dense(16, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(label_input)
+    label_emb = tf.keras.layers.Dense(64, activation=None, kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(label_emb)
+    # Spatial modulation
+    label_spatial = tf.keras.layers.Dense(64, activation=None, kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(label_emb)
+    label_spatial = tf.keras.layers.Reshape((1, 1, 64))(label_spatial)
+    x = tf.keras.layers.Add()([x, label_spatial])
     x = tf.keras.layers.Flatten()(x)
-    x = tf.keras.layers.Concatenate()([x, label_input])
+    x = tf.keras.layers.Concatenate()([x, label_emb])
     x = tf.keras.layers.Dense(128, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = tf.keras.layers.LayerNormalization()(x)
     x = tf.keras.layers.Dropout(DROPOUT)(x)
