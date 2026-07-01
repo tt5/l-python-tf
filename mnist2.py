@@ -27,7 +27,7 @@ PBM_DIR = args.data_dir
 IMG_SIZE = 22
 TARGET_SIZE = 28
 LOW_CONF_THRESHOLD = 0.6
-EPOCHS = 30
+EPOCHS = 20
 
 
 def load_pbm(path):

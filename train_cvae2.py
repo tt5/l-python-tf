@@ -255,11 +255,23 @@ def main():
     generator.summary()
 
     print(f"\nTraining CVAE for {EPOCHS} epochs...")
+    early_stopping = tf.keras.callbacks.EarlyStopping(
+        monitor='val_total_loss',
+        patience=8,
+        restore_best_weights=True
+    )
+    tensorboard_callback = tf.keras.callbacks.TensorBoard(
+        log_dir=str(Path(__file__).parent / "logs" / "train_cvae1"),
+        histogram_freq=1,
+        write_graph=True,
+        update_freq="epoch",
+    )
     cvae.fit(
         x_train, y_train,
         validation_data=(x_test, y_test),
         epochs=EPOCHS,
         batch_size=BATCH_SIZE,
+        callbacks=[early_stopping, tensorboard_callback],
     )
 
     # ─── Save as ONNX ──────────────────────────────────────────────

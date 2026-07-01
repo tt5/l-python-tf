@@ -255,11 +255,17 @@ def main():
     generator.summary()
 
     print(f"\nTraining CVAE for {EPOCHS} epochs...")
+    early_stopping = tf.keras.callbacks.EarlyStopping(
+        monitor='val_total_loss',
+        patience=8,
+        restore_best_weights=True
+    )
     cvae.fit(
         x_train, y_train,
         validation_data=(x_test, y_test),
         epochs=EPOCHS,
         batch_size=BATCH_SIZE,
+        callbacks=[early_stopping],
     )
 
     # ─── Save as ONNX ──────────────────────────────────────────────
