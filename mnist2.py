@@ -202,14 +202,18 @@ def main():
     print(f"After augmentation: Train: {len(x_train)}, Test: {len(x_test)}")
 
     # Build model
-    model = tf.keras.models.Sequential([
-        tf.keras.layers.Flatten(input_shape=(TARGET_SIZE, TARGET_SIZE)),
-        tf.keras.layers.Dense(384, activation='relu'),
-        tf.keras.layers.Dropout(DROPOUT),
-        tf.keras.layers.Dense(192, activation='relu'),
-        tf.keras.layers.Dropout(DROPOUT),
-        tf.keras.layers.Dense(NUM_CLASSES)
-    ])
+    L = tf.keras.layers
+    inputs = L.Input(shape=(TARGET_SIZE, TARGET_SIZE))
+    x = L.Flatten()(inputs)
+    x = L.Dense(384, activation='relu')(x)
+    x = L.Dropout(DROPOUT)(x)
+    x_main = L.Dense(192, activation='relu')(x)
+    x = L.Dense(192)(x)
+    x = L.Add()([x_main, x])
+    x = L.Activation('relu')(x)
+    x = L.Dropout(DROPOUT)(x)
+    outputs = L.Dense(NUM_CLASSES)(x)
+    model = tf.keras.Model(inputs=inputs, outputs=outputs)
 
     model.compile(optimizer=AdamW(clipnorm=1.0, weight_decay=1e-5, learning_rate=BASE_LR), loss=poly_loss, metrics=['accuracy'])
 
