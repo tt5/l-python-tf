@@ -211,8 +211,7 @@ def main():
         tf.keras.layers.Dense(NUM_CLASSES)
     ])
 
-    loss_fn = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)
-    model.compile(optimizer=AdamW(clipnorm=1.0, weight_decay=1e-5, learning_rate=BASE_LR), loss=loss_fn, metrics=['accuracy'])
+    model.compile(optimizer=AdamW(clipnorm=1.0, weight_decay=1e-5, learning_rate=BASE_LR), loss=poly_loss, metrics=['accuracy'])
 
     print("\nModel summary:")
     model.summary()
