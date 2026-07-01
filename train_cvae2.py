@@ -167,6 +167,8 @@ def build_encoder():
     se = tf.keras.layers.Dense(64 // 4, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(se)
     se = tf.keras.layers.Dense(64, activation="sigmoid", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(se)
     x = tf.keras.layers.Multiply()([x, se])
+    x = tf.keras.layers.Conv2D(64, 3, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
+    x = tf.keras.layers.LayerNormalization()(x)
     x = tf.keras.layers.Flatten()(x)
     x = tf.keras.layers.Concatenate()([x, label_input])
     x = tf.keras.layers.Dense(128, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
@@ -184,9 +186,18 @@ def build_generator():
     latent_input = tf.keras.layers.Input(shape=(LATENT_DIM,), name="latent_input")
     label_input = tf.keras.layers.Input(shape=(NUM_CLASSES,), name="label_input")
 
-    x = tf.keras.layers.Concatenate()([latent_input, label_input])
+    # Label pathway
+    label_emb = tf.keras.layers.Dense(32, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(label_input)
+    label_emb = tf.keras.layers.Dense(64, activation=None, kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(label_emb)
+
+    x = tf.keras.layers.Concatenate()([latent_input, label_emb])
     x = tf.keras.layers.Dense(7 * 7 * 64, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = tf.keras.layers.Reshape((7, 7, 64))(x)
+
+    # Inject label into spatial features
+    label_spatial = tf.keras.layers.Dense(64, activation=None, kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(label_emb)
+    label_spatial = tf.keras.layers.Reshape((1, 1, 64))(label_spatial)
+    x = tf.keras.layers.Add()([x, label_spatial])
 
     x = tf.keras.layers.Conv2DTranspose(64, 3, strides=2, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = tf.keras.layers.LayerNormalization()(x)
