@@ -53,6 +53,18 @@ WARMUP_EPOCHS = 3
 DECAY_EPOCHS = 12
 LR_START = 0.00005
 LR_END = 0.00001
+POLY_EPSILON = 1.0
+
+
+def poly_loss(labels, logits, epsilon=1.0):
+    """CE + 0.25 * (1 - p_t)^2."""
+    ce = tf.keras.losses.sparse_categorical_crossentropy(labels, logits, from_logits=True)
+    probs = tf.nn.softmax(logits, axis=-1)
+    labels_one_hot = tf.one_hot(tf.cast(labels, tf.int32), depth=tf.shape(logits)[-1])
+    p_t = tf.reduce_sum(probs * labels_one_hot, axis=-1)
+    p_t = tf.clip_by_value(p_t, 1e-7, 1.0)
+    pt_loss = 0.25 * tf.pow(1.0 - p_t, 2)
+    return tf.reduce_mean(ce + epsilon * pt_loss)
 
 
 class LinearLRSchedule(tf.keras.callbacks.Callback):
