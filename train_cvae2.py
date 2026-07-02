@@ -40,7 +40,7 @@ KL_WEIGHT_END = 0.05
 LEARNING_RATE = 0.002
 LR_WARMUP_EPOCHS = 5
 LR_START = 0.0
-LR_DECAY_EPOCHS = 80
+LR_DECAY_EPOCHS = EPOCHS - LR_WARMUP_EPOCHS
 LR_END = 0.000037
 L2_REG = 0.00001
 KL_FREE_BITS = 0.0
@@ -241,22 +241,15 @@ def build_generator():
     label_spatial_96 = tf.keras.layers.Reshape((1, 1, 96))(tf.keras.layers.Dense(96, activation=None, kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(label_emb))
     label_spatial_48 = tf.keras.layers.Reshape((1, 1, 48))(tf.keras.layers.Dense(48, activation=None, kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(label_emb))
 
-    # 7x7: inject label as explicit spatial channels
+    # 7x7 block: broadcast + 1x1 + residual upsample block
     label_broadcast_96 = tf.keras.layers.Lambda(lambda t: tf.broadcast_to(t[0], tf.shape(t[1])))([label_spatial_96, x])
     x = tf.keras.layers.Concatenate(axis=-1)([x, label_broadcast_96])
     x = tf.keras.layers.Conv2D(96, 1, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     skip7 = x
-
-    # 7x7 -> 14x14
     x = tf.keras.layers.UpSampling2D(size=2, interpolation='nearest')(x)
     x = tf.keras.layers.Conv2D(48, 3, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = tf.keras.layers.LayerNormalization(center=False, scale=False)(x)
-    x = film(x, 48)
     x = tf.keras.layers.Activation("relu")(x)
-    # 14x14: inject label as explicit spatial channels
-    label_broadcast_48_14 = tf.keras.layers.Lambda(lambda t: tf.broadcast_to(t[0], tf.shape(t[1])))([label_spatial_48, x])
-    x = tf.keras.layers.Concatenate(axis=-1)([x, label_broadcast_48_14])
-    x = tf.keras.layers.Conv2D(48, 1, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = film(x, 48)
     x = tf.keras.layers.Add()([
         x,
@@ -265,23 +258,29 @@ def build_generator():
         )
     ])
 
-    # 14x14 -> 28x28
+    # 14x14 block: broadcast + 1x1 + residual upsample block
+    label_broadcast_48_14 = tf.keras.layers.Lambda(lambda t: tf.broadcast_to(t[0], tf.shape(t[1])))([label_spatial_48, x])
+    x = tf.keras.layers.Concatenate(axis=-1)([x, label_broadcast_48_14])
+    x = tf.keras.layers.Conv2D(48, 1, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
+    skip14 = x
     x = tf.keras.layers.UpSampling2D(size=2, interpolation='nearest')(x)
     x = tf.keras.layers.Conv2D(48, 3, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = tf.keras.layers.LayerNormalization(center=False, scale=False)(x)
-    x = film(x, 48)
     x = tf.keras.layers.Activation("relu")(x)
+    x = film(x, 48)
+    x = tf.keras.layers.Add()([
+        x,
+        tf.keras.layers.Conv2D(48, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(
+            tf.keras.layers.UpSampling2D(size=2, interpolation='nearest')(skip14)
+        )
+    ])
+
     # 28x28: inject label as explicit spatial channels
     label_broadcast_48 = tf.keras.layers.Lambda(lambda t: tf.broadcast_to(t[0], tf.shape(t[1])))([label_spatial_48, x])
     x = tf.keras.layers.Concatenate(axis=-1)([x, label_broadcast_48])
     x = tf.keras.layers.Conv2D(48, 1, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = tf.keras.layers.LayerNormalization(center=False, scale=False)(x)
     x = film(x, 48)
-    skip14 = x
-    x = tf.keras.layers.Add()([
-        x,
-        tf.keras.layers.Conv2D(48, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(skip14)
-    ])
 
     x = tf.keras.layers.Dropout(DROPOUT)(x)
     x = tf.keras.layers.Conv2D(48, 3, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
@@ -530,7 +529,7 @@ def main():
         restore_best_weights=True
     )
     tensorboard_callback = tf.keras.callbacks.TensorBoard(
-        log_dir=str(Path(__file__).parent / "logs" / "train_cvae1"),
+        log_dir=str(Path(__file__).parent / "logs" / "train_cvae2"),
         histogram_freq=1,
         write_graph=True,
         update_freq="epoch",

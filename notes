@@ -132,3 +132,14 @@ Loading generator (/home/n/data/l/python/tf/cvae3_generator.onnx)...
   Class digit_5: 41.2% correct (2060/5000), avg confidence: 81.3%
   Class digit_6: 24.8% correct (1239/5000), avg confidence: 76.0%
   Class low_conf: 14.1% correct (707/5000), avg confidence: 50.1%
+
+  Class 0: 18.4% correctly classified (920/5000), avg confidence: 84.1%
+  Class 1: 72.8% correctly classified (3638/5000), avg confidence: 89.6%
+  Class 2: 13.1% correctly classified (655/5000), avg confidence: 76.6%
+  Class 3: 18.6% correctly classified (931/5000), avg confidence: 62.5%
+  Class 4: 45.1% correctly classified (2255/5000), avg confidence: 76.0%
+  Class 5: 63.7% correctly classified (3183/5000), avg confidence: 83.9%
+  Class 6: 23.2% correctly classified (1159/5000), avg confidence: 51.9%
+
+Done!
+(tf) $ gam "latent post"
