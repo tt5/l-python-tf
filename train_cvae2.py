@@ -26,9 +26,9 @@ args, _ = parser.parse_known_args()
 PBM_DIR = args.data_dir
 
 # ─── Hyperparameters ──────────────────────────────────────────────
-LATENT_DIM = 128
+LATENT_DIM = 256
 EPOCHS = 90
-BATCH_SIZE = 128
+BATCH_SIZE = 64
 NUM_CLASSES = None  # derived from data + low_conf
 TARGET_SIZE = 28
 LOW_CONF_THRESHOLD = 0.6
@@ -529,7 +529,7 @@ def main():
         restore_best_weights=True
     )
     tensorboard_callback = tf.keras.callbacks.TensorBoard(
-        log_dir=str(Path(__file__).parent / "logs" / "train_cvae2"),
+        log_dir=str(Path(__file__).parent / "logs" / "train_cvae1"),
         histogram_freq=1,
         write_graph=True,
         update_freq="epoch",
