@@ -41,7 +41,7 @@ LEARNING_RATE = 0.002
 LR_WARMUP_EPOCHS = 5
 LR_START = 0.0
 LR_DECAY_EPOCHS = 80
-LR_END = 0.000035
+LR_END = 0.000037
 L2_REG = 0.00001
 KL_FREE_BITS = 0.0
 DROPOUT = 0.25
@@ -231,7 +231,8 @@ def build_generator():
         return tf.keras.layers.Add()([x, b])
 
     # Concatenate latent and label for initial expansion
-    x = tf.keras.layers.Concatenate()([latent_input, label_emb])
+    z = tf.keras.layers.Dense(64, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(latent_input)
+    x = tf.keras.layers.Concatenate()([z, label_emb])
     x = tf.keras.layers.Dense(7 * 7 * 96, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = tf.keras.layers.Reshape((7, 7, 96))(x)
     x = film(x, 96)
