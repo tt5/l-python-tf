@@ -29,7 +29,6 @@ PBM_DIR = args.data_dir
 LATENT_DIM = 64
 EPOCHS = 90
 BATCH_SIZE = 128
-LEARNING_RATE = 0.002
 NUM_CLASSES = None  # derived from data + low_conf
 TARGET_SIZE = 28
 LOW_CONF_THRESHOLD = 0.6
@@ -38,20 +37,22 @@ KL_START_WEIGHT = 0.1
 KL_WEIGHT = 0.5
 KL_DECAY_EPOCHS = EPOCHS // 2
 KL_WEIGHT_END = 0.1
+LEARNING_RATE = 0.002
 LR_WARMUP_EPOCHS = 5
 LR_START = 0.0
 LR_DECAY_EPOCHS = 80
 LR_END = 0.000035
 L2_REG = 0.00001
 KL_FREE_BITS = 0.05
-DROPOUT = 0.2
+DROPOUT = 0.25
 AUGMENT = True
 RECON_LOSS_WEIGHT = 0.5
+PERCEPTUAL_COARSE_WEIGHT = 4.0
 PERCEPTUAL_WARMUP_EPOCHS = 2
 PERCEPTUAL_START_WEIGHT = 0.0
 PERCEPTUAL_PEAK_WEIGHT = 16
 PERCEPTUAL_DECAY_EPOCHS = 30
-PERCEPTUAL_END_WEIGHT = 2
+PERCEPTUAL_END_WEIGHT = 4
 PERCEPTUAL_EXTRACTOR_PATH = Path(__file__).parent / "mnist2_model"
 
 def load_pbm(path):
@@ -225,46 +226,66 @@ def build_generator():
         x = tf.keras.layers.Multiply()([features, g])
         return tf.keras.layers.Add()([x, b])
 
+    # Concatenate latent and label for initial expansion
     x = tf.keras.layers.Concatenate()([latent_input, label_emb])
     x = tf.keras.layers.Dense(7 * 7 * 64, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = tf.keras.layers.Reshape((7, 7, 64))(x)
     x = film(x, 64)
 
-    # Inject label into spatial features
-    label_spatial = tf.keras.layers.Dense(64, activation=None, kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(label_emb)
-    label_spatial = tf.keras.layers.Reshape((1, 1, 64))(label_spatial)
-    x = tf.keras.layers.Add()([x, label_spatial])
+    # Broadcast label for concatenation at every scale
+    label_spatial_64 = tf.keras.layers.Reshape((1, 1, 64))(tf.keras.layers.Dense(64, activation=None, kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(label_emb))
+    label_spatial_32 = tf.keras.layers.Reshape((1, 1, 32))(tf.keras.layers.Dense(32, activation=None, kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(label_emb))
 
+    # 7x7: inject label as explicit spatial channels
+    label_broadcast_64 = tf.keras.layers.Lambda(lambda t: tf.broadcast_to(t[0], tf.shape(t[1])))([label_spatial_64, x])
+    x = tf.keras.layers.Concatenate(axis=-1)([x, label_broadcast_64])
+    x = tf.keras.layers.Conv2D(64, 1, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
+
+    # 7x7 -> 14x14
     x = tf.keras.layers.Conv2DTranspose(64, 3, strides=2, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = tf.keras.layers.LayerNormalization()(x)
     x = tf.keras.layers.Activation("relu")(x)
+    # 14x14: inject label as explicit spatial channels
+    label_broadcast_64_14 = tf.keras.layers.Lambda(lambda t: tf.broadcast_to(t[0], tf.shape(t[1])))([label_spatial_64, x])
+    x = tf.keras.layers.Concatenate(axis=-1)([x, label_broadcast_64_14])
+    x = tf.keras.layers.Conv2D(64, 1, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = film(x, 64)
+
+    # 14x14 -> 28x28
     x = tf.keras.layers.Conv2DTranspose(32, 3, strides=2, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = tf.keras.layers.LayerNormalization()(x)
     x = tf.keras.layers.Activation("relu")(x)
+    # 28x28: inject label as explicit spatial channels
+    label_broadcast_32 = tf.keras.layers.Lambda(lambda t: tf.broadcast_to(t[0], tf.shape(t[1])))([label_spatial_32, x])
+    x = tf.keras.layers.Concatenate(axis=-1)([x, label_broadcast_32])
+    x = tf.keras.layers.Conv2D(32, 1, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = film(x, 32)
+
     x = tf.keras.layers.Dropout(DROPOUT)(x)
-    x = tf.keras.layers.Conv2D(1, 3, padding="same", activation="sigmoid")(x)
+    x = tf.keras.layers.Conv2D(1, 1, padding="same", activation="sigmoid")(x)
 
     return tf.keras.Model([latent_input, label_input], x, name="generator")
 
 # ─── CVAE ────────────────────────────────────────────────────────
 class CVAE(tf.keras.Model):
-    def __init__(self, encoder, generator, perceptual_extractor=None, **kwargs):
+    def __init__(self, encoder, generator, perceptual_extractor=None, perceptual_coarse_extractor=None, **kwargs):
         super().__init__(**kwargs)
         self.encoder = encoder
         self.generator = generator
         self.perceptual_extractor = perceptual_extractor
+        self.perceptual_coarse_extractor = perceptual_coarse_extractor
         self.total_loss_tracker = tf.keras.metrics.Mean(name="total_loss")
         self.recon_loss_tracker = tf.keras.metrics.Mean(name="recon_loss")
         self.kl_loss_tracker = tf.keras.metrics.Mean(name="kl_loss")
         self.perceptual_loss_tracker = tf.keras.metrics.Mean(name="perceptual_loss")
+        self.perceptual_coarse_loss_tracker = tf.keras.metrics.Mean(name="perceptual_coarse_loss")
         self.kl_weight = 0.0
         self.perceptual_weight = float(PERCEPTUAL_PEAK_WEIGHT)
+        self.perceptual_coarse_weight = float(PERCEPTUAL_COARSE_WEIGHT)
 
     @property
     def metrics(self):
-        return [self.total_loss_tracker, self.recon_loss_tracker, self.kl_loss_tracker, self.perceptual_loss_tracker]
+        return [self.total_loss_tracker, self.recon_loss_tracker, self.kl_loss_tracker, self.perceptual_loss_tracker, self.perceptual_coarse_loss_tracker]
 
     def train_step(self, data):
         images, labels = data
@@ -295,14 +316,21 @@ class CVAE(tf.keras.Model):
             kl_loss = tf.reduce_mean(tf.reduce_sum(kl_per_dim, axis=1))
 
             perceptual_loss = 0.0
+            perceptual_coarse_loss = 0.0
             if self.perceptual_extractor is not None:
                 real_input = tf.squeeze(images, -1)
                 fake_input = tf.squeeze(reconstruction, -1)
                 real_feats = self.perceptual_extractor(real_input, training=False)
                 fake_feats = self.perceptual_extractor(fake_input, training=False)
                 perceptual_loss = tf.reduce_mean(tf.reduce_sum(tf.square(real_feats - fake_feats), axis=-1))
+            if self.perceptual_coarse_extractor is not None:
+                real_input = tf.squeeze(images, -1)
+                fake_input = tf.squeeze(reconstruction, -1)
+                real_coarse = self.perceptual_coarse_extractor(real_input, training=False)
+                fake_coarse = self.perceptual_coarse_extractor(fake_input, training=False)
+                perceptual_coarse_loss = tf.reduce_mean(tf.reduce_sum(tf.square(real_coarse - fake_coarse), axis=-1))
 
-            total_loss = (RECON_LOSS_WEIGHT * recon_loss) + (float(self.perceptual_weight) * perceptual_loss) + (float(self.kl_weight) * kl_loss)
+            total_loss = (RECON_LOSS_WEIGHT * recon_loss) + (float(self.perceptual_weight) * perceptual_loss) + (float(self.perceptual_coarse_weight) * perceptual_coarse_loss) + (float(self.kl_weight) * kl_loss)
 
         grads = tape.gradient(total_loss, self.trainable_weights)
         self.optimizer.apply_gradients(zip(grads, self.trainable_weights))
@@ -330,19 +358,27 @@ class CVAE(tf.keras.Model):
         kl_loss = tf.reduce_mean(tf.reduce_sum(kl_per_dim, axis=1))
 
         perceptual_loss = 0.0
+        perceptual_coarse_loss = 0.0
         if self.perceptual_extractor is not None:
             real_input = tf.squeeze(images, -1)
             fake_input = tf.squeeze(reconstruction, -1)
             real_feats = self.perceptual_extractor(real_input, training=False)
             fake_feats = self.perceptual_extractor(fake_input, training=False)
             perceptual_loss = tf.reduce_mean(tf.reduce_sum(tf.square(real_feats - fake_feats), axis=-1))
+        if self.perceptual_coarse_extractor is not None:
+            real_input = tf.squeeze(images, -1)
+            fake_input = tf.squeeze(reconstruction, -1)
+            real_coarse = self.perceptual_coarse_extractor(real_input, training=False)
+            fake_coarse = self.perceptual_coarse_extractor(fake_input, training=False)
+            perceptual_coarse_loss = tf.reduce_mean(tf.reduce_sum(tf.square(real_coarse - fake_coarse), axis=-1))
 
-        total_loss = (RECON_LOSS_WEIGHT * recon_loss) + (float(self.perceptual_weight) * perceptual_loss) + (float(self.kl_weight) * kl_loss)
+        total_loss = (RECON_LOSS_WEIGHT * recon_loss) + (float(self.perceptual_weight) * perceptual_loss) + (float(self.perceptual_coarse_weight) * perceptual_coarse_loss) + (float(self.kl_weight) * kl_loss)
 
         self.total_loss_tracker.update_state(total_loss)
         self.recon_loss_tracker.update_state(recon_loss)
         self.kl_loss_tracker.update_state(kl_loss)
         self.perceptual_loss_tracker.update_state(perceptual_loss)
+        self.perceptual_coarse_loss_tracker.update_state(perceptual_coarse_loss)
 
         return {m.name: m.result() for m in self.metrics}
 
@@ -355,16 +391,20 @@ class CVAE(tf.keras.Model):
 
 
 def build_perceptual_extractor():
-    """Load frozen mnist2 classifier and build a sub-model to conv feature maps."""
+    """Load frozen mnist2 classifier and build fine and coarse conv feature extractors."""
     base = tf.keras.models.load_model(str(PERCEPTUAL_EXTRACTOR_PATH), compile=False)
     base.trainable = False
 
     conv_layers = [layer for layer in base.layers if isinstance(layer, tf.keras.layers.Conv2D)]
-    target_layer = conv_layers[-1].output
+    fine_layer = conv_layers[-1].output
+    coarse_layer = conv_layers[-2].output
 
-    gap = tf.keras.layers.GlobalAveragePooling2D()(target_layer)
-    model = tf.keras.Model(inputs=base.input, outputs=gap, name="perceptual_extractor")
-    return model
+    gap_fine = tf.keras.layers.GlobalAveragePooling2D()(fine_layer)
+    gap_coarse = tf.keras.layers.GlobalAveragePooling2D()(coarse_layer)
+
+    fine_extractor = tf.keras.Model(inputs=base.input, outputs=gap_fine, name="perceptual_extractor_fine")
+    coarse_extractor = tf.keras.Model(inputs=base.input, outputs=gap_coarse, name="perceptual_extractor_coarse")
+    return fine_extractor, coarse_extractor
 
 
 class KLWarmup(tf.keras.callbacks.Callback):
@@ -432,8 +472,8 @@ def main():
 
     encoder = build_encoder()
     generator = build_generator()
-    perceptual_extractor = build_perceptual_extractor()
-    cvae = CVAE(encoder, generator, perceptual_extractor=perceptual_extractor)
+    perceptual_extractor, perceptual_coarse_extractor = build_perceptual_extractor()
+    cvae = CVAE(encoder, generator, perceptual_extractor=perceptual_extractor, perceptual_coarse_extractor=perceptual_coarse_extractor)
     cvae.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=LEARNING_RATE, clipnorm=1.0))
 
     print("Encoder summary:")
@@ -448,7 +488,7 @@ def main():
         restore_best_weights=True
     )
     tensorboard_callback = tf.keras.callbacks.TensorBoard(
-        log_dir=str(Path(__file__).parent / "logs" / "train_cvae1"),
+        log_dir=str(Path(__file__).parent / "logs" / "train_cvae2"),
         histogram_freq=1,
         write_graph=True,
         update_freq="epoch",

@@ -14,6 +14,7 @@ import argparse
 import numpy as np
 from pathlib import Path
 import onnxruntime as ort
+import tensorflow as tf
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 DEFAULT_PBM_DIR = SCRIPT_DIR.parent.parent / "telephonegame" / "data" / "pbm_test"
@@ -189,10 +190,12 @@ def main():
             [cls_output_name],
             {cls_input_name: gen_images.reshape(-1, TARGET_SIZE, TARGET_SIZE)}
         )[0]
-        preds = raw.argmax(axis=1)
+        probs = tf.nn.softmax(raw, axis=-1).numpy()
+        preds = probs.argmax(axis=1)
         correct = preds == c
         accuracy = correct.mean()
-        print(f"  Class {c}: {accuracy*100:.1f}% correctly classified ({int(correct.sum())}/{SAMPLES_PER_CLASS})")
+        conf = float(probs[correct, c].mean()) if correct.any() else 0.0
+        print(f"  Class {c}: {accuracy*100:.1f}% correctly classified ({int(correct.sum())}/{SAMPLES_PER_CLASS}), avg confidence: {conf*100:.1f}%")
 
     print("\nDone!")
 
