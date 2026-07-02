@@ -244,6 +244,7 @@ def build_generator():
     label_broadcast_96 = tf.keras.layers.Lambda(lambda t: tf.broadcast_to(t[0], tf.shape(t[1])))([label_spatial_96, x])
     x = tf.keras.layers.Concatenate(axis=-1)([x, label_broadcast_96])
     x = tf.keras.layers.Conv2D(96, 1, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
+    skip7 = x
 
     # 7x7 -> 14x14
     x = tf.keras.layers.UpSampling2D(size=2, interpolation='nearest')(x)
@@ -256,6 +257,12 @@ def build_generator():
     x = tf.keras.layers.Concatenate(axis=-1)([x, label_broadcast_48_14])
     x = tf.keras.layers.Conv2D(48, 1, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = film(x, 48)
+    x = tf.keras.layers.Add()([
+        x,
+        tf.keras.layers.Conv2D(48, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(
+            tf.keras.layers.UpSampling2D(size=2, interpolation='nearest')(skip7)
+        )
+    ])
 
     # 14x14 -> 28x28
     x = tf.keras.layers.UpSampling2D(size=2, interpolation='nearest')(x)
@@ -268,6 +275,13 @@ def build_generator():
     x = tf.keras.layers.Concatenate(axis=-1)([x, label_broadcast_48])
     x = tf.keras.layers.Conv2D(48, 1, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = film(x, 48)
+    skip14 = x
+    x = tf.keras.layers.Add()([
+        x,
+        tf.keras.layers.Conv2D(48, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(
+            tf.keras.layers.UpSampling2D(size=2, interpolation='nearest')(skip14)
+        )
+    ])
 
     x = tf.keras.layers.Dropout(DROPOUT)(x)
     x = tf.keras.layers.Conv2D(48, 3, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
