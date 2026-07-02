@@ -47,10 +47,13 @@ KL_FREE_BITS = 0.05
 DROPOUT = 0.25
 AUGMENT = True
 RECON_LOSS_WEIGHT = 0.5
+PERCEPTUAL_FINE_WEIGHT = 0.0
 PERCEPTUAL_COARSE_WEIGHT = 4.0
+PERCEPTUAL_MULTISCALE = True
+PERCEPTUAL_WEIGHTS = [PERCEPTUAL_FINE_WEIGHT, PERCEPTUAL_COARSE_WEIGHT]
 PERCEPTUAL_WARMUP_EPOCHS = 2
 PERCEPTUAL_START_WEIGHT = 0.0
-PERCEPTUAL_PEAK_WEIGHT = 16
+PERCEPTUAL_PEAK_WEIGHT = 20
 PERCEPTUAL_DECAY_EPOCHS = 30
 PERCEPTUAL_END_WEIGHT = 4
 PERCEPTUAL_EXTRACTOR_PATH = Path(__file__).parent / "mnist2_model"
@@ -315,22 +318,28 @@ class CVAE(tf.keras.Model):
             kl_per_dim = tf.maximum(kl_per_dim, KL_FREE_BITS)
             kl_loss = tf.reduce_mean(tf.reduce_sum(kl_per_dim, axis=1))
 
-            perceptual_loss = 0.0
-            perceptual_coarse_loss = 0.0
+            perceptual_loss_fine = 0.0
             if self.perceptual_extractor is not None:
                 real_input = tf.squeeze(images, -1)
                 fake_input = tf.squeeze(reconstruction, -1)
                 real_feats = self.perceptual_extractor(real_input, training=False)
                 fake_feats = self.perceptual_extractor(fake_input, training=False)
-                perceptual_loss = tf.reduce_mean(tf.reduce_sum(tf.square(real_feats - fake_feats), axis=-1))
+                perceptual_loss_fine = tf.reduce_mean(tf.reduce_sum(tf.square(real_feats - fake_feats), axis=-1))
+
+            perceptual_loss_coarse = 0.0
             if self.perceptual_coarse_extractor is not None:
                 real_input = tf.squeeze(images, -1)
                 fake_input = tf.squeeze(reconstruction, -1)
                 real_coarse = self.perceptual_coarse_extractor(real_input, training=False)
                 fake_coarse = self.perceptual_coarse_extractor(fake_input, training=False)
-                perceptual_coarse_loss = tf.reduce_mean(tf.reduce_sum(tf.square(real_coarse - fake_coarse), axis=-1))
+                perceptual_loss_coarse = tf.reduce_mean(tf.reduce_sum(tf.square(real_coarse - fake_coarse), axis=-1))
 
-            total_loss = (RECON_LOSS_WEIGHT * recon_loss) + (float(self.perceptual_weight) * perceptual_loss) + (float(self.perceptual_coarse_weight) * perceptual_coarse_loss) + (float(self.kl_weight) * kl_loss)
+            if PERCEPTUAL_MULTISCALE:
+                perceptual_loss = PERCEPTUAL_WEIGHTS[0] * perceptual_loss_fine + PERCEPTUAL_WEIGHTS[1] * perceptual_loss_coarse
+            else:
+                perceptual_loss = perceptual_loss_fine + perceptual_loss_coarse
+
+            total_loss = (RECON_LOSS_WEIGHT * recon_loss) + (float(self.perceptual_weight) * perceptual_loss) + (float(self.kl_weight) * kl_loss)
 
         grads = tape.gradient(total_loss, self.trainable_weights)
         self.optimizer.apply_gradients(zip(grads, self.trainable_weights))
@@ -339,6 +348,7 @@ class CVAE(tf.keras.Model):
         self.recon_loss_tracker.update_state(recon_loss)
         self.kl_loss_tracker.update_state(kl_loss)
         self.perceptual_loss_tracker.update_state(perceptual_loss)
+        self.perceptual_coarse_loss_tracker.update_state(perceptual_loss_coarse)
 
         return {m.name: m.result() for m in self.metrics}
 
@@ -364,15 +374,25 @@ class CVAE(tf.keras.Model):
             fake_input = tf.squeeze(reconstruction, -1)
             real_feats = self.perceptual_extractor(real_input, training=False)
             fake_feats = self.perceptual_extractor(fake_input, training=False)
-            perceptual_loss = tf.reduce_mean(tf.reduce_sum(tf.square(real_feats - fake_feats), axis=-1))
+            perceptual_loss_fine = tf.reduce_mean(tf.reduce_sum(tf.square(real_feats - fake_feats), axis=-1))
+        else:
+            perceptual_loss_fine = tf.constant(0.0)
+
         if self.perceptual_coarse_extractor is not None:
             real_input = tf.squeeze(images, -1)
             fake_input = tf.squeeze(reconstruction, -1)
             real_coarse = self.perceptual_coarse_extractor(real_input, training=False)
             fake_coarse = self.perceptual_coarse_extractor(fake_input, training=False)
-            perceptual_coarse_loss = tf.reduce_mean(tf.reduce_sum(tf.square(real_coarse - fake_coarse), axis=-1))
+            perceptual_loss_coarse = tf.reduce_mean(tf.reduce_sum(tf.square(real_coarse - fake_coarse), axis=-1))
+        else:
+            perceptual_loss_coarse = tf.constant(0.0)
 
-        total_loss = (RECON_LOSS_WEIGHT * recon_loss) + (float(self.perceptual_weight) * perceptual_loss) + (float(self.perceptual_coarse_weight) * perceptual_coarse_loss) + (float(self.kl_weight) * kl_loss)
+        if PERCEPTUAL_MULTISCALE:
+            perceptual_loss = PERCEPTUAL_WEIGHTS[0] * perceptual_loss_fine + PERCEPTUAL_WEIGHTS[1] * perceptual_loss_coarse
+        else:
+            perceptual_loss = perceptual_loss_fine + perceptual_loss_coarse
+
+        total_loss = (RECON_LOSS_WEIGHT * recon_loss) + (float(self.perceptual_weight) * perceptual_loss) + (float(self.kl_weight) * kl_loss)
 
         self.total_loss_tracker.update_state(total_loss)
         self.recon_loss_tracker.update_state(recon_loss)
