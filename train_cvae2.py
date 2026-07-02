@@ -27,7 +27,7 @@ PBM_DIR = args.data_dir
 
 # ─── Hyperparameters ──────────────────────────────────────────────
 LATENT_DIM = 64
-EPOCHS = 50
+EPOCHS = 70
 BATCH_SIZE = 128
 LEARNING_RATE = 0.002
 NUM_CLASSES = None  # derived from data + low_conf
@@ -39,14 +39,16 @@ KL_DECAY_EPOCHS = EPOCHS // 2
 KL_WEIGHT_END = 0.1
 LR_WARMUP_EPOCHS = 5
 LR_START = 0.0
-LR_DECAY_EPOCHS = EPOCHS - EPOCHS // 4
+LR_DECAY_EPOCHS = 50
 LR_END = 0.00005
 L2_REG = 0.00001
 KL_FREE_BITS = 0.05
 DROPOUT = 0.2
 AUGMENT = True
 RECON_LOSS_WEIGHT = 0.5
-PERCEPTUAL_LOSS_WEIGHT = 0.5
+PERCEPTUAL_WARMUP_EPOCHS = 2
+PERCEPTUAL_START_WEIGHT = 0.0
+PERCEPTUAL_PEAK_WEIGHT = 16
 PERCEPTUAL_EXTRACTOR_PATH = Path(__file__).parent / "mnist2_model"
 
 def load_pbm(path):
@@ -254,6 +256,7 @@ class CVAE(tf.keras.Model):
         self.kl_loss_tracker = tf.keras.metrics.Mean(name="kl_loss")
         self.perceptual_loss_tracker = tf.keras.metrics.Mean(name="perceptual_loss")
         self.kl_weight = 0.0
+        self.perceptual_weight = float(PERCEPTUAL_PEAK_WEIGHT)
 
     @property
     def metrics(self):
@@ -295,7 +298,7 @@ class CVAE(tf.keras.Model):
                 fake_feats = self.perceptual_extractor(fake_input, training=False)
                 perceptual_loss = tf.reduce_mean(tf.reduce_sum(tf.square(real_feats - fake_feats), axis=-1))
 
-            total_loss = (RECON_LOSS_WEIGHT * recon_loss) + (PERCEPTUAL_LOSS_WEIGHT * perceptual_loss) + (float(self.kl_weight) * kl_loss)
+            total_loss = (RECON_LOSS_WEIGHT * recon_loss) + (float(self.perceptual_weight) * perceptual_loss) + (float(self.kl_weight) * kl_loss)
 
         grads = tape.gradient(total_loss, self.trainable_weights)
         self.optimizer.apply_gradients(zip(grads, self.trainable_weights))
@@ -330,7 +333,7 @@ class CVAE(tf.keras.Model):
             fake_feats = self.perceptual_extractor(fake_input, training=False)
             perceptual_loss = tf.reduce_mean(tf.reduce_sum(tf.square(real_feats - fake_feats), axis=-1))
 
-        total_loss = (RECON_LOSS_WEIGHT * recon_loss) + (PERCEPTUAL_LOSS_WEIGHT * perceptual_loss) + (float(self.kl_weight) * kl_loss)
+        total_loss = (RECON_LOSS_WEIGHT * recon_loss) + (float(self.perceptual_weight) * perceptual_loss) + (float(self.kl_weight) * kl_loss)
 
         self.total_loss_tracker.update_state(total_loss)
         self.recon_loss_tracker.update_state(recon_loss)
@@ -379,6 +382,21 @@ class KLWarmup(tf.keras.callbacks.Callback):
         self.cvae.kl_weight = float(weight)
 
 
+class PerceptualWarmup(tf.keras.callbacks.Callback):
+    def __init__(self, cvae, warmup_epochs, start_weight, peak_weight):
+        self.cvae = cvae
+        self.warmup_epochs = warmup_epochs
+        self.start_weight = start_weight
+        self.peak_weight = peak_weight
+
+    def on_epoch_begin(self, epoch, logs=None):
+        if epoch < self.warmup_epochs:
+            weight = self.start_weight + (self.peak_weight - self.start_weight) * (epoch / max(1, self.warmup_epochs - 1))
+        else:
+            weight = self.peak_weight
+        self.cvae.perceptual_weight = float(weight)
+
+
 class LRWarmup(tf.keras.callbacks.Callback):
     def __init__(self, lr_start, lr_peak, warmup_epochs, lr_end, decay_epochs):
         self.lr_start = lr_start
@@ -416,7 +434,7 @@ def main():
     print(f"\nTraining CVAE for {EPOCHS} epochs...")
     early_stopping = tf.keras.callbacks.EarlyStopping(
         monitor='val_total_loss',
-        patience=8,
+        patience=15,
         restore_best_weights=True
     )
     tensorboard_callback = tf.keras.callbacks.TensorBoard(
@@ -427,12 +445,13 @@ def main():
     )
     kl_warmup = KLWarmup(cvae, warmup_epochs=KL_WARMUP_EPOCHS, kl_weight_final=KL_WEIGHT, decay_epochs=KL_DECAY_EPOCHS, kl_weight_end=KL_WEIGHT_END)
     lr_warmup = LRWarmup(lr_start=LR_START, lr_peak=LEARNING_RATE, warmup_epochs=LR_WARMUP_EPOCHS, lr_end=LR_END, decay_epochs=LR_DECAY_EPOCHS)
+    perceptual_warmup = PerceptualWarmup(cvae, warmup_epochs=PERCEPTUAL_WARMUP_EPOCHS, start_weight=PERCEPTUAL_START_WEIGHT, peak_weight=PERCEPTUAL_PEAK_WEIGHT)
     cvae.fit(
         x_train, y_train,
         validation_data=(x_test, y_test),
         epochs=EPOCHS,
         batch_size=BATCH_SIZE,
-        callbacks=[early_stopping, tensorboard_callback, kl_warmup, lr_warmup],
+        callbacks=[early_stopping, tensorboard_callback, kl_warmup, lr_warmup, perceptual_warmup],
     )
 
     # ─── Save as ONNX ──────────────────────────────────────────────
