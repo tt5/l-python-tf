@@ -40,7 +40,7 @@ KL_DECAY_EPOCHS = EPOCHS // 2
 KL_WEIGHT_END = 0.1
 LR_WARMUP_EPOCHS = 5
 LR_START = 0.0
-LR_DECAY_EPOCHS = 50
+LR_DECAY_EPOCHS = 70
 LR_END = 0.00005
 L2_REG = 0.00001
 KL_FREE_BITS = 0.05
@@ -170,6 +170,7 @@ def build_encoder():
     x = tf.keras.layers.LayerNormalization()(x)
     x = tf.keras.layers.Add()([x, x_res])
     x = tf.keras.layers.Activation("relu")(x)
+    x = tf.keras.layers.Dropout(DROPOUT)(x)
     # SE block
     se = tf.keras.layers.GlobalAveragePooling2D()(x)
     se = tf.keras.layers.Dense(64 // 4, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(se)
@@ -447,7 +448,7 @@ def main():
         restore_best_weights=True
     )
     tensorboard_callback = tf.keras.callbacks.TensorBoard(
-        log_dir=str(Path(__file__).parent / "logs" / "train_cvae2"),
+        log_dir=str(Path(__file__).parent / "logs" / "train_cvae1"),
         histogram_freq=1,
         write_graph=True,
         update_freq="epoch",
