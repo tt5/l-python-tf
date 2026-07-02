@@ -36,7 +36,7 @@ KL_WARMUP_EPOCHS = 2
 KL_START_WEIGHT = 0.1
 KL_WEIGHT = 0.45
 KL_DECAY_EPOCHS = EPOCHS // 2
-KL_WEIGHT_END = 0.05
+KL_WEIGHT_END = 0.04
 LEARNING_RATE = 0.002
 LR_WARMUP_EPOCHS = 5
 LR_START = 0.0
@@ -46,16 +46,16 @@ L2_REG = 0.00001
 KL_FREE_BITS = 0.0
 DROPOUT = 0.25
 AUGMENT = True
-RECON_LOSS_WEIGHT = 0.4
-PERCEPTUAL_FINE_WEIGHT = 40.0
+RECON_LOSS_WEIGHT = 0.35
+PERCEPTUAL_FINE_WEIGHT = 50.0
 PERCEPTUAL_COARSE_WEIGHT = 1.0
 PERCEPTUAL_MULTISCALE = True
 PERCEPTUAL_WEIGHTS = [PERCEPTUAL_FINE_WEIGHT, PERCEPTUAL_COARSE_WEIGHT]
-PERCEPTUAL_WARMUP_EPOCHS = 2
+PERCEPTUAL_WARMUP_EPOCHS = 3
 PERCEPTUAL_START_WEIGHT = 0.1
-PERCEPTUAL_PEAK_WEIGHT = 18
+PERCEPTUAL_PEAK_WEIGHT = 16
 PERCEPTUAL_DECAY_EPOCHS = 40
-PERCEPTUAL_END_WEIGHT = 2
+PERCEPTUAL_END_WEIGHT = 1
 PERCEPTUAL_EXTRACTOR_PATH = Path(__file__).parent / "mnist2_model"
 
 def load_pbm(path):
@@ -529,7 +529,7 @@ def main():
         restore_best_weights=True
     )
     tensorboard_callback = tf.keras.callbacks.TensorBoard(
-        log_dir=str(Path(__file__).parent / "logs" / "train_cvae2"),
+        log_dir=str(Path(__file__).parent / "logs" / "train_cvae1"),
         histogram_freq=1,
         write_graph=True,
         update_freq="epoch",
