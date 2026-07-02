@@ -107,3 +107,28 @@ Data: 18. Curriculum learning — Start with easy classes, gradually add harder 
   Class 4: 34.9% correctly classified (1746/5000)
   Class 5: 64.7% correctly classified (3236/5000)
   Class 6: 12.2% correctly classified (608/5000)
+
+─── Per-class accuracy ───
+  Class digit_0: 373/374 = 99.7%
+  Class digit_1: 334/368 = 90.8%
+  Class digit_2: 368/371 = 99.2%
+  Class digit_3: 325/348 = 93.4%
+  Class digit_4: 339/371 = 91.4%
+  Class digit_5: 355/368 = 96.5%
+  Class digit_6: 284/357 = 79.6%
+  Class low_conf: 53/429 = 12.4%
+
+Overall accuracy: 2431/2986 = 81.4%
+
+─── Generation quality (5000 per class) ───
+Loading generator (/home/n/data/l/python/tf/cvae3_generator.onnx)...
+  Latent dim: 64
+  Conditioning input: label_input
+  Class digit_0: 24.5% correct (1224/5000), avg confidence: 76.1%
+  Class digit_1: 59.4% correct (2971/5000), avg confidence: 94.7%
+  Class digit_2: 38.5% correct (1926/5000), avg confidence: 90.1%
+  Class digit_3: 31.6% correct (1579/5000), avg confidence: 75.8%
+  Class digit_4: 50.4% correct (2519/5000), avg confidence: 86.7%
+  Class digit_5: 41.2% correct (2060/5000), avg confidence: 81.3%
+  Class digit_6: 24.8% correct (1239/5000), avg confidence: 76.0%
+  Class low_conf: 14.1% correct (707/5000), avg confidence: 50.1%

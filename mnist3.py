@@ -5,8 +5,9 @@ Train a classifier on 22x22 binary PBM images from data/pbm2/.
 Upscales to 28x28 using nearest-neighbor (same as pbm_utils.upscale),
 binarizes, and trains a 12-class classifier.
 
-Labels 0-10: predicted digit from filename
-Label 11: low confidence (confidence < 0.6)
+Labels 0-9: predicted digit from filename
+Label 10: low confidence (confidence < 0.6)
+Label 11: low confidence 2 (confidence < 0.6 variant)
 
 Usage:
     /home/n/miniconda3/envs/tf/bin/python mnist3.py
@@ -15,10 +16,28 @@ Usage:
 import argparse
 import tensorflow as tf
 import numpy as np
-import sys
 from pathlib import Path
 
+try:
+    from tensorflow_addons.optimizers import AdamW
+except Exception:
+    class AdamW(tf.keras.optimizers.Adam):
+        def __init__(self, weight_decay=0.0, **kwargs):
+            super().__init__(**kwargs)
+            self.weight_decay = weight_decay
+
+        def _resource_apply_dense(self, grad, var, apply_state=None):
+            if self.weight_decay > 0:
+                grad = grad + self.weight_decay * var
+            return super()._resource_apply_dense(grad, var, apply_state=apply_state)
+
+        def _resource_apply_sparse(self, grad, var, indices, apply_state=None):
+            if self.weight_decay > 0:
+                grad = grad + tf.gather(self.weight_decay * var, indices)
+            return super()._resource_apply_sparse(grad, var, indices, apply_state=apply_state)
+
 DEFAULT_PBM_DIR = Path(__file__).resolve().parent / "../../telephonegame/data/pbm2"
+TB_LOG_DIR = Path(__file__).resolve().parent / "logs" / "mnist3"
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--data-dir", type=Path, default=DEFAULT_PBM_DIR, help="PBM data directory")
@@ -28,6 +47,45 @@ IMG_SIZE = 22
 TARGET_SIZE = 28
 LOW_CONF_THRESHOLD = 0.6
 EPOCHS = 20
+DROPOUT = 0.3
+BASE_LR = 1e-3
+WARMUP_EPOCHS = 2
+DECAY_EPOCHS = 10
+LR_START = 1e-4
+LR_END = 1e-5
+POLY_EPSILON = 2
+
+
+def poly_loss(labels, logits, epsilon=None):
+    """CE + 0.25 * (1 - p_t)^2."""
+    if epsilon is None:
+        epsilon = POLY_EPSILON
+    ce = tf.keras.losses.sparse_categorical_crossentropy(labels, logits, from_logits=True)
+    probs = tf.nn.softmax(logits, axis=-1)
+    labels_one_hot = tf.one_hot(tf.cast(labels, tf.int32), depth=tf.shape(logits)[-1])
+    p_t = tf.reduce_sum(probs * labels_one_hot, axis=-1)
+    p_t = tf.clip_by_value(p_t, 1e-7, 1.0)
+    pt_loss = 0.25 * tf.pow(1.0 - p_t, 2)
+    return tf.reduce_mean(ce + epsilon * pt_loss)
+
+
+class LinearLRSchedule(tf.keras.callbacks.Callback):
+    def __init__(self, lr_start, lr_peak, lr_end, warmup_epochs, decay_epochs):
+        self.lr_start = lr_start
+        self.lr_peak = lr_peak
+        self.lr_end = lr_end
+        self.warmup_epochs = warmup_epochs
+        self.decay_epochs = decay_epochs
+
+    def on_epoch_begin(self, epoch, logs=None):
+        if epoch < self.warmup_epochs:
+            lr = self.lr_start + (self.lr_peak - self.lr_start) * (epoch / max(1, self.warmup_epochs - 1))
+        elif epoch < self.warmup_epochs + self.decay_epochs:
+            t = (epoch - self.warmup_epochs) / max(1, self.decay_epochs - 1)
+            lr = self.lr_peak + (self.lr_end - self.lr_peak) * t
+        else:
+            lr = self.lr_end
+        tf.keras.backend.set_value(self.model.optimizer.lr, float(lr))
 
 
 def load_pbm(path):
@@ -49,6 +107,7 @@ def load_pbm(path):
             grid[y, x] = 1.0 - bit  # invert: P4 black=1 -> white digit=1
     return grid
 
+
 def upscale(grid, dst_h, dst_w):
     """Nearest-neighbor block upscale (same as pbm_utils.upscale)."""
     src_h, src_w = grid.shape
@@ -63,6 +122,7 @@ def upscale(grid, dst_h, dst_w):
             c_end = min(c_start + base_w + (1 if c < extra_w else 0), dst_w)
             out[r_start:r_end, c_start:c_end] = grid[r, c]
     return out
+
 
 def main():
     files = sorted(PBM_DIR.glob("*.pbm"))
@@ -107,13 +167,12 @@ def main():
     print(f"\nLabel distribution (low_conf threshold={LOW_CONF_THRESHOLD}):")
     for c in range(NUM_CLASSES):
         count = np.sum(labels == c)
-        if c < NUM_CLASSES - 1:
-            name = f"digit_{c}"
-        elif c == NUM_CLASSES:
-            name = "low_conf"
+        if c < NUM_CLASSES:
+            name = f"{c}"
         else:
-            name = "low_conf_2"
+            name = "low_conf"
         print(f"  {name}: {count}")
+    print(f"  low_conf_count={low_conf_count}")
 
     # Shuffle
     np.random.seed(42)
@@ -127,18 +186,56 @@ def main():
     y_train, y_test = labels[:split], labels[split:]
     print(f"\nTrain: {len(x_train)}, Test: {len(x_test)}")
 
-    # Build model
-    model = tf.keras.models.Sequential([
-        tf.keras.layers.Flatten(input_shape=(TARGET_SIZE, TARGET_SIZE)),
-        tf.keras.layers.Dense(256, activation='relu'),
-        tf.keras.layers.Dropout(0.3),
-        tf.keras.layers.Dense(128, activation='relu'),
-        tf.keras.layers.Dropout(0.3),
-        tf.keras.layers.Dense(NUM_CLASSES)
-    ])
+    # ─── Data augmentation: rotations + transpose ──────────────────
+    def augment_batch(batch):
+        rot90 = np.rot90(batch, k=1, axes=(1, 2))
+        rot180 = np.rot90(batch, k=2, axes=(1, 2))
+        rot270 = np.rot90(batch, k=3, axes=(1, 2))
+        transposed = np.transpose(batch, axes=(0, 2, 1))
+        return np.concatenate([batch, rot90, rot180, rot270, transposed], axis=0)
 
-    loss_fn = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)
-    model.compile(optimizer='adam', loss=loss_fn, metrics=['accuracy'])
+    x_train = augment_batch(x_train)
+    y_train = np.concatenate([y_train, y_train, y_train, y_train, y_train], axis=0)
+
+    aug_seed = 42
+    rng = np.random.default_rng(aug_seed)
+    perm = rng.permutation(len(x_train))
+    x_train = x_train[perm]
+    y_train = y_train[perm]
+    print(f"After augmentation: Train: {len(x_train)}, Test: {len(x_test)}")
+
+    # Build model
+    L = tf.keras.layers
+    inputs = L.Input(shape=(TARGET_SIZE, TARGET_SIZE))
+    x = L.Reshape((TARGET_SIZE, TARGET_SIZE, 1))(inputs)
+    x = L.Conv2D(32, 7, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(1e-5))(x)
+    x = L.Conv2D(64, 3, strides=2, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(1e-5), name='conv14')(x)
+    x = L.LayerNormalization()(x)
+    x = L.Conv2D(64, 3, strides=2, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(1e-5), name='conv7_base')(x)
+    x = L.LayerNormalization()(x)
+    x = L.Conv2D(64, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(1e-5), name='conv7_deep1')(x)
+    x = L.LayerNormalization()(x)
+    x = L.Conv2D(64, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(1e-5), name='conv7_deep2')(x)
+    x = L.LayerNormalization()(x)
+    # Pooled conv output at 14x14 and 7x7 for multi-scale feature extraction
+    x = L.Flatten()(x)
+    x = L.Dense(384, activation='relu')(x)
+    x = L.Dropout(DROPOUT)(x)
+    x_main = L.Dense(192, activation='relu')(x)
+    x = L.Dense(192)(x)
+    x = L.Add()([x_main, x])
+    x = L.Activation('relu')(x)
+
+    # Squeeze-and-excitation on 192-d features
+    se = L.Dense(192 // 16, activation='relu')(x)
+    se = L.Dense(192, activation='sigmoid')(se)
+    x = L.Multiply()([x, se])
+
+    x = L.Dropout(DROPOUT)(x)
+    outputs = L.Dense(NUM_CLASSES)(x)
+    model = tf.keras.Model(inputs=inputs, outputs=outputs)
+
+    model.compile(optimizer=AdamW(clipnorm=1.0, weight_decay=1e-5, learning_rate=BASE_LR), loss=poly_loss, metrics=['accuracy'])
 
     print("\nModel summary:")
     model.summary()
@@ -146,12 +243,19 @@ def main():
     print(f"\nTraining for {EPOCHS} epochs...")
     early_stopping = tf.keras.callbacks.EarlyStopping(
         monitor='val_loss',
-        patience=8,
+        patience=6,
         restore_best_weights=True
+    )
+    lr_schedule = LinearLRSchedule(
+        lr_start=LR_START,
+        lr_peak=BASE_LR,
+        lr_end=LR_END,
+        warmup_epochs=WARMUP_EPOCHS,
+        decay_epochs=DECAY_EPOCHS
     )
     model.fit(x_train, y_train, epochs=EPOCHS, batch_size=128,
               validation_data=(x_test, y_test),
-              callbacks=[early_stopping])
+              callbacks=[early_stopping, lr_schedule, tf.keras.callbacks.TensorBoard(log_dir=str(TB_LOG_DIR), update_freq='epoch')])
 
     print("\nFinal evaluation:")
     model.evaluate(x_test, y_test, verbose=2)
@@ -160,6 +264,7 @@ def main():
     save_path = Path(__file__).parent / "mnist3_model"
     model.save(str(save_path))
     print(f"\nModel saved to {save_path}")
+
 
 if __name__ == "__main__":
     main()

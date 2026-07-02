@@ -26,7 +26,7 @@ args, _ = parser.parse_known_args()
 PBM_DIR = args.data_dir
 
 # ─── Hyperparameters ──────────────────────────────────────────────
-LATENT_DIM = 64
+LATENT_DIM = 128
 EPOCHS = 90
 BATCH_SIZE = 128
 NUM_CLASSES = None  # derived from data + low_conf
@@ -43,12 +43,12 @@ LR_START = 0.0
 LR_DECAY_EPOCHS = 80
 LR_END = 0.000035
 L2_REG = 0.00001
-KL_FREE_BITS = 0.05
+KL_FREE_BITS = 0.0
 DROPOUT = 0.25
 AUGMENT = True
 RECON_LOSS_WEIGHT = 0.5
-PERCEPTUAL_FINE_WEIGHT = 0.0
-PERCEPTUAL_COARSE_WEIGHT = 4.0
+PERCEPTUAL_FINE_WEIGHT = 2.0
+PERCEPTUAL_COARSE_WEIGHT = 2.0
 PERCEPTUAL_MULTISCALE = True
 PERCEPTUAL_WEIGHTS = [PERCEPTUAL_FINE_WEIGHT, PERCEPTUAL_COARSE_WEIGHT]
 PERCEPTUAL_WARMUP_EPOCHS = 2
@@ -281,6 +281,7 @@ class CVAE(tf.keras.Model):
         self.recon_loss_tracker = tf.keras.metrics.Mean(name="recon_loss")
         self.kl_loss_tracker = tf.keras.metrics.Mean(name="kl_loss")
         self.perceptual_loss_tracker = tf.keras.metrics.Mean(name="perceptual_loss")
+        self.perceptual_fine_loss_tracker = tf.keras.metrics.Mean(name="perceptual_fine_loss")
         self.perceptual_coarse_loss_tracker = tf.keras.metrics.Mean(name="perceptual_coarse_loss")
         self.kl_weight = 0.0
         self.perceptual_weight = float(PERCEPTUAL_PEAK_WEIGHT)
@@ -288,7 +289,7 @@ class CVAE(tf.keras.Model):
 
     @property
     def metrics(self):
-        return [self.total_loss_tracker, self.recon_loss_tracker, self.kl_loss_tracker, self.perceptual_loss_tracker, self.perceptual_coarse_loss_tracker]
+        return [self.total_loss_tracker, self.recon_loss_tracker, self.kl_loss_tracker, self.perceptual_loss_tracker, self.perceptual_fine_loss_tracker, self.perceptual_coarse_loss_tracker]
 
     def train_step(self, data):
         images, labels = data
@@ -348,6 +349,7 @@ class CVAE(tf.keras.Model):
         self.recon_loss_tracker.update_state(recon_loss)
         self.kl_loss_tracker.update_state(kl_loss)
         self.perceptual_loss_tracker.update_state(perceptual_loss)
+        self.perceptual_fine_loss_tracker.update_state(perceptual_loss_fine)
         self.perceptual_coarse_loss_tracker.update_state(perceptual_loss_coarse)
 
         return {m.name: m.result() for m in self.metrics}
@@ -398,7 +400,8 @@ class CVAE(tf.keras.Model):
         self.recon_loss_tracker.update_state(recon_loss)
         self.kl_loss_tracker.update_state(kl_loss)
         self.perceptual_loss_tracker.update_state(perceptual_loss)
-        self.perceptual_coarse_loss_tracker.update_state(perceptual_coarse_loss)
+        self.perceptual_fine_loss_tracker.update_state(perceptual_loss_fine)
+        self.perceptual_coarse_loss_tracker.update_state(perceptual_loss_coarse)
 
         return {m.name: m.result() for m in self.metrics}
 
