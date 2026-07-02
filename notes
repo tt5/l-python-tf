@@ -99,3 +99,11 @@ Data: 18. Curriculum learning — Start with easy classes, gradually add harder 
   Class 4: 474/517 = 91.7%
   Class 5: 525/534 = 98.3%
   Class low_conf: 176/667 = 26.4%
+
+  Class 0: 24.1% correctly classified (1207/5000)
+  Class 1: 70.0% correctly classified (3499/5000)
+  Class 2: 10.5% correctly classified (524/5000)
+  Class 3: 26.2% correctly classified (1310/5000)
+  Class 4: 34.9% correctly classified (1746/5000)
+  Class 5: 64.7% correctly classified (3236/5000)
+  Class 6: 12.2% correctly classified (608/5000)
