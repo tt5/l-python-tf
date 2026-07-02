@@ -33,8 +33,9 @@ LEARNING_RATE = 0.002
 NUM_CLASSES = None  # derived from data + low_conf
 TARGET_SIZE = 28
 LOW_CONF_THRESHOLD = 0.6
-KL_WEIGHT = 0.5
 KL_WARMUP_EPOCHS = 2
+KL_START_WEIGHT = 0.0
+KL_WEIGHT = 0.5
 KL_DECAY_EPOCHS = EPOCHS // 2
 KL_WEIGHT_END = 0.1
 LR_WARMUP_EPOCHS = 5
@@ -364,16 +365,17 @@ def build_perceptual_extractor():
 
 
 class KLWarmup(tf.keras.callbacks.Callback):
-    def __init__(self, cvae, warmup_epochs, kl_weight_final, decay_epochs, kl_weight_end):
+    def __init__(self, cvae, warmup_epochs, start_weight, kl_weight_final, decay_epochs, kl_weight_end):
         self.cvae = cvae
         self.warmup_epochs = warmup_epochs
+        self.start_weight = start_weight
         self.kl_weight_final = kl_weight_final
         self.decay_epochs = decay_epochs
         self.kl_weight_end = kl_weight_end
 
     def on_epoch_begin(self, epoch, logs=None):
         if epoch < self.warmup_epochs:
-            weight = self.kl_weight_final * (epoch / max(1, self.warmup_epochs - 1))
+            weight = self.start_weight + (self.kl_weight_final - self.start_weight) * (epoch / max(1, self.warmup_epochs - 1))
         elif epoch < self.warmup_epochs + self.decay_epochs:
             t = (epoch - self.warmup_epochs) / max(1, self.decay_epochs - 1)
             weight = self.kl_weight_final + (self.kl_weight_end - self.kl_weight_final) * t
@@ -443,7 +445,7 @@ def main():
         write_graph=True,
         update_freq="epoch",
     )
-    kl_warmup = KLWarmup(cvae, warmup_epochs=KL_WARMUP_EPOCHS, kl_weight_final=KL_WEIGHT, decay_epochs=KL_DECAY_EPOCHS, kl_weight_end=KL_WEIGHT_END)
+    kl_warmup = KLWarmup(cvae, warmup_epochs=KL_WARMUP_EPOCHS, start_weight=KL_START_WEIGHT, kl_weight_final=KL_WEIGHT, decay_epochs=KL_DECAY_EPOCHS, kl_weight_end=KL_WEIGHT_END)
     lr_warmup = LRWarmup(lr_start=LR_START, lr_peak=LEARNING_RATE, warmup_epochs=LR_WARMUP_EPOCHS, lr_end=LR_END, decay_epochs=LR_DECAY_EPOCHS)
     perceptual_warmup = PerceptualWarmup(cvae, warmup_epochs=PERCEPTUAL_WARMUP_EPOCHS, start_weight=PERCEPTUAL_START_WEIGHT, peak_weight=PERCEPTUAL_PEAK_WEIGHT)
     cvae.fit(
