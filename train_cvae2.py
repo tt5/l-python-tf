@@ -348,10 +348,15 @@ class CVAE(tf.keras.Model):
 
 
 def build_perceptual_extractor():
-    """Load frozen mnist2 classifier and build a sub-model from input to conv features."""
+    """Load frozen mnist2 classifier and build a sub-model to conv feature maps."""
     base = tf.keras.models.load_model(str(PERCEPTUAL_EXTRACTOR_PATH), compile=False)
     base.trainable = False
-    model = tf.keras.Model(inputs=base.input, outputs=base.output, name="perceptual_extractor")
+
+    conv_layers = [layer for layer in base.layers if isinstance(layer, tf.keras.layers.Conv2D)]
+    target_layer = conv_layers[-1].output
+
+    gap = tf.keras.layers.GlobalAveragePooling2D()(target_layer)
+    model = tf.keras.Model(inputs=base.input, outputs=gap, name="perceptual_extractor")
     return model
 
 
