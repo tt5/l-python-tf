@@ -47,7 +47,7 @@ KL_FREE_BITS = 0.0
 DROPOUT = 0.25
 AUGMENT = True
 RECON_LOSS_WEIGHT = 0.5
-PERCEPTUAL_FINE_WEIGHT = 4.0
+PERCEPTUAL_FINE_WEIGHT = 32.0
 PERCEPTUAL_COARSE_WEIGHT = 1.0
 PERCEPTUAL_MULTISCALE = True
 PERCEPTUAL_WEIGHTS = [PERCEPTUAL_FINE_WEIGHT, PERCEPTUAL_COARSE_WEIGHT]
@@ -248,6 +248,7 @@ def build_generator():
     # 7x7 -> 14x14
     x = tf.keras.layers.Conv2DTranspose(64, 3, strides=2, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = tf.keras.layers.LayerNormalization()(x)
+    x = film(x, 64)
     x = tf.keras.layers.Activation("relu")(x)
     # 14x14: inject label as explicit spatial channels
     label_broadcast_64_14 = tf.keras.layers.Lambda(lambda t: tf.broadcast_to(t[0], tf.shape(t[1])))([label_spatial_64, x])
@@ -258,6 +259,7 @@ def build_generator():
     # 14x14 -> 28x28
     x = tf.keras.layers.Conv2DTranspose(32, 3, strides=2, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = tf.keras.layers.LayerNormalization()(x)
+    x = film(x, 32)
     x = tf.keras.layers.Activation("relu")(x)
     # 28x28: inject label as explicit spatial channels
     label_broadcast_32 = tf.keras.layers.Lambda(lambda t: tf.broadcast_to(t[0], tf.shape(t[1])))([label_spatial_32, x])
@@ -511,7 +513,7 @@ def main():
         restore_best_weights=True
     )
     tensorboard_callback = tf.keras.callbacks.TensorBoard(
-        log_dir=str(Path(__file__).parent / "logs" / "train_cvae2"),
+        log_dir=str(Path(__file__).parent / "logs" / "train_cvae1"),
         histogram_freq=1,
         write_graph=True,
         update_freq="epoch",
