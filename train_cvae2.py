@@ -411,19 +411,18 @@ class CVAE(tf.keras.Model):
 
 
 def build_perceptual_extractor():
-    """Load frozen mnist2 classifier and build fine and coarse conv feature extractors."""
+    """Load frozen mnist2 classifier and build explicit fine/coarse conv sub-models by name."""
     base = tf.keras.models.load_model(str(PERCEPTUAL_EXTRACTOR_PATH), compile=False)
     base.trainable = False
 
-    conv_layers = [layer for layer in base.layers if isinstance(layer, tf.keras.layers.Conv2D)]
-    fine_layer = conv_layers[-1].output
-    coarse_layer = conv_layers[-2].output
+    fine_layer = base.get_layer(name='conv14').output
+    coarse_layer = base.get_layer(name='conv7_deep2').output
 
     gap_fine = tf.keras.layers.GlobalAveragePooling2D()(fine_layer)
     gap_coarse = tf.keras.layers.GlobalAveragePooling2D()(coarse_layer)
 
-    fine_extractor = tf.keras.Model(inputs=base.input, outputs=gap_fine, name="perceptual_extractor_fine")
-    coarse_extractor = tf.keras.Model(inputs=base.input, outputs=gap_coarse, name="perceptual_extractor_coarse")
+    fine_extractor = tf.keras.Model(inputs=base.input, outputs=gap_fine, name='perceptual_extractor_14x14')
+    coarse_extractor = tf.keras.Model(inputs=base.input, outputs=gap_coarse, name='perceptual_extractor_7x7')
     return fine_extractor, coarse_extractor
 
 
@@ -508,7 +507,7 @@ def main():
         restore_best_weights=True
     )
     tensorboard_callback = tf.keras.callbacks.TensorBoard(
-        log_dir=str(Path(__file__).parent / "logs" / "train_cvae2"),
+        log_dir=str(Path(__file__).parent / "logs" / "train_cvae1"),
         histogram_freq=1,
         write_graph=True,
         update_freq="epoch",
