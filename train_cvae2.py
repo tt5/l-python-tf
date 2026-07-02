@@ -34,9 +34,9 @@ TARGET_SIZE = 28
 LOW_CONF_THRESHOLD = 0.6
 KL_WARMUP_EPOCHS = 2
 KL_START_WEIGHT = 0.1
-KL_WEIGHT = 0.5
+KL_WEIGHT = 0.45
 KL_DECAY_EPOCHS = EPOCHS // 2
-KL_WEIGHT_END = 0.1
+KL_WEIGHT_END = 0.09
 LEARNING_RATE = 0.002
 LR_WARMUP_EPOCHS = 5
 LR_START = 0.0
@@ -268,6 +268,7 @@ def build_generator():
     x = film(x, 32)
 
     x = tf.keras.layers.Dropout(DROPOUT)(x)
+    x = tf.keras.layers.Conv2D(32, 3, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = tf.keras.layers.Conv2D(1, 1, padding="same", activation="sigmoid")(x)
 
     return tf.keras.Model([latent_input, label_input], x, name="generator")
@@ -513,7 +514,7 @@ def main():
         restore_best_weights=True
     )
     tensorboard_callback = tf.keras.callbacks.TensorBoard(
-        log_dir=str(Path(__file__).parent / "logs" / "train_cvae1"),
+        log_dir=str(Path(__file__).parent / "logs" / "train_cvae2"),
         histogram_freq=1,
         write_graph=True,
         update_freq="epoch",
