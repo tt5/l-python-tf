@@ -34,7 +34,7 @@ NUM_CLASSES = None  # derived from data + low_conf
 TARGET_SIZE = 28
 LOW_CONF_THRESHOLD = 0.6
 KL_WARMUP_EPOCHS = 2
-KL_START_WEIGHT = 0.0
+KL_START_WEIGHT = 0.1
 KL_WEIGHT = 0.5
 KL_DECAY_EPOCHS = EPOCHS // 2
 KL_WEIGHT_END = 0.1
@@ -50,6 +50,8 @@ RECON_LOSS_WEIGHT = 0.5
 PERCEPTUAL_WARMUP_EPOCHS = 2
 PERCEPTUAL_START_WEIGHT = 0.0
 PERCEPTUAL_PEAK_WEIGHT = 16
+PERCEPTUAL_DECAY_EPOCHS = 30
+PERCEPTUAL_END_WEIGHT = 4
 PERCEPTUAL_EXTRACTOR_PATH = Path(__file__).parent / "mnist2_model"
 
 def load_pbm(path):
@@ -385,17 +387,22 @@ class KLWarmup(tf.keras.callbacks.Callback):
 
 
 class PerceptualWarmup(tf.keras.callbacks.Callback):
-    def __init__(self, cvae, warmup_epochs, start_weight, peak_weight):
+    def __init__(self, cvae, warmup_epochs, start_weight, peak_weight, decay_epochs, end_weight):
         self.cvae = cvae
         self.warmup_epochs = warmup_epochs
         self.start_weight = start_weight
         self.peak_weight = peak_weight
+        self.decay_epochs = decay_epochs
+        self.end_weight = end_weight
 
     def on_epoch_begin(self, epoch, logs=None):
         if epoch < self.warmup_epochs:
             weight = self.start_weight + (self.peak_weight - self.start_weight) * (epoch / max(1, self.warmup_epochs - 1))
+        elif epoch < self.warmup_epochs + self.decay_epochs:
+            t = (epoch - self.warmup_epochs) / max(1, self.decay_epochs - 1)
+            weight = self.peak_weight + (self.end_weight - self.peak_weight) * t
         else:
-            weight = self.peak_weight
+            weight = self.end_weight
         self.cvae.perceptual_weight = float(weight)
 
 
@@ -447,7 +454,7 @@ def main():
     )
     kl_warmup = KLWarmup(cvae, warmup_epochs=KL_WARMUP_EPOCHS, start_weight=KL_START_WEIGHT, kl_weight_final=KL_WEIGHT, decay_epochs=KL_DECAY_EPOCHS, kl_weight_end=KL_WEIGHT_END)
     lr_warmup = LRWarmup(lr_start=LR_START, lr_peak=LEARNING_RATE, warmup_epochs=LR_WARMUP_EPOCHS, lr_end=LR_END, decay_epochs=LR_DECAY_EPOCHS)
-    perceptual_warmup = PerceptualWarmup(cvae, warmup_epochs=PERCEPTUAL_WARMUP_EPOCHS, start_weight=PERCEPTUAL_START_WEIGHT, peak_weight=PERCEPTUAL_PEAK_WEIGHT)
+    perceptual_warmup = PerceptualWarmup(cvae, warmup_epochs=PERCEPTUAL_WARMUP_EPOCHS, start_weight=PERCEPTUAL_START_WEIGHT, peak_weight=PERCEPTUAL_PEAK_WEIGHT, decay_epochs=PERCEPTUAL_DECAY_EPOCHS, end_weight=PERCEPTUAL_END_WEIGHT)
     cvae.fit(
         x_train, y_train,
         validation_data=(x_test, y_test),
