@@ -27,7 +27,7 @@ PBM_DIR = args.data_dir
 
 # ─── Hyperparameters ──────────────────────────────────────────────
 LATENT_DIM = 64
-EPOCHS = 80
+EPOCHS = 90
 BATCH_SIZE = 128
 LEARNING_RATE = 0.002
 NUM_CLASSES = None  # derived from data + low_conf
@@ -41,7 +41,7 @@ KL_WEIGHT_END = 0.1
 LR_WARMUP_EPOCHS = 5
 LR_START = 0.0
 LR_DECAY_EPOCHS = 80
-LR_END = 0.00004
+LR_END = 0.000035
 L2_REG = 0.00001
 KL_FREE_BITS = 0.05
 DROPOUT = 0.2
@@ -448,7 +448,7 @@ def main():
         restore_best_weights=True
     )
     tensorboard_callback = tf.keras.callbacks.TensorBoard(
-        log_dir=str(Path(__file__).parent / "logs" / "train_cvae2"),
+        log_dir=str(Path(__file__).parent / "logs" / "train_cvae1"),
         histogram_freq=1,
         write_graph=True,
         update_freq="epoch",
