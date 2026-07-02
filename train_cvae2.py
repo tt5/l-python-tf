@@ -51,7 +51,7 @@ PERCEPTUAL_WARMUP_EPOCHS = 2
 PERCEPTUAL_START_WEIGHT = 0.0
 PERCEPTUAL_PEAK_WEIGHT = 16
 PERCEPTUAL_DECAY_EPOCHS = 30
-PERCEPTUAL_END_WEIGHT = 4
+PERCEPTUAL_END_WEIGHT = 2
 PERCEPTUAL_EXTRACTOR_PATH = Path(__file__).parent / "mnist2_model"
 
 def load_pbm(path):
@@ -447,7 +447,7 @@ def main():
         restore_best_weights=True
     )
     tensorboard_callback = tf.keras.callbacks.TensorBoard(
-        log_dir=str(Path(__file__).parent / "logs" / "train_cvae1"),
+        log_dir=str(Path(__file__).parent / "logs" / "train_cvae2"),
         histogram_freq=1,
         write_graph=True,
         update_freq="epoch",
