@@ -47,8 +47,8 @@ KL_FREE_BITS = 0.0
 DROPOUT = 0.25
 AUGMENT = True
 RECON_LOSS_WEIGHT = 0.5
-PERCEPTUAL_FINE_WEIGHT = 2.0
-PERCEPTUAL_COARSE_WEIGHT = 2.0
+PERCEPTUAL_FINE_WEIGHT = 4.0
+PERCEPTUAL_COARSE_WEIGHT = 1.0
 PERCEPTUAL_MULTISCALE = True
 PERCEPTUAL_WEIGHTS = [PERCEPTUAL_FINE_WEIGHT, PERCEPTUAL_COARSE_WEIGHT]
 PERCEPTUAL_WARMUP_EPOCHS = 2
@@ -205,6 +205,7 @@ def build_encoder():
     x = tf.keras.layers.Dense(128, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = tf.keras.layers.LayerNormalization()(x)
     x = tf.keras.layers.Dropout(DROPOUT)(x)
+    x = tf.keras.layers.Dropout(0.1)(x)
 
     z_mean = tf.keras.layers.Dense(LATENT_DIM, name="z_mean", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     z_log_var = tf.keras.layers.Dense(LATENT_DIM, name="z_log_var", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
@@ -510,7 +511,7 @@ def main():
         restore_best_weights=True
     )
     tensorboard_callback = tf.keras.callbacks.TensorBoard(
-        log_dir=str(Path(__file__).parent / "logs" / "train_cvae1"),
+        log_dir=str(Path(__file__).parent / "logs" / "train_cvae2"),
         histogram_freq=1,
         write_graph=True,
         update_freq="epoch",
