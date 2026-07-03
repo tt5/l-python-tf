@@ -161,10 +161,32 @@ def build_generator():
     x = tf.keras.layers.Dense(7 * 7 * 64, activation="relu")(x)
     x = tf.keras.layers.Reshape((7, 7, 64))(x)
 
+    # 7x7 -> 14x14 residual upsample block
+    skip7 = x
     x = tf.keras.layers.UpSampling2D(size=2, interpolation='nearest')(x)
-    x = tf.keras.layers.Conv2D(64, 3, padding='same', activation="relu")(x)
+    x = tf.keras.layers.Conv2D(64, 3, padding='same')(x)
+    x = tf.keras.layers.LayerNormalization(center=False, scale=False)(x)
+    x = tf.keras.layers.Activation("relu")(x)
+    x = tf.keras.layers.Add()([
+        x,
+        tf.keras.layers.Conv2D(64, 1, padding='same')(
+            tf.keras.layers.UpSampling2D(size=2, interpolation='nearest')(skip7)
+        )
+    ])
+
+    # 14x14 -> 28x28 residual upsample block
+    skip14 = x
     x = tf.keras.layers.UpSampling2D(size=2, interpolation='nearest')(x)
-    x = tf.keras.layers.Conv2D(32, 3, padding='same', activation="relu")(x)
+    x = tf.keras.layers.Conv2D(32, 3, padding='same')(x)
+    x = tf.keras.layers.LayerNormalization(center=False, scale=False)(x)
+    x = tf.keras.layers.Activation("relu")(x)
+    x = tf.keras.layers.Add()([
+        x,
+        tf.keras.layers.Conv2D(32, 1, padding='same')(
+            tf.keras.layers.UpSampling2D(size=2, interpolation='nearest')(skip14)
+        )
+    ])
+
     x = tf.keras.layers.Conv2D(1, 3, padding="same", activation="sigmoid")(x)
 
     return tf.keras.Model([latent_input, label_input], x, name="generator")
