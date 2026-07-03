@@ -26,7 +26,7 @@ args, _ = parser.parse_known_args()
 PBM_DIR = args.data_dir
 
 # ─── Hyperparameters ──────────────────────────────────────────────
-LATENT_DIM = 64
+LATENT_DIM = 128
 EPOCHS = 50
 BATCH_SIZE = 128
 LEARNING_RATE = 1e-3
@@ -83,7 +83,7 @@ def load_dataset():
 
         img = load_pbm(f)
         img_28 = upscale(img, TARGET_SIZE, TARGET_SIZE)
-        img_28 = (img_28 > 0.5).astype(np.float32)
+        img_28 = img_28.astype(np.float32)
 
         images.append(img_28)
 
@@ -147,6 +147,8 @@ def build_encoder():
     z_mean = tf.keras.layers.Dense(LATENT_DIM, name="z_mean")(x)
     z_log_var = tf.keras.layers.Dense(LATENT_DIM, name="z_log_var")(x)
     z = Sampling()([z_mean, z_log_var])
+    z = tf.keras.layers.Dense(LATENT_DIM, activation="relu")(z)
+    z = tf.keras.layers.LayerNormalization()(z)
 
     return tf.keras.Model([image_input, label_input], [z_mean, z_log_var, z], name="encoder")
 
@@ -159,8 +161,10 @@ def build_generator():
     x = tf.keras.layers.Dense(7 * 7 * 64, activation="relu")(x)
     x = tf.keras.layers.Reshape((7, 7, 64))(x)
 
-    x = tf.keras.layers.Conv2DTranspose(64, 3, strides=2, padding="same", activation="relu")(x)
-    x = tf.keras.layers.Conv2DTranspose(32, 3, strides=2, padding="same", activation="relu")(x)
+    x = tf.keras.layers.UpSampling2D(size=2, interpolation='nearest')(x)
+    x = tf.keras.layers.Conv2D(64, 3, padding='same', activation="relu")(x)
+    x = tf.keras.layers.UpSampling2D(size=2, interpolation='nearest')(x)
+    x = tf.keras.layers.Conv2D(32, 3, padding='same', activation="relu")(x)
     x = tf.keras.layers.Conv2D(1, 3, padding="same", activation="sigmoid")(x)
 
     return tf.keras.Model([latent_input, label_input], x, name="generator")
