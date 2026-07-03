@@ -30,9 +30,14 @@ LATENT_DIM = 128
 EPOCHS = 50
 BATCH_SIZE = 128
 LEARNING_RATE = 1e-3
+LR_START = 0.0
+LR_WARMUP_EPOCHS = 4
+LR_DECAY_EPOCHS = EPOCHS - LR_WARMUP_EPOCHS
+LR_END = 1e-4
 NUM_CLASSES = None  # derived from data + low_conf
 TARGET_SIZE = 28
 LOW_CONF_THRESHOLD = 0.6
+TB_LOG_DIR = Path(__file__).resolve().parent / "logs" / "cvae3"
 
 def load_pbm(path):
     """Load a P4 PBM file and return a 2D numpy array of 0/1 float32."""
@@ -132,6 +137,24 @@ class Sampling(tf.keras.layers.Layer):
         dim = tf.shape(z_mean)[1]
         epsilon = tf.random.normal(shape=(batch, dim))
         return z_mean + tf.exp(0.5 * z_log_var) * epsilon
+
+class LinearLRSchedule(tf.keras.callbacks.Callback):
+    def __init__(self, lr_start, lr_peak, lr_end, warmup_epochs, decay_epochs):
+        self.lr_start = lr_start
+        self.lr_peak = lr_peak
+        self.lr_end = lr_end
+        self.warmup_epochs = warmup_epochs
+        self.decay_epochs = decay_epochs
+
+    def on_epoch_begin(self, epoch, logs=None):
+        if epoch < self.warmup_epochs:
+            lr = self.lr_start + (self.lr_peak - self.lr_start) * (epoch / max(1, self.warmup_epochs - 1))
+        elif epoch < self.warmup_epochs + self.decay_epochs:
+            t = (epoch - self.warmup_epochs) / max(1, self.decay_epochs - 1)
+            lr = self.lr_peak + (self.lr_end - self.lr_peak) * t
+        else:
+            lr = self.lr_end
+        tf.keras.backend.set_value(self.model.optimizer.lr, float(lr))
 
 # ─── Encoder ─────────────────────────────────────────────────────
 def build_encoder():
@@ -286,12 +309,23 @@ def main():
         patience=8,
         restore_best_weights=True
     )
+    tensorboard_callback = tf.keras.callbacks.TensorBoard(
+        log_dir=str(TB_LOG_DIR),
+        update_freq='epoch'
+    )
+    lr_schedule = LinearLRSchedule(
+        lr_start=LR_START,
+        lr_peak=LEARNING_RATE,
+        lr_end=LR_END,
+        warmup_epochs=LR_WARMUP_EPOCHS,
+        decay_epochs=LR_DECAY_EPOCHS
+    )
     cvae.fit(
         x_train, y_train,
         validation_data=(x_test, y_test),
         epochs=EPOCHS,
         batch_size=BATCH_SIZE,
-        callbacks=[early_stopping],
+        callbacks=[early_stopping, tensorboard_callback, lr_schedule],
     )
 
     # ─── Save as ONNX ──────────────────────────────────────────────
