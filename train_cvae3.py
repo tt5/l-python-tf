@@ -34,6 +34,11 @@ LR_START = 0.0
 LR_WARMUP_EPOCHS = 4
 LR_DECAY_EPOCHS = EPOCHS - LR_WARMUP_EPOCHS
 LR_END = 1e-4
+KL_START = 0.0001
+KL_PEAK = 0.45
+KL_END = 0.06
+KL_WARMUP_EPOCHS = 2
+KL_DECAY_EPOCHS = EPOCHS - KL_WARMUP_EPOCHS
 NUM_CLASSES = None  # derived from data + low_conf
 TARGET_SIZE = 28
 LOW_CONF_THRESHOLD = 0.6
@@ -156,6 +161,46 @@ class LinearLRSchedule(tf.keras.callbacks.Callback):
             lr = self.lr_end
         tf.keras.backend.set_value(self.model.optimizer.lr, float(lr))
 
+class LogLRCallback(tf.keras.callbacks.Callback):
+    def __init__(self, log_dir):
+        self._log_dir = str(log_dir)
+        self._writer = None
+
+    def on_train_begin(self, logs=None):
+        if self._writer is None:
+            self._writer = tf.summary.create_file_writer(self._log_dir)
+
+    def on_epoch_end(self, epoch, logs=None):
+        lr = float(tf.keras.backend.get_value(self.model.optimizer.lr))
+        with self._writer.as_default():
+            tf.summary.scalar('learning_rate', lr, step=epoch)
+
+class LinearKLSchedule(tf.keras.callbacks.Callback):
+    def __init__(self, kl_start, kl_peak, kl_end, warmup_epochs, decay_epochs):
+        self.kl_start = kl_start
+        self.kl_peak = kl_peak
+        self.kl_end = kl_end
+        self.warmup_epochs = warmup_epochs
+        self.decay_epochs = decay_epochs
+        self._writer = None
+        self._log_dir = None
+
+    def set_model(self, model):
+        super().set_model(model)
+
+    def on_train_begin(self, logs=None):
+        return
+
+    def on_epoch_begin(self, epoch, logs=None):
+        if epoch < self.warmup_epochs:
+            weight = self.kl_start + (self.kl_peak - self.kl_start) * (epoch / max(1, self.warmup_epochs - 1))
+        elif epoch < self.warmup_epochs + self.decay_epochs:
+            t = (epoch - self.warmup_epochs) / max(1, self.decay_epochs - 1)
+            weight = self.kl_peak + (self.kl_end - self.kl_peak) * t
+        else:
+            weight = self.kl_end
+        self.model.kl_weight.assign(float(weight))
+
 # ─── Encoder ─────────────────────────────────────────────────────
 def build_encoder():
     image_input = tf.keras.layers.Input(shape=(28, 28, 1), name="image_input")
@@ -220,13 +265,15 @@ class CVAE(tf.keras.Model):
         super().__init__(**kwargs)
         self.encoder = encoder
         self.generator = generator
+        self.kl_weight = tf.Variable(KL_START, dtype=tf.float32, trainable=False)
         self.total_loss_tracker = tf.keras.metrics.Mean(name="total_loss")
         self.recon_loss_tracker = tf.keras.metrics.Mean(name="recon_loss")
         self.kl_loss_tracker = tf.keras.metrics.Mean(name="kl_loss")
+        self.kl_weight_tracker = tf.keras.metrics.Mean(name="kl_weight")
 
     @property
     def metrics(self):
-        return [self.total_loss_tracker, self.recon_loss_tracker, self.kl_loss_tracker]
+        return [self.total_loss_tracker, self.recon_loss_tracker, self.kl_loss_tracker, self.kl_weight_tracker]
 
     def train_step(self, data):
         images, labels = data
@@ -246,7 +293,7 @@ class CVAE(tf.keras.Model):
                     axis=1
                 )
             )
-            total_loss = recon_loss + kl_loss
+            total_loss = recon_loss + self.kl_weight * kl_loss
 
         grads = tape.gradient(total_loss, self.trainable_weights)
         self.optimizer.apply_gradients(zip(grads, self.trainable_weights))
@@ -254,6 +301,7 @@ class CVAE(tf.keras.Model):
         self.total_loss_tracker.update_state(total_loss)
         self.recon_loss_tracker.update_state(recon_loss)
         self.kl_loss_tracker.update_state(kl_loss)
+        self.kl_weight_tracker.update_state(self.kl_weight)
 
         return {m.name: m.result() for m in self.metrics}
 
@@ -274,11 +322,12 @@ class CVAE(tf.keras.Model):
                 axis=1
             )
         )
-        total_loss = recon_loss + kl_loss
+        total_loss = recon_loss + self.kl_weight * kl_loss
 
         self.total_loss_tracker.update_state(total_loss)
         self.recon_loss_tracker.update_state(recon_loss)
         self.kl_loss_tracker.update_state(kl_loss)
+        self.kl_weight_tracker.update_state(self.kl_weight)
 
         return {m.name: m.result() for m in self.metrics}
 
@@ -320,12 +369,19 @@ def main():
         warmup_epochs=LR_WARMUP_EPOCHS,
         decay_epochs=LR_DECAY_EPOCHS
     )
+    kl_schedule = LinearKLSchedule(
+        kl_start=KL_START,
+        kl_peak=KL_PEAK,
+        kl_end=KL_END,
+        warmup_epochs=KL_WARMUP_EPOCHS,
+        decay_epochs=KL_DECAY_EPOCHS
+    )
     cvae.fit(
         x_train, y_train,
         validation_data=(x_test, y_test),
         epochs=EPOCHS,
         batch_size=BATCH_SIZE,
-        callbacks=[early_stopping, tensorboard_callback, lr_schedule],
+        callbacks=[early_stopping, tensorboard_callback, lr_schedule, kl_schedule, LogLRCallback(TB_LOG_DIR)],
     )
 
     # ─── Save as ONNX ──────────────────────────────────────────────
