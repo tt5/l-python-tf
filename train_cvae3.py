@@ -27,13 +27,13 @@ PBM_DIR = args.data_dir
 
 # ─── Hyperparameters ──────────────────────────────────────────────
 LATENT_DIM = 256
-EPOCHS = 100
+EPOCHS = 120
 BATCH_SIZE = 128
 LEARNING_RATE = 0.01
 LR_START = 0.00001
 LR_WARMUP_EPOCHS = 8
 LR_DECAY_EPOCHS = 80 - 8 + 20
-LR_END = 0.0001
+LR_END = 0.00011
 CLIPNORM = 1.0
 KL_START = 0.000001
 KL_PEAK = 0.45
@@ -41,7 +41,7 @@ KL_END = 0.35
 KL_WARMUP_EPOCHS = 5
 KL_DECAY_EPOCHS = EPOCHS - KL_WARMUP_EPOCHS
 DROPOUT = 0.35
-L2_REG = 1e-4
+L2_REG = 0.0001
 CONTRASTIVE_TEMPERATURE = 0.075
 CONTRASTIVE_START = 0.00005
 CONTRASTIVE_PEAK = 2
@@ -50,13 +50,13 @@ CONTRASTIVE_WARMUP_EPOCHS = 7
 CONTRASTIVE_DECAY_EPOCHS = EPOCHS - CONTRASTIVE_WARMUP_EPOCHS
 PERCEPTUAL_START = 0.0
 PERCEPTUAL_PEAK = 8.0
-PERCEPTUAL_END = 16.0
+PERCEPTUAL_END = 18.0
 PERCEPTUAL_WARMUP_EPOCHS = 20
 PERCEPTUAL_DECAY_EPOCHS = EPOCHS - PERCEPTUAL_WARMUP_EPOCHS
 NUM_CLASSES = None  # derived from data + low_conf
 TARGET_SIZE = 28
 LOW_CONF_THRESHOLD = 0.6
-TB_LOG_DIR = Path(__file__).resolve().parent / "logs" / "cvae3b"
+TB_LOG_DIR = Path(__file__).resolve().parent / "logs" / "cvae3"
 
 def load_pbm(path):
     """Load a P4 PBM file and return a 2D numpy array of 0/1 float32."""
@@ -466,7 +466,7 @@ def build_generator():
     x = tf.keras.layers.Add()([x, x28])
     x = tf.keras.layers.Dropout(DROPOUT / 2)(x)
 
-    x = tf.keras.layers.Conv2D(1, 3, padding="same", activation="sigmoid")(x)
+    x = tf.keras.layers.Conv2D(1, 3, padding="same", activation="sigmoid", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
 
     return tf.keras.Model([latent_input, label_input], x, name="generator")
 
