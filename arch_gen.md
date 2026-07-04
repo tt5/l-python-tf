@@ -8,7 +8,9 @@ dropout
 lr schedule
 residual connections
 
-Class-conditional latent alignment loss Add a small classifier head on z trained to predict the class from the latent code. Forces the latent space to cluster by class, which usually fixes misclassified weak classes first. ONNX-safe; only affects encoder training.
+Contrastive z regularization Within each batch, push apart latents of different classes, pull together latents of the same class. Straightforward cosine/InfoNCE loss on z. Often helps when the bottleneck is class separation, not reconstruction.
+
+---
 
 FiLM: per-channel scale+shift from label embedding, like your train_cvae2.py film/film_enc
 
@@ -19,7 +21,6 @@ gradient clipping
 SE block: squeeze-and-excitation on encoder spatial features before flatten
 
 Perceptual loss: reuse mnist3_model features conv14 and conv7_deep2 as perceptual extractors
-
 
 ---
 
@@ -36,8 +37,6 @@ Residual blocks: replace plain conv stacks with pre-activation ResNet blocks (Co
 Conditional Instance Norm / AdaIN: normalize features, then label-predicted affine
 
 U-Net skip connections: expose intermediate encoder spatial features (7×7, 14×14), project and add to decoder at corresponding scales
-
-Contrastive z regularization Within each batch, push apart latents of different classes, pull together latents of the same class. Straightforward cosine/InfoNCE loss on z. Often helps when the bottleneck is class separation, not reconstruction.
 
 Classifier-guided generation at inference Use your frozen mnist3 classifier to rank candidate latent samples for each class, then accept only the best-scoring latent. No model architecture change, only eval/post-processing. Cheap to try.
 

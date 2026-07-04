@@ -29,23 +29,23 @@ PBM_DIR = args.data_dir
 LATENT_DIM = 128
 EPOCHS = 80
 BATCH_SIZE = 128
-LEARNING_RATE = 0.002
+LEARNING_RATE = 0.005
 LR_START = 0.0
 LR_WARMUP_EPOCHS = 4
 LR_DECAY_EPOCHS = EPOCHS - LR_WARMUP_EPOCHS + 10
 LR_END = 0.0002
 KL_START = 0.0001
 KL_PEAK = 0.45
-KL_END = 0.05
+KL_END = 0.01
 KL_WARMUP_EPOCHS = 2
 KL_DECAY_EPOCHS = EPOCHS - KL_WARMUP_EPOCHS
 DROPOUT = 0.45
-CONTRASTIVE_WEIGHT = 0.01
-CONTRASTIVE_TEMPERATURE = 1.0
+CONTRASTIVE_WEIGHT = 16.0
+CONTRASTIVE_TEMPERATURE = 0.5
 NUM_CLASSES = None  # derived from data + low_conf
 TARGET_SIZE = 28
 LOW_CONF_THRESHOLD = 0.6
-TB_LOG_DIR = Path(__file__).resolve().parent / "logs" / "cvae3b"
+TB_LOG_DIR = Path(__file__).resolve().parent / "logs" / "cvae3"
 
 def load_pbm(path):
     """Load a P4 PBM file and return a 2D numpy array of 0/1 float32."""
@@ -220,6 +220,17 @@ def build_encoder():
         x,
         tf.keras.layers.Conv2D(64, 1, activation=None, strides=2, padding="same")(skip1)
     ])
+
+    # Cross-attention at 7x7: label attends over spatial positions
+    spatial_7x7 = x
+    spatial_flat = tf.keras.layers.Reshape((7*7, 64))(spatial_7x7)  # (B, 49, 64)
+    label_query_proj = tf.keras.layers.Dense(64, activation=None)(label_input)  # (B, 64)
+    query = tf.keras.layers.Reshape((1, 64))(label_query_proj)  # (B, 1, 64)
+    mha = tf.keras.layers.MultiHeadAttention(num_heads=2, key_dim=32, value_dim=64)
+    attn = mha(query=query, key=spatial_flat, value=spatial_flat)  # (B, 1, 64)
+    attn_ctx = tf.keras.layers.Reshape((1, 1, 64))(attn)
+    x = tf.keras.layers.Add()([x, attn_ctx])
+
     x = tf.keras.layers.Dropout(DROPOUT)(x)
 
     x = tf.keras.layers.Flatten()(x)
