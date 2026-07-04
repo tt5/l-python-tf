@@ -37,7 +37,7 @@ LR_END = 0.0001
 CLIPNORM = 1.0
 KL_START = 0.000001
 KL_PEAK = 0.45
-KL_END = 0.3
+KL_END = 0.35
 KL_WARMUP_EPOCHS = 5
 KL_DECAY_EPOCHS = EPOCHS - KL_WARMUP_EPOCHS
 DROPOUT = 0.35
@@ -56,7 +56,7 @@ PERCEPTUAL_DECAY_EPOCHS = EPOCHS - PERCEPTUAL_WARMUP_EPOCHS
 NUM_CLASSES = None  # derived from data + low_conf
 TARGET_SIZE = 28
 LOW_CONF_THRESHOLD = 0.6
-TB_LOG_DIR = Path(__file__).resolve().parent / "logs" / "cvae3"
+TB_LOG_DIR = Path(__file__).resolve().parent / "logs" / "cvae3b"
 
 def load_pbm(path):
     """Load a P4 PBM file and return a 2D numpy array of 0/1 float32."""
@@ -353,6 +353,13 @@ def build_encoder():
     enc_film_b = tf.keras.layers.Dense(256, activation=None)(enc_film_emb)
     x = tf.keras.layers.Multiply()([x, enc_film_g])
     x = tf.keras.layers.Add()([x, enc_film_b])
+
+    # deeper label injection before latent stats
+    enc_film_emb_deep = tf.keras.layers.Dense(64, activation="relu")(enc_label_emb)
+    enc_film_g_deep = tf.keras.layers.Dense(256, activation="sigmoid")(enc_film_emb_deep)
+    enc_film_b_deep = tf.keras.layers.Dense(256, activation=None)(enc_film_emb_deep)
+    x = tf.keras.layers.Multiply()([x, enc_film_g_deep])
+    x = tf.keras.layers.Add()([x, enc_film_b_deep])
 
     x = tf.keras.layers.Dropout(DROPOUT)(x)
 
