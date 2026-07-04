@@ -513,11 +513,8 @@ class CVAE(tf.keras.Model):
 
             perceptual_loss = tf.constant(0.0)
             if self.perceptual_backbone is not None:
-                logits_real = self.perceptual_backbone(images)
                 logits_fake = self.perceptual_backbone(reconstruction)
-                logits_real = tf.math.l2_normalize(logits_real, axis=-1)
-                logits_fake = tf.math.l2_normalize(logits_fake, axis=-1)
-                perceptual_loss = tf.reduce_mean(tf.keras.losses.mse(logits_real, logits_fake))
+                perceptual_loss = tf.reduce_mean(tf.keras.losses.categorical_crossentropy(labels, logits_fake, from_logits=True))
 
             total_loss = recon_loss + self.kl_weight * kl_loss + self.contrastive_weight * contrastive_loss + self.perceptual_weight * perceptual_loss
 
@@ -556,11 +553,8 @@ class CVAE(tf.keras.Model):
 
         perceptual_loss = tf.constant(0.0)
         if self.perceptual_backbone is not None:
-            logits_real = self.perceptual_backbone(images)
             logits_fake = self.perceptual_backbone(reconstruction)
-            logits_real = tf.math.l2_normalize(logits_real, axis=-1)
-            logits_fake = tf.math.l2_normalize(logits_fake, axis=-1)
-            perceptual_loss = tf.reduce_mean(tf.keras.losses.mse(logits_real, logits_fake))
+            perceptual_loss = tf.reduce_mean(tf.keras.losses.categorical_crossentropy(labels, logits_fake, from_logits=True))
 
         total_loss = recon_loss + self.kl_weight * kl_loss + self.contrastive_weight * contrastive_loss + self.perceptual_weight * perceptual_loss
 
