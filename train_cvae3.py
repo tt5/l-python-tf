@@ -29,16 +29,17 @@ PBM_DIR = args.data_dir
 LATENT_DIM = 128
 EPOCHS = 80
 BATCH_SIZE = 128
-LEARNING_RATE = 0.001
+LEARNING_RATE = 0.002
 LR_START = 0.0
 LR_WARMUP_EPOCHS = 4
-LR_DECAY_EPOCHS = EPOCHS - LR_WARMUP_EPOCHS
-LR_END = 0.0001
+LR_DECAY_EPOCHS = EPOCHS - LR_WARMUP_EPOCHS + 10
+LR_END = 0.0002
 KL_START = 0.0001
 KL_PEAK = 0.45
-KL_END = 0.01
+KL_END = 0.05
 KL_WARMUP_EPOCHS = 2
 KL_DECAY_EPOCHS = EPOCHS - KL_WARMUP_EPOCHS
+DROPOUT = 0.45
 NUM_CLASSES = None  # derived from data + low_conf
 TARGET_SIZE = 28
 LOW_CONF_THRESHOLD = 0.6
@@ -217,6 +218,7 @@ def build_encoder():
         x,
         tf.keras.layers.Conv2D(64, 1, activation=None, strides=2, padding="same")(skip1)
     ])
+    x = tf.keras.layers.Dropout(DROPOUT)(x)
 
     x = tf.keras.layers.Flatten()(x)
     x = tf.keras.layers.Concatenate()([x, label_input])
@@ -225,6 +227,7 @@ def build_encoder():
     x = tf.keras.layers.LayerNormalization(center=False, scale=False)(x)
     x = tf.keras.layers.Activation("relu")(x)
     x = tf.keras.layers.Add()([x, x_save])
+    x = tf.keras.layers.Dropout(DROPOUT)(x)
 
     z_mean = tf.keras.layers.Dense(LATENT_DIM, name="z_mean")(x)
     z_log_var = tf.keras.layers.Dense(LATENT_DIM, name="z_log_var")(x)
@@ -255,6 +258,7 @@ def build_generator():
             tf.keras.layers.UpSampling2D(size=2, interpolation='nearest')(skip7)
         )
     ])
+    x = tf.keras.layers.Dropout(DROPOUT / 2)(x)
 
     # 14x14 -> 28x28 residual upsample block
     skip14 = x
@@ -268,6 +272,7 @@ def build_generator():
             tf.keras.layers.UpSampling2D(size=2, interpolation='nearest')(skip14)
         )
     ])
+    x = tf.keras.layers.Dropout(DROPOUT / 2)(x)
 
     x = tf.keras.layers.Conv2D(1, 3, padding="same", activation="sigmoid")(x)
 
@@ -368,9 +373,15 @@ def main():
 
     print(f"\nTraining CVAE for {EPOCHS} epochs...")
     early_stopping = tf.keras.callbacks.EarlyStopping(
-        monitor='val_total_loss',
-        patience=8,
+        monitor='val_recon_loss',
+        patience=20,
         restore_best_weights=True
+    )
+    checkpoint = tf.keras.callbacks.ModelCheckpoint(
+        filepath=str(Path(__file__).parent / "best_recon.keras"),
+        monitor='val_recon_loss',
+        save_best_only=True,
+        save_weights_only=False,
     )
     tensorboard_callback = tf.keras.callbacks.TensorBoard(
         log_dir=str(TB_LOG_DIR),
@@ -395,7 +406,7 @@ def main():
         validation_data=(x_test, y_test),
         epochs=EPOCHS,
         batch_size=BATCH_SIZE,
-        callbacks=[early_stopping, tensorboard_callback, lr_schedule, kl_schedule, LogLRCallback(TB_LOG_DIR)],
+        callbacks=[early_stopping, checkpoint, tensorboard_callback, lr_schedule, kl_schedule, LogLRCallback(TB_LOG_DIR)],
     )
 
     # ─── Save as ONNX ──────────────────────────────────────────────
