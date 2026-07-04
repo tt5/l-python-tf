@@ -151,3 +151,12 @@ Deeper 28×28 stack: add another residual conv block after the final sigmoid; th
   Class 4: 42.4% correctly classified (2119/5000), avg confidence: 75.4%
   Class 5: 66.8% correctly classified (3342/5000), avg confidence: 84.8%
   Class 6: 22.5% correctly classified (1123/5000), avg confidence: 52.3%
+
+  Class digit_0: 50.6% correct (2529/5000), avg confidence: 85.9%
+  Class digit_1: 39.9% correct (1994/5000), avg confidence: 94.6%
+  Class digit_2: 3.0% correct (148/5000), avg confidence: 81.6%
+  Class digit_3: 8.6% correct (429/5000), avg confidence: 74.8%
+  Class digit_4: 10.3% correct (516/5000), avg confidence: 80.7%
+  Class digit_5: 57.3% correct (2866/5000), avg confidence: 92.7%
+  Class digit_6: 3.7% correct (184/5000), avg confidence: 71.9%
+  Class low_conf: 18.9% correct (944/5000), avg confidence: 61.4%

@@ -51,7 +51,7 @@ CONTRASTIVE_DECAY_EPOCHS = EPOCHS - CONTRASTIVE_WARMUP_EPOCHS
 NUM_CLASSES = None  # derived from data + low_conf
 TARGET_SIZE = 28
 LOW_CONF_THRESHOLD = 0.6
-TB_LOG_DIR = Path(__file__).resolve().parent / "logs" / "cvae3"
+TB_LOG_DIR = Path(__file__).resolve().parent / "logs" / "cvae3b"
 
 def load_pbm(path):
     """Load a P4 PBM file and return a 2D numpy array of 0/1 float32."""
@@ -273,17 +273,7 @@ def build_encoder():
         tf.keras.layers.Conv2D(64, 1, activation=None, strides=2, padding="same")(skip1)
     ])
 
-    # Cross-attention at 7x7: label attends over spatial positions
-    spatial_7x7 = x
-    spatial_flat = tf.keras.layers.Reshape((7*7, 64))(spatial_7x7)  # (B, 49, 64)
-    label_query_proj = tf.keras.layers.Dense(64, activation=None)(label_input)  # (B, 64)
-    query = tf.keras.layers.Reshape((1, 64))(label_query_proj)  # (B, 1, 64)
-    mha = tf.keras.layers.MultiHeadAttention(num_heads=2, key_dim=32, value_dim=64)
-    attn = mha(query=query, key=spatial_flat, value=spatial_flat)  # (B, 1, 64)
-    attn_ctx = tf.keras.layers.Reshape((1, 1, 64))(attn)
-    x = tf.keras.layers.Add()([x, attn_ctx])
-
-    # FiLM at 7x7 from label embedding
+    # Multi-scale kernel block at 7x7
     enc_label_emb = tf.keras.layers.Dense(64, activation="relu")(label_input)
     enc_label_emb = tf.keras.layers.Dense(64, activation=None)(enc_label_emb)
     film_g = tf.keras.layers.Dense(64, activation="sigmoid")(enc_label_emb)
@@ -342,16 +332,6 @@ def build_generator():
     x = tf.keras.layers.Concatenate()([latent_input, label_input])
     x = tf.keras.layers.Dense(7 * 7 * 64, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = tf.keras.layers.Reshape((7, 7, 64))(x)
-
-    # Cross-attention at 7x7: label attends over latent spatial expansion
-    spatial_7x7 = x
-    spatial_flat = tf.keras.layers.Reshape((7*7, 64))(spatial_7x7)  # (B, 49, 64)
-    label_query_proj = tf.keras.layers.Dense(64, activation=None)(label_input)  # (B, 64)
-    query = tf.keras.layers.Reshape((1, 64))(label_query_proj)  # (B, 1, 64)
-    mha = tf.keras.layers.MultiHeadAttention(num_heads=2, key_dim=32, value_dim=64)
-    attn = mha(query=query, key=spatial_flat, value=spatial_flat)  # (B, 1, 64)
-    attn_ctx = tf.keras.layers.Reshape((1, 1, 64))(attn)
-    x = tf.keras.layers.Add()([x, attn_ctx])
 
     # FiLM at 7x7 from label embedding
     dec_label_emb = tf.keras.layers.Dense(64, activation="relu")(label_input)
