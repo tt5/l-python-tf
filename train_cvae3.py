@@ -271,6 +271,14 @@ def build_encoder():
     x = tf.keras.layers.LayerNormalization(center=False, scale=False)(x)
     x = tf.keras.layers.Activation("relu")(x)
     x = tf.keras.layers.Add()([x, x_save])
+
+    # Dense-stage FiLM before latent stats
+    enc_film_emb = tf.keras.layers.Dense(64, activation="relu")(enc_label_emb)
+    enc_film_g = tf.keras.layers.Dense(128, activation="sigmoid")(enc_film_emb)
+    enc_film_b = tf.keras.layers.Dense(128, activation=None)(enc_film_emb)
+    x = tf.keras.layers.Multiply()([x, enc_film_g])
+    x = tf.keras.layers.Add()([x, enc_film_b])
+
     x = tf.keras.layers.Dropout(DROPOUT)(x)
 
     z_mean = tf.keras.layers.Dense(LATENT_DIM, name="z_mean")(x)
