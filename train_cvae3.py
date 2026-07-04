@@ -45,7 +45,7 @@ CONTRASTIVE_TEMPERATURE = 0.5
 NUM_CLASSES = None  # derived from data + low_conf
 TARGET_SIZE = 28
 LOW_CONF_THRESHOLD = 0.6
-TB_LOG_DIR = Path(__file__).resolve().parent / "logs" / "cvae3b"
+TB_LOG_DIR = Path(__file__).resolve().parent / "logs" / "cvae3"
 
 def load_pbm(path):
     """Load a P4 PBM file and return a 2D numpy array of 0/1 float32."""
@@ -375,6 +375,12 @@ def build_generator():
             tf.keras.layers.UpSampling2D(size=2, interpolation='nearest')(skip14)
         )
     ])
+    x = tf.keras.layers.Dropout(DROPOUT / 2)(x)
+
+    # second 28x28 refinement block
+    x28 = tf.keras.layers.Conv2D(32, 3, padding='same', activation="relu")(x)
+    x28 = tf.keras.layers.LayerNormalization(center=False, scale=False)(x28)
+    x = tf.keras.layers.Add()([x, x28])
     x = tf.keras.layers.Dropout(DROPOUT / 2)(x)
 
     x = tf.keras.layers.Conv2D(1, 3, padding="same", activation="sigmoid")(x)
