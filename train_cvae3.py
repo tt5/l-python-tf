@@ -45,7 +45,7 @@ CONTRASTIVE_TEMPERATURE = 0.5
 NUM_CLASSES = None  # derived from data + low_conf
 TARGET_SIZE = 28
 LOW_CONF_THRESHOLD = 0.6
-TB_LOG_DIR = Path(__file__).resolve().parent / "logs" / "cvae3"
+TB_LOG_DIR = Path(__file__).resolve().parent / "logs" / "cvae3b"
 
 def load_pbm(path):
     """Load a P4 PBM file and return a 2D numpy array of 0/1 float32."""
@@ -244,6 +244,13 @@ def build_encoder():
     b5 = tf.keras.layers.Conv2D(16, 5, padding='same', activation="relu")(x)
     x = tf.keras.layers.Concatenate()([b1, b3, b5])
     x = tf.keras.layers.Conv2D(64, 1, padding='same')(x)
+
+    # SE on 7x7 spatial features
+    se = tf.keras.layers.GlobalAveragePooling2D()(x)
+    se = tf.keras.layers.Dense(64 // 4, activation="relu")(se)
+    se = tf.keras.layers.Dense(64, activation="sigmoid")(se)
+    se = tf.keras.layers.Reshape((1, 1, 64))(se)
+    x = tf.keras.layers.Multiply()([x, se])
 
     x = tf.keras.layers.Dropout(DROPOUT)(x)
 
