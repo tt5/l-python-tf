@@ -318,6 +318,13 @@ def build_generator():
     x = tf.keras.layers.Multiply()([x, film_g])
     x = tf.keras.layers.Add()([x, film_b])
 
+    # SE on 7x7 generator features
+    se = tf.keras.layers.GlobalAveragePooling2D()(x)
+    se = tf.keras.layers.Dense(64 // 4, activation="relu")(se)
+    se = tf.keras.layers.Dense(64, activation="sigmoid")(se)
+    se = tf.keras.layers.Reshape((1, 1, 64))(se)
+    x = tf.keras.layers.Multiply()([x, se])
+
     # 7x7 -> 14x14 residual upsample block
     skip7 = x
     x = tf.keras.layers.UpSampling2D(size=2, interpolation='nearest')(x)
@@ -348,6 +355,13 @@ def build_generator():
     film_b_14 = tf.keras.layers.Reshape((1, 1, 64))(film_b_14)
     x = tf.keras.layers.Multiply()([x, film_g_14])
     x = tf.keras.layers.Add()([x, film_b_14])
+
+    # SE on 14x14 generator features
+    se_14 = tf.keras.layers.GlobalAveragePooling2D()(x)
+    se_14 = tf.keras.layers.Dense(64 // 4, activation="relu")(se_14)
+    se_14 = tf.keras.layers.Dense(64, activation="sigmoid")(se_14)
+    se_14 = tf.keras.layers.Reshape((1, 1, 64))(se_14)
+    x = tf.keras.layers.Multiply()([x, se_14])
 
     # 14x14 -> 28x28 residual upsample block
     skip14 = x
