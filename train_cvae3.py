@@ -44,7 +44,7 @@ DROPOUT = 0.35
 CONTRASTIVE_TEMPERATURE = 0.075
 CONTRASTIVE_START = 0.00005
 CONTRASTIVE_PEAK = 2
-CONTRASTIVE_END = 64
+CONTRASTIVE_END = 16
 CONTRASTIVE_WARMUP_EPOCHS = 7
 CONTRASTIVE_DECAY_EPOCHS = EPOCHS - CONTRASTIVE_WARMUP_EPOCHS
 NUM_CLASSES = None  # derived from data + low_conf
@@ -232,7 +232,9 @@ def build_encoder():
     image_input = tf.keras.layers.Input(shape=(28, 28, 1), name="image_input")
     label_input = tf.keras.layers.Input(shape=(NUM_CLASSES,), name="label_input")
 
-    x = tf.keras.layers.Conv2D(32, 3, strides=2, padding="same", activation="relu")(image_input)
+    x = tf.keras.layers.Conv2D(32, 3, padding='same', activation="relu")(image_input)
+    x = tf.keras.layers.LayerNormalization(center=False, scale=False)(x)
+    x = tf.keras.layers.Conv2D(32, 3, strides=2, padding="same", activation="relu")(x)
     skip1 = x  # 14x14, 32ch
 
     # Residual downsampling into 64ch / 7x7
@@ -263,13 +265,6 @@ def build_encoder():
     film_b = tf.keras.layers.Reshape((1, 1, 64))(film_b)
     x = tf.keras.layers.Multiply()([x, film_g])
     x = tf.keras.layers.Add()([x, film_b])
-
-    # Multi-scale kernel block at 7x7
-    b1 = tf.keras.layers.Conv2D(16, 1, padding='same', activation="relu")(x)
-    b3 = tf.keras.layers.Conv2D(16, 3, padding='same', activation="relu")(x)
-    b5 = tf.keras.layers.Conv2D(16, 5, padding='same', activation="relu")(x)
-    x = tf.keras.layers.Concatenate()([b1, b3, b5])
-    x = tf.keras.layers.Conv2D(64, 1, padding='same')(x)
 
     # Multi-scale kernel block at 7x7
     b1 = tf.keras.layers.Conv2D(16, 1, padding='same', activation="relu")(x)
