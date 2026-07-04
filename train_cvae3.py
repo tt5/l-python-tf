@@ -29,10 +29,10 @@ PBM_DIR = args.data_dir
 LATENT_DIM = 128
 EPOCHS = 80
 BATCH_SIZE = 128
-LEARNING_RATE = 0.005
+LEARNING_RATE = 0.006
 LR_START = 0.0
-LR_WARMUP_EPOCHS = 4
-LR_DECAY_EPOCHS = EPOCHS - LR_WARMUP_EPOCHS + 10
+LR_WARMUP_EPOCHS = 5
+LR_DECAY_EPOCHS = EPOCHS - LR_WARMUP_EPOCHS + 20
 LR_END = 0.0002
 KL_START = 0.0001
 KL_PEAK = 0.45
@@ -40,12 +40,16 @@ KL_END = 0.01
 KL_WARMUP_EPOCHS = 2
 KL_DECAY_EPOCHS = EPOCHS - KL_WARMUP_EPOCHS
 DROPOUT = 0.45
-CONTRASTIVE_WEIGHT = 16.0
 CONTRASTIVE_TEMPERATURE = 0.5
+CONTRASTIVE_START = 0.0
+CONTRASTIVE_PEAK = 8
+CONTRASTIVE_END = 16
+CONTRASTIVE_WARMUP_EPOCHS = 4
+CONTRASTIVE_DECAY_EPOCHS = EPOCHS - CONTRASTIVE_WARMUP_EPOCHS
 NUM_CLASSES = None  # derived from data + low_conf
 TARGET_SIZE = 28
 LOW_CONF_THRESHOLD = 0.6
-TB_LOG_DIR = Path(__file__).resolve().parent / "logs" / "cvae3"
+TB_LOG_DIR = Path(__file__).resolve().parent / "logs" / "cvae3b"
 
 def load_pbm(path):
     """Load a P4 PBM file and return a 2D numpy array of 0/1 float32."""
@@ -203,6 +207,24 @@ class LinearKLSchedule(tf.keras.callbacks.Callback):
         else:
             weight = self.kl_end
         self.model.kl_weight.assign(float(weight))
+
+class ContrastiveWeightSchedule(tf.keras.callbacks.Callback):
+    def __init__(self, start, peak, end, warmup_epochs, decay_epochs):
+        self.start = start
+        self.peak = peak
+        self.end = end
+        self.warmup_epochs = warmup_epochs
+        self.decay_epochs = decay_epochs
+
+    def on_epoch_begin(self, epoch, logs=None):
+        if epoch < self.warmup_epochs:
+            weight = self.start + (self.peak - self.start) * (epoch / max(1, self.warmup_epochs - 1))
+        elif epoch < self.warmup_epochs + self.decay_epochs:
+            t = (epoch - self.warmup_epochs) / max(1, self.decay_epochs - 1)
+            weight = self.peak + (self.end - self.peak) * t
+        else:
+            weight = self.end
+        self.model.contrastive_weight.assign(float(weight))
 
 # ─── Encoder ─────────────────────────────────────────────────────
 def build_encoder():
@@ -394,15 +416,17 @@ class CVAE(tf.keras.Model):
         self.encoder = encoder
         self.generator = generator
         self.kl_weight = tf.Variable(KL_START, dtype=tf.float32, trainable=False)
+        self.contrastive_weight = tf.Variable(CONTRASTIVE_START, dtype=tf.float32, trainable=False)
         self.total_loss_tracker = tf.keras.metrics.Mean(name="total_loss")
         self.recon_loss_tracker = tf.keras.metrics.Mean(name="recon_loss")
         self.kl_loss_tracker = tf.keras.metrics.Mean(name="kl_loss")
         self.kl_weight_tracker = tf.keras.metrics.Mean(name="kl_weight")
         self.contrastive_loss_tracker = tf.keras.metrics.Mean(name="contrastive_loss")
+        self.contrastive_weight_tracker = tf.keras.metrics.Mean(name="contrastive_weight")
 
     @property
     def metrics(self):
-        return [self.total_loss_tracker, self.recon_loss_tracker, self.kl_loss_tracker, self.kl_weight_tracker, self.contrastive_loss_tracker]
+        return [self.total_loss_tracker, self.recon_loss_tracker, self.kl_loss_tracker, self.kl_weight_tracker, self.contrastive_loss_tracker, self.contrastive_weight_tracker]
 
     def _contrastive_loss(self, z, labels):
         z_norm = tf.math.l2_normalize(z, axis=-1)
@@ -439,7 +463,7 @@ class CVAE(tf.keras.Model):
                 )
             )
             contrastive_loss = self._contrastive_loss(z, labels)
-            total_loss = recon_loss + self.kl_weight * kl_loss + CONTRASTIVE_WEIGHT * contrastive_loss
+            total_loss = recon_loss + self.kl_weight * kl_loss + self.contrastive_weight * contrastive_loss
 
         grads = tape.gradient(total_loss, self.trainable_weights)
         self.optimizer.apply_gradients(zip(grads, self.trainable_weights))
@@ -449,6 +473,7 @@ class CVAE(tf.keras.Model):
         self.kl_loss_tracker.update_state(kl_loss)
         self.kl_weight_tracker.update_state(self.kl_weight)
         self.contrastive_loss_tracker.update_state(contrastive_loss)
+        self.contrastive_weight_tracker.update_state(self.contrastive_weight)
 
         return {m.name: m.result() for m in self.metrics}
 
@@ -470,13 +495,14 @@ class CVAE(tf.keras.Model):
             )
         )
         contrastive_loss = self._contrastive_loss(z, labels)
-        total_loss = recon_loss + self.kl_weight * kl_loss + CONTRASTIVE_WEIGHT * contrastive_loss
+        total_loss = recon_loss + self.kl_weight * kl_loss + self.contrastive_weight * contrastive_loss
 
         self.total_loss_tracker.update_state(total_loss)
         self.recon_loss_tracker.update_state(recon_loss)
         self.kl_loss_tracker.update_state(kl_loss)
         self.kl_weight_tracker.update_state(self.kl_weight)
         self.contrastive_loss_tracker.update_state(contrastive_loss)
+        self.contrastive_weight_tracker.update_state(self.contrastive_weight)
 
         return {m.name: m.result() for m in self.metrics}
 
@@ -504,11 +530,13 @@ def main():
     print(f"\nTraining CVAE for {EPOCHS} epochs...")
     early_stopping = tf.keras.callbacks.EarlyStopping(
         monitor='val_recon_loss',
-        patience=10,
+        patience=20,
         restore_best_weights=True
     )
+    checkpoint_path = Path(__file__).parent / "best_recon.weights"
+    checkpoint_path.unlink(missing_ok=True)
     checkpoint = tf.keras.callbacks.ModelCheckpoint(
-        filepath=str(Path(__file__).parent / "best_recon.weights.h5"),
+        filepath=str(checkpoint_path),
         monitor='val_recon_loss',
         save_best_only=True,
         save_weights_only=True,
@@ -531,12 +559,19 @@ def main():
         warmup_epochs=KL_WARMUP_EPOCHS,
         decay_epochs=KL_DECAY_EPOCHS
     )
+    contrastive_schedule = ContrastiveWeightSchedule(
+        start=CONTRASTIVE_START,
+        peak=CONTRASTIVE_PEAK,
+        end=CONTRASTIVE_END,
+        warmup_epochs=CONTRASTIVE_WARMUP_EPOCHS,
+        decay_epochs=CONTRASTIVE_DECAY_EPOCHS
+    )
     cvae.fit(
         x_train, y_train,
         validation_data=(x_test, y_test),
         epochs=EPOCHS,
         batch_size=BATCH_SIZE,
-        callbacks=[early_stopping, checkpoint, tensorboard_callback, lr_schedule, kl_schedule, LogLRCallback(TB_LOG_DIR)],
+        callbacks=[early_stopping, checkpoint, tensorboard_callback, lr_schedule, kl_schedule, contrastive_schedule, LogLRCallback(TB_LOG_DIR)],
     )
 
     # ─── Save as ONNX from best restored weights ───────────────────
