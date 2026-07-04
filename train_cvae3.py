@@ -32,16 +32,16 @@ BATCH_SIZE = 128
 LEARNING_RATE = 0.01
 LR_START = 0.00001
 LR_WARMUP_EPOCHS = 8
-LR_DECAY_EPOCHS = 80 - 8 + 20
+LR_DECAY_EPOCHS = EPOCHS - LR_WARMUP_EPOCHS + 20
 LR_END = 0.00012
 CLIPNORM = 1.0
 KL_START = 0.000001
 KL_PEAK = 0.45
-KL_END = 0.36
+KL_END = 0.37
 KL_WARMUP_EPOCHS = 5
 KL_DECAY_EPOCHS = EPOCHS - KL_WARMUP_EPOCHS
-DROPOUT = 0.36
-L2_REG = 0.0001
+DROPOUT = 0.37
+L2_REG = 0.00005
 CONTRASTIVE_TEMPERATURE = 0.07
 CONTRASTIVE_START = 0.00005
 CONTRASTIVE_PEAK = 2
@@ -49,9 +49,9 @@ CONTRASTIVE_END = 15
 CONTRASTIVE_WARMUP_EPOCHS = 7
 CONTRASTIVE_DECAY_EPOCHS = EPOCHS - CONTRASTIVE_WARMUP_EPOCHS
 PERCEPTUAL_START = 0.0
-PERCEPTUAL_PEAK = 8.0
-PERCEPTUAL_END = 18.0
-PERCEPTUAL_WARMUP_EPOCHS = 21
+PERCEPTUAL_PEAK = 4.0
+PERCEPTUAL_END = 32.0
+PERCEPTUAL_WARMUP_EPOCHS = 20
 PERCEPTUAL_DECAY_EPOCHS = EPOCHS - PERCEPTUAL_WARMUP_EPOCHS
 NUM_CLASSES = None  # derived from data + low_conf
 TARGET_SIZE = 28
@@ -400,7 +400,7 @@ def build_generator():
     # 7x7 -> 14x14 residual upsample block
     skip7 = x
     x = tf.keras.layers.UpSampling2D(size=2, interpolation='nearest')(x)
-    x = tf.keras.layers.Conv2D(64, 3, padding='same')(x)
+    x = tf.keras.layers.Conv2D(64, 3, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = tf.keras.layers.LayerNormalization(center=False, scale=False)(x)
     x = tf.keras.layers.Activation("relu")(x)
     x = tf.keras.layers.Add()([
@@ -412,11 +412,11 @@ def build_generator():
     x = tf.keras.layers.Dropout(DROPOUT / 2)(x)
 
     # Multi-scale kernel block at 14x14
-    b1 = tf.keras.layers.Conv2D(16, 1, padding='same', activation="relu")(x)
-    b3 = tf.keras.layers.Conv2D(16, 3, padding='same', activation="relu")(x)
-    b5 = tf.keras.layers.Conv2D(16, 5, padding='same', activation="relu")(x)
+    b1 = tf.keras.layers.Conv2D(16, 1, padding='same', activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
+    b3 = tf.keras.layers.Conv2D(16, 3, padding='same', activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
+    b5 = tf.keras.layers.Conv2D(16, 5, padding='same', activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = tf.keras.layers.Concatenate()([b1, b3, b5])
-    x = tf.keras.layers.Conv2D(64, 1, padding='same')(x)
+    x = tf.keras.layers.Conv2D(64, 1, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
 
     # FiLM at 14x14 from label embedding
     dec_label_emb_14 = tf.keras.layers.Dense(64, activation="relu")(label_input)
@@ -438,7 +438,7 @@ def build_generator():
     # 14x14 -> 28x28 residual upsample block
     skip14 = x
     x = tf.keras.layers.UpSampling2D(size=2, interpolation='nearest')(x)
-    x = tf.keras.layers.Conv2D(32, 3, padding='same')(x)
+    x = tf.keras.layers.Conv2D(32, 3, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = tf.keras.layers.LayerNormalization(center=False, scale=False)(x)
     x = tf.keras.layers.Activation("relu")(x)
     x = tf.keras.layers.Add()([
@@ -450,7 +450,7 @@ def build_generator():
     x = tf.keras.layers.Dropout(DROPOUT / 2)(x)
 
     # second 28x28 refinement block
-    x28 = tf.keras.layers.Conv2D(32, 3, padding='same', activation="relu")(x)
+    x28 = tf.keras.layers.Conv2D(32, 3, padding='same', activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x28 = tf.keras.layers.LayerNormalization(center=False, scale=False)(x28)
 
     # deeper label injection at 28x28
