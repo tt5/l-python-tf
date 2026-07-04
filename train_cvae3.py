@@ -27,12 +27,12 @@ PBM_DIR = args.data_dir
 
 # ─── Hyperparameters ──────────────────────────────────────────────
 LATENT_DIM = 128
-EPOCHS = 80
+EPOCHS = 90
 BATCH_SIZE = 128
 LEARNING_RATE = 0.01
 LR_START = 0.00001
 LR_WARMUP_EPOCHS = 8
-LR_DECAY_EPOCHS = EPOCHS - LR_WARMUP_EPOCHS + 20
+LR_DECAY_EPOCHS = 80 - 8 + 20
 LR_END = 0.0001
 CLIPNORM = 1.0
 KL_START = 0.000001
@@ -51,7 +51,7 @@ CONTRASTIVE_DECAY_EPOCHS = EPOCHS - CONTRASTIVE_WARMUP_EPOCHS
 NUM_CLASSES = None  # derived from data + low_conf
 TARGET_SIZE = 28
 LOW_CONF_THRESHOLD = 0.6
-TB_LOG_DIR = Path(__file__).resolve().parent / "logs" / "cvae3b"
+TB_LOG_DIR = Path(__file__).resolve().parent / "logs" / "cvae3"
 
 def load_pbm(path):
     """Load a P4 PBM file and return a 2D numpy array of 0/1 float32."""
