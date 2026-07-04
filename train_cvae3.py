@@ -231,6 +231,16 @@ def build_encoder():
     attn_ctx = tf.keras.layers.Reshape((1, 1, 64))(attn)
     x = tf.keras.layers.Add()([x, attn_ctx])
 
+    # FiLM at 7x7 from label embedding
+    enc_label_emb = tf.keras.layers.Dense(64, activation="relu")(label_input)
+    enc_label_emb = tf.keras.layers.Dense(64, activation=None)(enc_label_emb)
+    film_g = tf.keras.layers.Dense(64, activation="sigmoid")(enc_label_emb)
+    film_b = tf.keras.layers.Dense(64, activation=None)(enc_label_emb)
+    film_g = tf.keras.layers.Reshape((1, 1, 64))(film_g)
+    film_b = tf.keras.layers.Reshape((1, 1, 64))(film_b)
+    x = tf.keras.layers.Multiply()([x, film_g])
+    x = tf.keras.layers.Add()([x, film_b])
+
     # Multi-scale kernel block at 7x7
     b1 = tf.keras.layers.Conv2D(16, 1, padding='same', activation="relu")(x)
     b3 = tf.keras.layers.Conv2D(16, 3, padding='same', activation="relu")(x)
@@ -289,6 +299,16 @@ def build_generator():
     attn = mha(query=query, key=spatial_flat, value=spatial_flat)  # (B, 1, 64)
     attn_ctx = tf.keras.layers.Reshape((1, 1, 64))(attn)
     x = tf.keras.layers.Add()([x, attn_ctx])
+
+    # FiLM at 7x7 from label embedding
+    dec_label_emb = tf.keras.layers.Dense(64, activation="relu")(label_input)
+    dec_label_emb = tf.keras.layers.Dense(64, activation=None)(dec_label_emb)
+    film_g = tf.keras.layers.Dense(64, activation="sigmoid")(dec_label_emb)
+    film_b = tf.keras.layers.Dense(64, activation=None)(dec_label_emb)
+    film_g = tf.keras.layers.Reshape((1, 1, 64))(film_g)
+    film_b = tf.keras.layers.Reshape((1, 1, 64))(film_b)
+    x = tf.keras.layers.Multiply()([x, film_g])
+    x = tf.keras.layers.Add()([x, film_b])
 
     # 7x7 -> 14x14 residual upsample block
     skip7 = x
