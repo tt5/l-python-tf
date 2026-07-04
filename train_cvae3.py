@@ -26,20 +26,20 @@ args, _ = parser.parse_known_args()
 PBM_DIR = args.data_dir
 
 # ─── Hyperparameters ──────────────────────────────────────────────
-LATENT_DIM = 256
-EPOCHS = 120
+LATENT_DIM = 384
+EPOCHS = 130
 BATCH_SIZE = 128
 LEARNING_RATE = 0.009
 LR_START = 0.00001
 LR_WARMUP_EPOCHS = 9
 LR_DECAY_EPOCHS = EPOCHS - LR_WARMUP_EPOCHS
-LR_END = 0.0002
+LR_END = 0.0003
 CLIPNORM = 1.0
 KL_START = 0.000001
 KL_PEAK = 0.45
 KL_END = 0.37
 KL_WARMUP_EPOCHS = 5
-KL_DECAY_EPOCHS = EPOCHS - KL_WARMUP_EPOCHS
+KL_DECAY_EPOCHS = 120 - KL_WARMUP_EPOCHS
 DROPOUT = 0.37
 L2_REG = 0.00005
 CONTRASTIVE_TEMPERATURE = 0.07
@@ -47,16 +47,16 @@ CONTRASTIVE_START = 0.00005
 CONTRASTIVE_PEAK = 2
 CONTRASTIVE_END = 15
 CONTRASTIVE_WARMUP_EPOCHS = 7
-CONTRASTIVE_DECAY_EPOCHS = EPOCHS - CONTRASTIVE_WARMUP_EPOCHS
+CONTRASTIVE_DECAY_EPOCHS = 120 - CONTRASTIVE_WARMUP_EPOCHS
 PERCEPTUAL_START = 0.0
 PERCEPTUAL_PEAK = 4.0
 PERCEPTUAL_END = 32.0
 PERCEPTUAL_WARMUP_EPOCHS = 20
-PERCEPTUAL_DECAY_EPOCHS = EPOCHS - PERCEPTUAL_WARMUP_EPOCHS
+PERCEPTUAL_DECAY_EPOCHS = 120 - PERCEPTUAL_WARMUP_EPOCHS
 NUM_CLASSES = None  # derived from data + low_conf
 TARGET_SIZE = 28
 LOW_CONF_THRESHOLD = 0.6
-TB_LOG_DIR = Path(__file__).resolve().parent / "logs" / "cvae3"
+TB_LOG_DIR = Path(__file__).resolve().parent / "logs" / "cvae3b"
 
 def load_pbm(path):
     """Load a P4 PBM file and return a 2D numpy array of 0/1 float32."""
@@ -303,6 +303,16 @@ def build_encoder():
     x = tf.keras.layers.LayerNormalization(center=False, scale=False)(x)
     x = tf.keras.layers.Conv2D(32, 3, strides=2, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     skip1 = x  # 14x14, 32ch
+
+    # FiLM at 14x14 from label embedding
+    enc_label_emb_14 = tf.keras.layers.Dense(64, activation="relu")(label_input)
+    enc_label_emb_14 = tf.keras.layers.Dense(64, activation=None)(enc_label_emb_14)
+    film_g_14 = tf.keras.layers.Dense(32, activation="sigmoid")(enc_label_emb_14)
+    film_b_14 = tf.keras.layers.Dense(32, activation=None)(enc_label_emb_14)
+    film_g_14 = tf.keras.layers.Reshape((1, 1, 32))(film_g_14)
+    film_b_14 = tf.keras.layers.Reshape((1, 1, 32))(film_b_14)
+    x = tf.keras.layers.Multiply()([x, film_g_14])
+    x = tf.keras.layers.Add()([x, film_b_14])
 
     # Residual downsampling into 64ch / 7x7
     x = tf.keras.layers.Conv2D(64, 3, strides=2, padding="same", activation=None, kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
