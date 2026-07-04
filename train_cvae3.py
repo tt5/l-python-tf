@@ -409,10 +409,15 @@ def main():
         callbacks=[early_stopping, checkpoint, tensorboard_callback, lr_schedule, kl_schedule, LogLRCallback(TB_LOG_DIR)],
     )
 
-    # ─── Save as ONNX ──────────────────────────────────────────────
+    # ─── Save as ONNX from best recon checkpoint ───────────────────
     save_dir = Path(__file__).parent
 
-    # Save generator as ONNX
+    print("Loading best model from recon checkpoint...")
+    best_model = tf.keras.models.load_model(str(save_dir / "best_recon.keras"), compile=False)
+
+    best_generator = best_model.generator
+    best_encoder = best_model.encoder
+
     import tf2onnx
     import onnx
 
@@ -421,7 +426,7 @@ def main():
         tf.TensorSpec((None, LATENT_DIM), tf.float32, name="latent_input"),
         tf.TensorSpec((None, NUM_CLASSES), tf.float32, name="label_input"),
     )
-    onnx_model, _ = tf2onnx.convert.from_keras(generator, input_signature=gen_spec)
+    onnx_model, _ = tf2onnx.convert.from_keras(best_generator, input_signature=gen_spec)
     gen_path = save_dir / "cvae3_generator.onnx"
     onnx.save(onnx_model, str(gen_path))
     print(f"\nGenerator saved to {gen_path}")
@@ -431,7 +436,7 @@ def main():
         tf.TensorSpec((None, 28, 28, 1), tf.float32, name="image_input"),
         tf.TensorSpec((None, NUM_CLASSES), tf.float32, name="label_input"),
     )
-    onnx_model, _ = tf2onnx.convert.from_keras(encoder, input_signature=enc_spec)
+    onnx_model, _ = tf2onnx.convert.from_keras(best_encoder, input_signature=enc_spec)
     enc_path = save_dir / "cvae3_encoder.onnx"
     onnx.save(onnx_model, str(enc_path))
     print(f"Encoder saved to {enc_path}")
@@ -439,7 +444,7 @@ def main():
     # ─── Quick test: generate one sample per class ─────────────────
     print("\nGenerating test samples...")
     for label in range(NUM_CLASSES):
-        img = cvae.generate(label)
+        img = best_model.generate(label)
         print(f"  Label {label}: shape={img.shape}, min={img.numpy().min():.3f}, max={img.numpy().max():.3f}")
 
     print("\nDone!")
