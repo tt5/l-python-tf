@@ -231,6 +231,20 @@ def build_encoder():
     attn_ctx = tf.keras.layers.Reshape((1, 1, 64))(attn)
     x = tf.keras.layers.Add()([x, attn_ctx])
 
+    # Multi-scale kernel block at 7x7
+    b1 = tf.keras.layers.Conv2D(16, 1, padding='same', activation="relu")(x)
+    b3 = tf.keras.layers.Conv2D(16, 3, padding='same', activation="relu")(x)
+    b5 = tf.keras.layers.Conv2D(16, 5, padding='same', activation="relu")(x)
+    x = tf.keras.layers.Concatenate()([b1, b3, b5])
+    x = tf.keras.layers.Conv2D(64, 1, padding='same')(x)
+
+    # Multi-scale kernel block at 7x7
+    b1 = tf.keras.layers.Conv2D(16, 1, padding='same', activation="relu")(x)
+    b3 = tf.keras.layers.Conv2D(16, 3, padding='same', activation="relu")(x)
+    b5 = tf.keras.layers.Conv2D(16, 5, padding='same', activation="relu")(x)
+    x = tf.keras.layers.Concatenate()([b1, b3, b5])
+    x = tf.keras.layers.Conv2D(64, 1, padding='same')(x)
+
     x = tf.keras.layers.Dropout(DROPOUT)(x)
 
     x = tf.keras.layers.Flatten()(x)
@@ -282,6 +296,13 @@ def build_generator():
         )
     ])
     x = tf.keras.layers.Dropout(DROPOUT / 2)(x)
+
+    # Multi-scale kernel block at 14x14
+    b1 = tf.keras.layers.Conv2D(16, 1, padding='same', activation="relu")(x)
+    b3 = tf.keras.layers.Conv2D(16, 3, padding='same', activation="relu")(x)
+    b5 = tf.keras.layers.Conv2D(16, 5, padding='same', activation="relu")(x)
+    x = tf.keras.layers.Concatenate()([b1, b3, b5])
+    x = tf.keras.layers.Conv2D(64, 1, padding='same')(x)
 
     # 14x14 -> 28x28 residual upsample block
     skip14 = x
