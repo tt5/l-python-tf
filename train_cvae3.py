@@ -642,6 +642,13 @@ def main():
         decay_epochs=CONTRASTIVE_DECAY_EPOCHS
     )
 
+    perceptual_schedule = PerceptualWeightSchedule(
+        start=PERCEPTUAL_START,
+        end=PERCEPTUAL_END,
+        warmup_epochs=PERCEPTUAL_WARMUP_EPOCHS,
+        decay_epochs=PERCEPTUAL_DECAY_EPOCHS,
+    )
+
     train_ds = tf.data.Dataset.from_tensor_slices((x_train, y_train))
     train_ds = train_ds.shuffle(buffer_size=len(x_train), seed=42)
     train_ds = train_ds.map(_random_aug_sample, num_parallel_calls=tf.data.AUTOTUNE)
@@ -654,7 +661,7 @@ def main():
         train_ds,
         validation_data=val_ds,
         epochs=EPOCHS,
-        callbacks=[early_stopping, checkpoint, tensorboard_callback, lr_schedule, kl_schedule, contrastive_schedule, LogLRCallback(TB_LOG_DIR)],
+        callbacks=[early_stopping, checkpoint, tensorboard_callback, lr_schedule, kl_schedule, contrastive_schedule, perceptual_schedule, LogLRCallback(TB_LOG_DIR)],
     )
 
     # ─── Save as ONNX from best restored weights ───────────────────
