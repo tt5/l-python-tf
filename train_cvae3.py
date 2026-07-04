@@ -48,10 +48,14 @@ CONTRASTIVE_PEAK = 2
 CONTRASTIVE_END = 16
 CONTRASTIVE_WARMUP_EPOCHS = 7
 CONTRASTIVE_DECAY_EPOCHS = EPOCHS - CONTRASTIVE_WARMUP_EPOCHS
+PERCEPTUAL_START = float(0.0)
+PERCEPTUAL_END = float(0.05)
+PERCEPTUAL_WARMUP_EPOCHS = 10
+PERCEPTUAL_DECAY_EPOCHS = EPOCHS - PERCEPTUAL_WARMUP_EPOCHS
 NUM_CLASSES = None  # derived from data + low_conf
 TARGET_SIZE = 28
 LOW_CONF_THRESHOLD = 0.6
-TB_LOG_DIR = Path(__file__).resolve().parent / "logs" / "cvae3b"
+TB_LOG_DIR = Path(__file__).resolve().parent / "logs" / "cvae3"
 
 def load_pbm(path):
     """Load a P4 PBM file and return a 2D numpy array of 0/1 float32."""
@@ -254,6 +258,51 @@ class ContrastiveWeightSchedule(tf.keras.callbacks.Callback):
             weight = self.end
         self.model.contrastive_weight.assign(float(weight))
 
+class PerceptualWeightSchedule(tf.keras.callbacks.Callback):
+    def __init__(self, start, end, warmup_epochs, decay_epochs):
+        self.start = start
+        self.end = end
+        self.warmup_epochs = warmup_epochs
+        self.decay_epochs = decay_epochs
+
+    def on_epoch_begin(self, epoch, logs=None):
+        if epoch < self.warmup_epochs:
+            weight = self.start + (self.end - self.start) * (epoch / max(1, self.warmup_epochs - 1))
+        elif epoch < self.warmup_epochs + self.decay_epochs:
+            t = (epoch - self.warmup_epochs) / max(1, self.decay_epochs - 1)
+            weight = self.end
+        else:
+            weight = self.end
+        self.model.perceptual_weight.assign(float(weight))
+
+def _make_perceptual_backbone():
+    from mnist3 import poly_loss
+    try:
+        from tensorflow_addons.optimizers import AdamW
+    except Exception:
+        from tensorflow.keras.optimizers import Adam
+        class AdamW(Adam):
+            def __init__(self, weight_decay=0.0, **kwargs):
+                super().__init__(**kwargs)
+                self.weight_decay = weight_decay
+    custom_objects = {'poly_loss': poly_loss, 'AdamW': AdamW}
+    model_path = Path(__file__).parent / "mnist3_model"
+    backbone = tf.keras.models.load_model(str(model_path), custom_objects=custom_objects)
+    backbone.trainable = False
+    layer_name = "global_average_pooling2d_1"
+    try:
+        out = backbone.get_layer(layer_name).output
+    except ValueError:
+        for candidate in ("multiply", "dense_4", "dense_5"):
+            try:
+                out = backbone.get_layer(candidate).output
+                break
+            except ValueError:
+                continue
+        else:
+            raise ValueError("No suitable perceptual layer found in mnist3_model")
+    return tf.keras.Model(backbone.input, out, name="mnist3_backbone")
+
 # ─── Encoder ─────────────────────────────────────────────────────
 def build_encoder():
     image_input = tf.keras.layers.Input(shape=(28, 28, 1), name="image_input")
@@ -273,7 +322,7 @@ def build_encoder():
         tf.keras.layers.Conv2D(64, 1, activation=None, strides=2, padding="same")(skip1)
     ])
 
-    # Multi-scale kernel block at 7x7
+    # FiLM at 7x7 from label embedding
     enc_label_emb = tf.keras.layers.Dense(64, activation="relu")(label_input)
     enc_label_emb = tf.keras.layers.Dense(64, activation=None)(enc_label_emb)
     film_g = tf.keras.layers.Dense(64, activation="sigmoid")(enc_label_emb)
@@ -414,22 +463,26 @@ def build_generator():
 
 # ─── CVAE ────────────────────────────────────────────────────────
 class CVAE(tf.keras.Model):
-    def __init__(self, encoder, generator, **kwargs):
+    def __init__(self, encoder, generator, perceptual_backbone=None, **kwargs):
         super().__init__(**kwargs)
         self.encoder = encoder
         self.generator = generator
+        self.perceptual_backbone = perceptual_backbone
         self.kl_weight = tf.Variable(KL_START, dtype=tf.float32, trainable=False)
         self.contrastive_weight = tf.Variable(CONTRASTIVE_START, dtype=tf.float32, trainable=False)
+        self.perceptual_weight = tf.Variable(float(PERCEPTUAL_START), dtype=tf.float32, trainable=False)
         self.total_loss_tracker = tf.keras.metrics.Mean(name="total_loss")
         self.recon_loss_tracker = tf.keras.metrics.Mean(name="recon_loss")
         self.kl_loss_tracker = tf.keras.metrics.Mean(name="kl_loss")
         self.kl_weight_tracker = tf.keras.metrics.Mean(name="kl_weight")
         self.contrastive_loss_tracker = tf.keras.metrics.Mean(name="contrastive_loss")
         self.contrastive_weight_tracker = tf.keras.metrics.Mean(name="contrastive_weight")
+        self.perceptual_loss_tracker = tf.keras.metrics.Mean(name="perceptual_loss")
+        self.perceptual_weight_tracker = tf.keras.metrics.Mean(name="perceptual_weight")
 
     @property
     def metrics(self):
-        return [self.total_loss_tracker, self.recon_loss_tracker, self.kl_loss_tracker, self.kl_weight_tracker, self.contrastive_loss_tracker, self.contrastive_weight_tracker]
+        return [self.total_loss_tracker, self.recon_loss_tracker, self.kl_loss_tracker, self.kl_weight_tracker, self.contrastive_loss_tracker, self.contrastive_weight_tracker, self.perceptual_loss_tracker, self.perceptual_weight_tracker]
 
     def _contrastive_loss(self, z, labels):
         z_norm = tf.math.l2_normalize(z, axis=-1)
@@ -466,7 +519,14 @@ class CVAE(tf.keras.Model):
                 )
             )
             contrastive_loss = self._contrastive_loss(z, labels)
-            total_loss = recon_loss + self.kl_weight * kl_loss + self.contrastive_weight * contrastive_loss
+
+            perceptual_loss = tf.constant(0.0)
+            if self.perceptual_backbone is not None:
+                feat_real = self.perceptual_backbone(images)
+                feat_fake = self.perceptual_backbone(reconstruction)
+                perceptual_loss = tf.reduce_mean(tf.keras.losses.mse(feat_real, feat_fake))
+
+            total_loss = recon_loss + self.kl_weight * kl_loss + self.contrastive_weight * contrastive_loss + self.perceptual_weight * perceptual_loss
 
         grads = tape.gradient(total_loss, self.trainable_weights)
         self.optimizer.apply_gradients(zip(grads, self.trainable_weights))
@@ -477,6 +537,8 @@ class CVAE(tf.keras.Model):
         self.kl_weight_tracker.update_state(self.kl_weight)
         self.contrastive_loss_tracker.update_state(contrastive_loss)
         self.contrastive_weight_tracker.update_state(self.contrastive_weight)
+        self.perceptual_loss_tracker.update_state(perceptual_loss)
+        self.perceptual_weight_tracker.update_state(self.perceptual_weight)
 
         return {m.name: m.result() for m in self.metrics}
 
@@ -498,7 +560,14 @@ class CVAE(tf.keras.Model):
             )
         )
         contrastive_loss = self._contrastive_loss(z, labels)
-        total_loss = recon_loss + self.kl_weight * kl_loss + self.contrastive_weight * contrastive_loss
+
+        perceptual_loss = tf.constant(0.0)
+        if self.perceptual_backbone is not None:
+            feat_real = self.perceptual_backbone(images)
+            feat_fake = self.perceptual_backbone(reconstruction)
+            perceptual_loss = tf.reduce_mean(tf.keras.losses.mse(feat_real, feat_fake))
+
+        total_loss = recon_loss + self.kl_weight * kl_loss + self.contrastive_weight * contrastive_loss + self.perceptual_weight * perceptual_loss
 
         self.total_loss_tracker.update_state(total_loss)
         self.recon_loss_tracker.update_state(recon_loss)
@@ -506,6 +575,8 @@ class CVAE(tf.keras.Model):
         self.kl_weight_tracker.update_state(self.kl_weight)
         self.contrastive_loss_tracker.update_state(contrastive_loss)
         self.contrastive_weight_tracker.update_state(self.contrastive_weight)
+        self.perceptual_loss_tracker.update_state(perceptual_loss)
+        self.perceptual_weight_tracker.update_state(self.perceptual_weight)
 
         return {m.name: m.result() for m in self.metrics}
 
@@ -522,7 +593,8 @@ def main():
 
     encoder = build_encoder()
     generator = build_generator()
-    cvae = CVAE(encoder, generator)
+    perceptual_backbone = _make_perceptual_backbone()
+    cvae = CVAE(encoder, generator, perceptual_backbone=perceptual_backbone)
     cvae.compile(optimizer=tf.keras.optimizers.Adam(LEARNING_RATE, clipnorm=CLIPNORM))
 
     print("Encoder summary:")
