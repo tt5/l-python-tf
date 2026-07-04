@@ -50,13 +50,13 @@ CONTRASTIVE_WARMUP_EPOCHS = 7
 CONTRASTIVE_DECAY_EPOCHS = EPOCHS - CONTRASTIVE_WARMUP_EPOCHS
 PERCEPTUAL_START = 0.0
 PERCEPTUAL_PEAK = 8.0
-PERCEPTUAL_END = 18.0
+PERCEPTUAL_END = 17.0
 PERCEPTUAL_WARMUP_EPOCHS = 20
 PERCEPTUAL_DECAY_EPOCHS = EPOCHS - PERCEPTUAL_WARMUP_EPOCHS
 NUM_CLASSES = None  # derived from data + low_conf
 TARGET_SIZE = 28
 LOW_CONF_THRESHOLD = 0.6
-TB_LOG_DIR = Path(__file__).resolve().parent / "logs" / "cvae3"
+TB_LOG_DIR = Path(__file__).resolve().parent / "logs" / "cvae3b"
 
 def load_pbm(path):
     """Load a P4 PBM file and return a 2D numpy array of 0/1 float32."""
@@ -299,18 +299,18 @@ def build_encoder():
     image_input = tf.keras.layers.Input(shape=(28, 28, 1), name="image_input")
     label_input = tf.keras.layers.Input(shape=(NUM_CLASSES,), name="label_input")
 
-    x = tf.keras.layers.Conv2D(32, 3, padding='same', activation="relu")(image_input)
+    x = tf.keras.layers.Conv2D(32, 3, padding='same', activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(image_input)
     x = tf.keras.layers.LayerNormalization(center=False, scale=False)(x)
-    x = tf.keras.layers.Conv2D(32, 3, strides=2, padding="same", activation="relu")(x)
+    x = tf.keras.layers.Conv2D(32, 3, strides=2, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     skip1 = x  # 14x14, 32ch
 
     # Residual downsampling into 64ch / 7x7
-    x = tf.keras.layers.Conv2D(64, 3, strides=2, padding="same", activation=None)(x)
+    x = tf.keras.layers.Conv2D(64, 3, strides=2, padding="same", activation=None, kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = tf.keras.layers.LayerNormalization(center=False, scale=False)(x)
     x = tf.keras.layers.Activation("relu")(x)
     x = tf.keras.layers.Add()([
         x,
-        tf.keras.layers.Conv2D(64, 1, activation=None, strides=2, padding="same")(skip1)
+        tf.keras.layers.Conv2D(64, 1, activation=None, strides=2, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(skip1)
     ])
 
     # FiLM at 7x7 from label embedding
