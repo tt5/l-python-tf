@@ -48,8 +48,9 @@ CONTRASTIVE_PEAK = 2
 CONTRASTIVE_END = 16
 CONTRASTIVE_WARMUP_EPOCHS = 7
 CONTRASTIVE_DECAY_EPOCHS = EPOCHS - CONTRASTIVE_WARMUP_EPOCHS
-PERCEPTUAL_START = float(0.0)
-PERCEPTUAL_END = float(0.05)
+PERCEPTUAL_START = 0.0
+PERCEPTUAL_PEAK = 1.0
+PERCEPTUAL_END = 1.0
 PERCEPTUAL_WARMUP_EPOCHS = 10
 PERCEPTUAL_DECAY_EPOCHS = EPOCHS - PERCEPTUAL_WARMUP_EPOCHS
 NUM_CLASSES = None  # derived from data + low_conf
@@ -259,18 +260,19 @@ class ContrastiveWeightSchedule(tf.keras.callbacks.Callback):
         self.model.contrastive_weight.assign(float(weight))
 
 class PerceptualWeightSchedule(tf.keras.callbacks.Callback):
-    def __init__(self, start, end, warmup_epochs, decay_epochs):
+    def __init__(self, start, peak, end, warmup_epochs, decay_epochs):
         self.start = start
+        self.peak = peak
         self.end = end
         self.warmup_epochs = warmup_epochs
         self.decay_epochs = decay_epochs
 
     def on_epoch_begin(self, epoch, logs=None):
         if epoch < self.warmup_epochs:
-            weight = self.start + (self.end - self.start) * (epoch / max(1, self.warmup_epochs - 1))
+            weight = self.start + (self.peak - self.start) * (epoch / max(1, self.warmup_epochs - 1))
         elif epoch < self.warmup_epochs + self.decay_epochs:
             t = (epoch - self.warmup_epochs) / max(1, self.decay_epochs - 1)
-            weight = self.end
+            weight = self.peak + (self.end - self.peak) * t
         else:
             weight = self.end
         self.model.perceptual_weight.assign(float(weight))
@@ -644,6 +646,7 @@ def main():
 
     perceptual_schedule = PerceptualWeightSchedule(
         start=PERCEPTUAL_START,
+        peak=PERCEPTUAL_PEAK,
         end=PERCEPTUAL_END,
         warmup_epochs=PERCEPTUAL_WARMUP_EPOCHS,
         decay_epochs=PERCEPTUAL_DECAY_EPOCHS,
