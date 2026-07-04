@@ -56,7 +56,7 @@ PERCEPTUAL_DECAY_EPOCHS = 120 - PERCEPTUAL_WARMUP_EPOCHS
 NUM_CLASSES = None  # derived from data + low_conf
 TARGET_SIZE = 28
 LOW_CONF_THRESHOLD = 0.6
-TB_LOG_DIR = Path(__file__).resolve().parent / "logs" / "cvae3b"
+TB_LOG_DIR = Path(__file__).resolve().parent / "logs" / "cvae3"
 
 def load_pbm(path):
     """Load a P4 PBM file and return a 2D numpy array of 0/1 float32."""
@@ -305,7 +305,8 @@ def build_encoder():
     skip1 = x  # 14x14, 32ch
 
     # FiLM at 14x14 from label embedding
-    enc_label_emb_14 = tf.keras.layers.Dense(64, activation="relu")(label_input)
+    enc_label_emb_14 = tf.keras.layers.Dense(128, activation="relu")(label_input)
+    enc_label_emb_14 = tf.keras.layers.Dense(128, activation="relu")(enc_label_emb_14)
     enc_label_emb_14 = tf.keras.layers.Dense(64, activation=None)(enc_label_emb_14)
     film_g_14 = tf.keras.layers.Dense(32, activation="sigmoid")(enc_label_emb_14)
     film_b_14 = tf.keras.layers.Dense(32, activation=None)(enc_label_emb_14)
@@ -324,7 +325,8 @@ def build_encoder():
     ])
 
     # FiLM at 7x7 from label embedding
-    enc_label_emb = tf.keras.layers.Dense(64, activation="relu")(label_input)
+    enc_label_emb = tf.keras.layers.Dense(128, activation="relu")(label_input)
+    enc_label_emb = tf.keras.layers.Dense(128, activation="relu")(enc_label_emb)
     enc_label_emb = tf.keras.layers.Dense(64, activation=None)(enc_label_emb)
     film_g = tf.keras.layers.Dense(64, activation="sigmoid")(enc_label_emb)
     film_b = tf.keras.layers.Dense(64, activation=None)(enc_label_emb)
@@ -358,14 +360,14 @@ def build_encoder():
     x = tf.keras.layers.Add()([x, x_save])
 
     # Dense-stage FiLM before latent stats
-    enc_film_emb = tf.keras.layers.Dense(64, activation="relu")(enc_label_emb)
+    enc_film_emb = tf.keras.layers.Dense(128, activation="relu")(enc_label_emb)
     enc_film_g = tf.keras.layers.Dense(256, activation="sigmoid")(enc_film_emb)
     enc_film_b = tf.keras.layers.Dense(256, activation=None)(enc_film_emb)
     x = tf.keras.layers.Multiply()([x, enc_film_g])
     x = tf.keras.layers.Add()([x, enc_film_b])
 
     # deeper label injection before latent stats
-    enc_film_emb_deep = tf.keras.layers.Dense(64, activation="relu")(enc_label_emb)
+    enc_film_emb_deep = tf.keras.layers.Dense(128, activation="relu")(enc_label_emb)
     enc_film_g_deep = tf.keras.layers.Dense(256, activation="sigmoid")(enc_film_emb_deep)
     enc_film_b_deep = tf.keras.layers.Dense(256, activation=None)(enc_film_emb_deep)
     x = tf.keras.layers.Multiply()([x, enc_film_g_deep])
@@ -391,7 +393,8 @@ def build_generator():
     x = tf.keras.layers.Reshape((7, 7, 64))(x)
 
     # FiLM at 7x7 from label embedding
-    dec_label_emb = tf.keras.layers.Dense(64, activation="relu")(label_input)
+    dec_label_emb = tf.keras.layers.Dense(128, activation="relu")(label_input)
+    dec_label_emb = tf.keras.layers.Dense(128, activation="relu")(dec_label_emb)
     dec_label_emb = tf.keras.layers.Dense(64, activation=None)(dec_label_emb)
     film_g = tf.keras.layers.Dense(64, activation="sigmoid")(dec_label_emb)
     film_b = tf.keras.layers.Dense(64, activation=None)(dec_label_emb)
@@ -429,7 +432,8 @@ def build_generator():
     x = tf.keras.layers.Conv2D(64, 1, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
 
     # FiLM at 14x14 from label embedding
-    dec_label_emb_14 = tf.keras.layers.Dense(64, activation="relu")(label_input)
+    dec_label_emb_14 = tf.keras.layers.Dense(128, activation="relu")(label_input)
+    dec_label_emb_14 = tf.keras.layers.Dense(128, activation="relu")(dec_label_emb_14)
     dec_label_emb_14 = tf.keras.layers.Dense(64, activation=None)(dec_label_emb_14)
     film_g_14 = tf.keras.layers.Dense(64, activation="sigmoid")(dec_label_emb_14)
     film_b_14 = tf.keras.layers.Dense(64, activation=None)(dec_label_emb_14)
@@ -464,7 +468,8 @@ def build_generator():
     x28 = tf.keras.layers.LayerNormalization(center=False, scale=False)(x28)
 
     # deeper label injection at 28x28
-    dec_label_emb_28 = tf.keras.layers.Dense(32, activation="relu")(label_input)
+    dec_label_emb_28 = tf.keras.layers.Dense(64, activation="relu")(label_input)
+    dec_label_emb_28 = tf.keras.layers.Dense(64, activation="relu")(dec_label_emb_28)
     dec_label_emb_28 = tf.keras.layers.Dense(32, activation=None)(dec_label_emb_28)
     film_g_28 = tf.keras.layers.Dense(32, activation="sigmoid")(dec_label_emb_28)
     film_b_28 = tf.keras.layers.Dense(32, activation=None)(dec_label_emb_28)
