@@ -29,15 +29,15 @@ PBM_DIR = args.data_dir
 LATENT_DIM = 128
 EPOCHS = 80
 BATCH_SIZE = 128
-LEARNING_RATE = 0.009
+LEARNING_RATE = 0.01
 LR_START = 0.00001
-LR_WARMUP_EPOCHS = 7
+LR_WARMUP_EPOCHS = 8
 LR_DECAY_EPOCHS = EPOCHS - LR_WARMUP_EPOCHS + 20
-LR_END = 0.0002
+LR_END = 0.0001
 CLIPNORM = 1.0
 KL_START = 0.000001
 KL_PEAK = 0.45
-KL_END = 0.2
+KL_END = 0.3
 KL_WARMUP_EPOCHS = 5
 KL_DECAY_EPOCHS = EPOCHS - KL_WARMUP_EPOCHS
 DROPOUT = 0.35
@@ -50,7 +50,7 @@ CONTRASTIVE_DECAY_EPOCHS = EPOCHS - CONTRASTIVE_WARMUP_EPOCHS
 NUM_CLASSES = None  # derived from data + low_conf
 TARGET_SIZE = 28
 LOW_CONF_THRESHOLD = 0.6
-TB_LOG_DIR = Path(__file__).resolve().parent / "logs" / "cvae3b"
+TB_LOG_DIR = Path(__file__).resolve().parent / "logs" / "cvae3"
 
 def load_pbm(path):
     """Load a P4 PBM file and return a 2D numpy array of 0/1 float32."""
@@ -138,9 +138,35 @@ def load_dataset():
     split = int(len(images) * 0.8)
     x_train, x_test = images[:split], images[split:]
     y_train, y_test = labels_oh[:split], labels_oh[split:]
-    print(f"\nTrain: {len(x_train)}, Test: {len(x_test)}")
+    print(f"\nBefore aug - Train: {x_train.shape}, Test: {x_test.shape}")
 
-    return x_train, y_train, x_test, y_test
+    # Precompute 8-way augmentations for training images only
+    x_train_aug = _build_aug_stack(x_train)
+    print(f"Augmented train stack: {x_train_aug.shape}")
+
+    return x_train_aug, y_train, x_test, y_test
+
+
+def _build_aug_stack(images):
+    t = np.transpose(images, axes=(0, 2, 1, 3))
+    stacks = [
+        images,
+        np.rot90(images, k=1, axes=(1, 2)),
+        np.rot90(images, k=2, axes=(1, 2)),
+        np.rot90(images, k=3, axes=(1, 2)),
+        t,
+        np.rot90(t, k=1, axes=(1, 2)),
+        np.rot90(t, k=2, axes=(1, 2)),
+        np.rot90(t, k=3, axes=(1, 2)),
+    ]
+    return np.stack(stacks, axis=1)
+
+
+def _random_aug_sample(stack, label):
+    k = tf.random.uniform((), minval=0, maxval=8, dtype=tf.int32)
+    img = stack[k]
+    return img, label
+
 
 # ─── Sampling layer ───────────────────────────────────────────────
 class Sampling(tf.keras.layers.Layer):
@@ -562,11 +588,19 @@ def main():
         warmup_epochs=CONTRASTIVE_WARMUP_EPOCHS,
         decay_epochs=CONTRASTIVE_DECAY_EPOCHS
     )
+
+    train_ds = tf.data.Dataset.from_tensor_slices((x_train, y_train))
+    train_ds = train_ds.shuffle(buffer_size=len(x_train), seed=42)
+    train_ds = train_ds.map(_random_aug_sample, num_parallel_calls=tf.data.AUTOTUNE)
+    train_ds = train_ds.batch(BATCH_SIZE).prefetch(tf.data.AUTOTUNE)
+
+    val_ds = tf.data.Dataset.from_tensor_slices((x_test, y_test))
+    val_ds = val_ds.batch(BATCH_SIZE).prefetch(tf.data.AUTOTUNE)
+
     cvae.fit(
-        x_train, y_train,
-        validation_data=(x_test, y_test),
+        train_ds,
+        validation_data=val_ds,
         epochs=EPOCHS,
-        batch_size=BATCH_SIZE,
         callbacks=[early_stopping, checkpoint, tensorboard_callback, lr_schedule, kl_schedule, contrastive_schedule, LogLRCallback(TB_LOG_DIR)],
     )
 
