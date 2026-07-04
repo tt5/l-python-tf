@@ -34,6 +34,7 @@ LR_START = 0.0
 LR_WARMUP_EPOCHS = 5
 LR_DECAY_EPOCHS = EPOCHS - LR_WARMUP_EPOCHS + 20
 LR_END = 0.0002
+CLIPNORM = 1.0
 KL_START = 0.0001
 KL_PEAK = 0.4
 KL_END = 0.05
@@ -520,7 +521,7 @@ def main():
     encoder = build_encoder()
     generator = build_generator()
     cvae = CVAE(encoder, generator)
-    cvae.compile(optimizer=tf.keras.optimizers.Adam(LEARNING_RATE))
+    cvae.compile(optimizer=tf.keras.optimizers.Adam(LEARNING_RATE, clipnorm=CLIPNORM))
 
     print("Encoder summary:")
     encoder.summary()
