@@ -331,6 +331,16 @@ def build_generator():
     x = tf.keras.layers.Concatenate()([b1, b3, b5])
     x = tf.keras.layers.Conv2D(64, 1, padding='same')(x)
 
+    # FiLM at 14x14 from label embedding
+    dec_label_emb_14 = tf.keras.layers.Dense(64, activation="relu")(label_input)
+    dec_label_emb_14 = tf.keras.layers.Dense(64, activation=None)(dec_label_emb_14)
+    film_g_14 = tf.keras.layers.Dense(64, activation="sigmoid")(dec_label_emb_14)
+    film_b_14 = tf.keras.layers.Dense(64, activation=None)(dec_label_emb_14)
+    film_g_14 = tf.keras.layers.Reshape((1, 1, 64))(film_g_14)
+    film_b_14 = tf.keras.layers.Reshape((1, 1, 64))(film_b_14)
+    x = tf.keras.layers.Multiply()([x, film_g_14])
+    x = tf.keras.layers.Add()([x, film_b_14])
+
     # 14x14 -> 28x28 residual upsample block
     skip14 = x
     x = tf.keras.layers.UpSampling2D(size=2, interpolation='nearest')(x)
