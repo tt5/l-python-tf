@@ -20,7 +20,7 @@ SE block: squeeze-and-excitation on encoder spatial features before flatten
 
 ---
 
-FiLM: per-channel scale+shift from label embedding, like your train_cvae2.py film/film_enc
+FiLM: per-channel scale+shift from label embedding
 
 gradient clipping
 
