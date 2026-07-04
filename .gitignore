@@ -12,3 +12,5 @@ cvae_generator_savedmodel
 logs
 **/*.npy
 **/*.onnx
+best_model.weights*
+best_recon.weights*
