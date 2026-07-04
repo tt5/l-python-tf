@@ -374,14 +374,14 @@ def main():
     print(f"\nTraining CVAE for {EPOCHS} epochs...")
     early_stopping = tf.keras.callbacks.EarlyStopping(
         monitor='val_recon_loss',
-        patience=20,
+        patience=10,
         restore_best_weights=True
     )
     checkpoint = tf.keras.callbacks.ModelCheckpoint(
-        filepath=str(Path(__file__).parent / "best_recon.keras"),
+        filepath=str(Path(__file__).parent / "best_recon.weights.h5"),
         monitor='val_recon_loss',
         save_best_only=True,
-        save_weights_only=False,
+        save_weights_only=True,
     )
     tensorboard_callback = tf.keras.callbacks.TensorBoard(
         log_dir=str(TB_LOG_DIR),
@@ -409,14 +409,8 @@ def main():
         callbacks=[early_stopping, checkpoint, tensorboard_callback, lr_schedule, kl_schedule, LogLRCallback(TB_LOG_DIR)],
     )
 
-    # ─── Save as ONNX from best recon checkpoint ───────────────────
+    # ─── Save as ONNX from best restored weights ───────────────────
     save_dir = Path(__file__).parent
-
-    print("Loading best model from recon checkpoint...")
-    best_model = tf.keras.models.load_model(str(save_dir / "best_recon.keras"), compile=False)
-
-    best_generator = best_model.generator
-    best_encoder = best_model.encoder
 
     import tf2onnx
     import onnx
@@ -426,7 +420,7 @@ def main():
         tf.TensorSpec((None, LATENT_DIM), tf.float32, name="latent_input"),
         tf.TensorSpec((None, NUM_CLASSES), tf.float32, name="label_input"),
     )
-    onnx_model, _ = tf2onnx.convert.from_keras(best_generator, input_signature=gen_spec)
+    onnx_model, _ = tf2onnx.convert.from_keras(cvae.generator, input_signature=gen_spec)
     gen_path = save_dir / "cvae3_generator.onnx"
     onnx.save(onnx_model, str(gen_path))
     print(f"\nGenerator saved to {gen_path}")
@@ -436,7 +430,7 @@ def main():
         tf.TensorSpec((None, 28, 28, 1), tf.float32, name="image_input"),
         tf.TensorSpec((None, NUM_CLASSES), tf.float32, name="label_input"),
     )
-    onnx_model, _ = tf2onnx.convert.from_keras(best_encoder, input_signature=enc_spec)
+    onnx_model, _ = tf2onnx.convert.from_keras(cvae.encoder, input_signature=enc_spec)
     enc_path = save_dir / "cvae3_encoder.onnx"
     onnx.save(onnx_model, str(enc_path))
     print(f"Encoder saved to {enc_path}")
@@ -444,7 +438,7 @@ def main():
     # ─── Quick test: generate one sample per class ─────────────────
     print("\nGenerating test samples...")
     for label in range(NUM_CLASSES):
-        img = best_model.generate(label)
+        img = cvae.generate(label)
         print(f"  Label {label}: shape={img.shape}, min={img.numpy().min():.3f}, max={img.numpy().max():.3f}")
 
     print("\nDone!")
