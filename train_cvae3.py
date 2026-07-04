@@ -259,6 +259,16 @@ def build_generator():
     x = tf.keras.layers.Dense(7 * 7 * 64, activation="relu")(x)
     x = tf.keras.layers.Reshape((7, 7, 64))(x)
 
+    # Cross-attention at 7x7: label attends over latent spatial expansion
+    spatial_7x7 = x
+    spatial_flat = tf.keras.layers.Reshape((7*7, 64))(spatial_7x7)  # (B, 49, 64)
+    label_query_proj = tf.keras.layers.Dense(64, activation=None)(label_input)  # (B, 64)
+    query = tf.keras.layers.Reshape((1, 64))(label_query_proj)  # (B, 1, 64)
+    mha = tf.keras.layers.MultiHeadAttention(num_heads=2, key_dim=32, value_dim=64)
+    attn = mha(query=query, key=spatial_flat, value=spatial_flat)  # (B, 1, 64)
+    attn_ctx = tf.keras.layers.Reshape((1, 1, 64))(attn)
+    x = tf.keras.layers.Add()([x, attn_ctx])
+
     # 7x7 -> 14x14 residual upsample block
     skip7 = x
     x = tf.keras.layers.UpSampling2D(size=2, interpolation='nearest')(x)
