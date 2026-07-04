@@ -291,18 +291,7 @@ def _make_perceptual_backbone():
     model_path = Path(__file__).parent / "mnist3_model"
     backbone = tf.keras.models.load_model(str(model_path), custom_objects=custom_objects)
     backbone.trainable = False
-    layer_name = "global_average_pooling2d_1"
-    try:
-        out = backbone.get_layer(layer_name).output
-    except ValueError:
-        for candidate in ("multiply", "dense_4", "dense_5"):
-            try:
-                out = backbone.get_layer(candidate).output
-                break
-            except ValueError:
-                continue
-        else:
-            raise ValueError("No suitable perceptual layer found in mnist3_model")
+    out = backbone.get_layer("dense_5").output
     return tf.keras.Model(backbone.input, out, name="mnist3_backbone")
 
 # ─── Encoder ─────────────────────────────────────────────────────
@@ -524,9 +513,11 @@ class CVAE(tf.keras.Model):
 
             perceptual_loss = tf.constant(0.0)
             if self.perceptual_backbone is not None:
-                feat_real = self.perceptual_backbone(images)
-                feat_fake = self.perceptual_backbone(reconstruction)
-                perceptual_loss = tf.reduce_mean(tf.keras.losses.mse(feat_real, feat_fake))
+                logits_real = self.perceptual_backbone(images)
+                logits_fake = self.perceptual_backbone(reconstruction)
+                logits_real = tf.math.l2_normalize(logits_real, axis=-1)
+                logits_fake = tf.math.l2_normalize(logits_fake, axis=-1)
+                perceptual_loss = tf.reduce_mean(tf.keras.losses.mse(logits_real, logits_fake))
 
             total_loss = recon_loss + self.kl_weight * kl_loss + self.contrastive_weight * contrastive_loss + self.perceptual_weight * perceptual_loss
 
@@ -565,9 +556,11 @@ class CVAE(tf.keras.Model):
 
         perceptual_loss = tf.constant(0.0)
         if self.perceptual_backbone is not None:
-            feat_real = self.perceptual_backbone(images)
-            feat_fake = self.perceptual_backbone(reconstruction)
-            perceptual_loss = tf.reduce_mean(tf.keras.losses.mse(feat_real, feat_fake))
+            logits_real = self.perceptual_backbone(images)
+            logits_fake = self.perceptual_backbone(reconstruction)
+            logits_real = tf.math.l2_normalize(logits_real, axis=-1)
+            logits_fake = tf.math.l2_normalize(logits_fake, axis=-1)
+            perceptual_loss = tf.reduce_mean(tf.keras.losses.mse(logits_real, logits_fake))
 
         total_loss = recon_loss + self.kl_weight * kl_loss + self.contrastive_weight * contrastive_loss + self.perceptual_weight * perceptual_loss
 
