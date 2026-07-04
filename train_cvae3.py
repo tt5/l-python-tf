@@ -40,6 +40,8 @@ KL_END = 0.05
 KL_WARMUP_EPOCHS = 2
 KL_DECAY_EPOCHS = EPOCHS - KL_WARMUP_EPOCHS
 DROPOUT = 0.45
+CONTRASTIVE_WEIGHT = 0.01
+CONTRASTIVE_TEMPERATURE = 1.0
 NUM_CLASSES = None  # derived from data + low_conf
 TARGET_SIZE = 28
 LOW_CONF_THRESHOLD = 0.6
@@ -289,10 +291,27 @@ class CVAE(tf.keras.Model):
         self.recon_loss_tracker = tf.keras.metrics.Mean(name="recon_loss")
         self.kl_loss_tracker = tf.keras.metrics.Mean(name="kl_loss")
         self.kl_weight_tracker = tf.keras.metrics.Mean(name="kl_weight")
+        self.contrastive_loss_tracker = tf.keras.metrics.Mean(name="contrastive_loss")
 
     @property
     def metrics(self):
-        return [self.total_loss_tracker, self.recon_loss_tracker, self.kl_loss_tracker, self.kl_weight_tracker]
+        return [self.total_loss_tracker, self.recon_loss_tracker, self.kl_loss_tracker, self.kl_weight_tracker, self.contrastive_loss_tracker]
+
+    def _contrastive_loss(self, z, labels):
+        z_norm = tf.math.l2_normalize(z, axis=-1)
+        logits = tf.matmul(z_norm, z_norm, transpose_b=True) / float(CONTRASTIVE_TEMPERATURE)
+        labels_int = tf.cast(tf.argmax(labels, axis=1), tf.int32)
+        same_mask = tf.cast(tf.equal(labels_int[:, None], labels_int[None, :]), tf.float32)
+        same_mask = tf.linalg.set_diag(same_mask, tf.zeros_like(tf.linalg.diag_part(same_mask)))
+
+        exp_logits = tf.exp(logits)
+        row_sum = tf.reduce_sum(exp_logits, axis=1, keepdims=True) - tf.linalg.diag_part(exp_logits)[:, None]
+        pos_sum = tf.reduce_sum(exp_logits * same_mask, axis=1, keepdims=True)
+        has_pos = tf.reduce_any(same_mask > 0.0, axis=1, keepdims=True)
+        denom = row_sum + pos_sum
+        row_loss = -tf.math.log(tf.maximum(pos_sum, 1e-12)) + tf.math.log(tf.maximum(denom, 1e-12))
+        row_loss = tf.where(tf.squeeze(has_pos, axis=1), tf.squeeze(row_loss, axis=1), tf.zeros_like(tf.squeeze(row_loss, axis=1)))
+        return tf.reduce_mean(row_loss)
 
     def train_step(self, data):
         images, labels = data
@@ -312,7 +331,8 @@ class CVAE(tf.keras.Model):
                     axis=1
                 )
             )
-            total_loss = recon_loss + self.kl_weight * kl_loss
+            contrastive_loss = self._contrastive_loss(z, labels)
+            total_loss = recon_loss + self.kl_weight * kl_loss + CONTRASTIVE_WEIGHT * contrastive_loss
 
         grads = tape.gradient(total_loss, self.trainable_weights)
         self.optimizer.apply_gradients(zip(grads, self.trainable_weights))
@@ -321,6 +341,7 @@ class CVAE(tf.keras.Model):
         self.recon_loss_tracker.update_state(recon_loss)
         self.kl_loss_tracker.update_state(kl_loss)
         self.kl_weight_tracker.update_state(self.kl_weight)
+        self.contrastive_loss_tracker.update_state(contrastive_loss)
 
         return {m.name: m.result() for m in self.metrics}
 
@@ -341,12 +362,14 @@ class CVAE(tf.keras.Model):
                 axis=1
             )
         )
-        total_loss = recon_loss + self.kl_weight * kl_loss
+        contrastive_loss = self._contrastive_loss(z, labels)
+        total_loss = recon_loss + self.kl_weight * kl_loss + CONTRASTIVE_WEIGHT * contrastive_loss
 
         self.total_loss_tracker.update_state(total_loss)
         self.recon_loss_tracker.update_state(recon_loss)
         self.kl_loss_tracker.update_state(kl_loss)
         self.kl_weight_tracker.update_state(self.kl_weight)
+        self.contrastive_loss_tracker.update_state(contrastive_loss)
 
         return {m.name: m.result() for m in self.metrics}
 
