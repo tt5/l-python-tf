@@ -26,8 +26,8 @@ args, _ = parser.parse_known_args()
 PBM_DIR = args.data_dir
 
 # ─── Hyperparameters ──────────────────────────────────────────────
-LATENT_DIM = 128
-EPOCHS = 90
+LATENT_DIM = 256
+EPOCHS = 100
 BATCH_SIZE = 128
 LEARNING_RATE = 0.01
 LR_START = 0.00001
@@ -311,16 +311,16 @@ def build_encoder():
 
     x = tf.keras.layers.Flatten()(x)
     x = tf.keras.layers.Concatenate()([x, label_input])
-    x_save = tf.keras.layers.Dense(128, activation="relu")(x)
-    x = tf.keras.layers.Dense(128, activation=None)(x_save)
+    x_save = tf.keras.layers.Dense(256, activation="relu")(x)
+    x = tf.keras.layers.Dense(256, activation=None)(x_save)
     x = tf.keras.layers.LayerNormalization(center=False, scale=False)(x)
     x = tf.keras.layers.Activation("relu")(x)
     x = tf.keras.layers.Add()([x, x_save])
 
     # Dense-stage FiLM before latent stats
     enc_film_emb = tf.keras.layers.Dense(64, activation="relu")(enc_label_emb)
-    enc_film_g = tf.keras.layers.Dense(128, activation="sigmoid")(enc_film_emb)
-    enc_film_b = tf.keras.layers.Dense(128, activation=None)(enc_film_emb)
+    enc_film_g = tf.keras.layers.Dense(256, activation="sigmoid")(enc_film_emb)
+    enc_film_b = tf.keras.layers.Dense(256, activation=None)(enc_film_emb)
     x = tf.keras.layers.Multiply()([x, enc_film_g])
     x = tf.keras.layers.Add()([x, enc_film_b])
 

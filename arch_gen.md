@@ -36,12 +36,5 @@ Conditional Instance Norm / AdaIN: normalize features, then label-predicted affi
 
 ---
 
-U-Net skip connections: expose intermediate encoder spatial features (7×7, 14×14), project and add to decoder at corresponding scales
-
-Classifier-guided generation at inference Use your frozen mnist3 classifier to rank candidate latent samples for each class, then accept only the best-scoring latent. No model architecture change, only eval/post-processing. Cheap to try.
-
 Classifier-guided latent search — for each target class, sample many z, score through frozen mnist3_model, keep top latent
-
-Multi-sample generation / voting — generate N images per label, pick best by classifier confidence
-
 
