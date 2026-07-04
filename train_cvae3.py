@@ -41,6 +41,7 @@ KL_END = 0.3
 KL_WARMUP_EPOCHS = 5
 KL_DECAY_EPOCHS = EPOCHS - KL_WARMUP_EPOCHS
 DROPOUT = 0.35
+L2_REG = 1e-4
 CONTRASTIVE_TEMPERATURE = 0.075
 CONTRASTIVE_START = 0.00005
 CONTRASTIVE_PEAK = 2
@@ -50,7 +51,7 @@ CONTRASTIVE_DECAY_EPOCHS = EPOCHS - CONTRASTIVE_WARMUP_EPOCHS
 NUM_CLASSES = None  # derived from data + low_conf
 TARGET_SIZE = 28
 LOW_CONF_THRESHOLD = 0.6
-TB_LOG_DIR = Path(__file__).resolve().parent / "logs" / "cvae3"
+TB_LOG_DIR = Path(__file__).resolve().parent / "logs" / "cvae3b"
 
 def load_pbm(path):
     """Load a P4 PBM file and return a 2D numpy array of 0/1 float32."""
@@ -325,8 +326,8 @@ def build_encoder():
 
     x = tf.keras.layers.Dropout(DROPOUT)(x)
 
-    z_mean = tf.keras.layers.Dense(LATENT_DIM, name="z_mean")(x)
-    z_log_var = tf.keras.layers.Dense(LATENT_DIM, name="z_log_var")(x)
+    z_mean = tf.keras.layers.Dense(LATENT_DIM, name="z_mean", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
+    z_log_var = tf.keras.layers.Dense(LATENT_DIM, name="z_log_var", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     z = Sampling()([z_mean, z_log_var])
     z = tf.keras.layers.Dense(LATENT_DIM, activation="relu")(z)
     z = tf.keras.layers.LayerNormalization()(z)
@@ -339,7 +340,7 @@ def build_generator():
     label_input = tf.keras.layers.Input(shape=(NUM_CLASSES,), name="label_input")
 
     x = tf.keras.layers.Concatenate()([latent_input, label_input])
-    x = tf.keras.layers.Dense(7 * 7 * 64, activation="relu")(x)
+    x = tf.keras.layers.Dense(7 * 7 * 64, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = tf.keras.layers.Reshape((7, 7, 64))(x)
 
     # Cross-attention at 7x7: label attends over latent spatial expansion
