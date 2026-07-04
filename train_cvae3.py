@@ -49,9 +49,9 @@ CONTRASTIVE_END = 16
 CONTRASTIVE_WARMUP_EPOCHS = 7
 CONTRASTIVE_DECAY_EPOCHS = EPOCHS - CONTRASTIVE_WARMUP_EPOCHS
 PERCEPTUAL_START = 0.0
-PERCEPTUAL_PEAK = 1.0
-PERCEPTUAL_END = 1.0
-PERCEPTUAL_WARMUP_EPOCHS = 10
+PERCEPTUAL_PEAK = 8.0
+PERCEPTUAL_END = 16.0
+PERCEPTUAL_WARMUP_EPOCHS = 20
 PERCEPTUAL_DECAY_EPOCHS = EPOCHS - PERCEPTUAL_WARMUP_EPOCHS
 NUM_CLASSES = None  # derived from data + low_conf
 TARGET_SIZE = 28
@@ -445,6 +445,17 @@ def build_generator():
     # second 28x28 refinement block
     x28 = tf.keras.layers.Conv2D(32, 3, padding='same', activation="relu")(x)
     x28 = tf.keras.layers.LayerNormalization(center=False, scale=False)(x28)
+
+    # deeper label injection at 28x28
+    dec_label_emb_28 = tf.keras.layers.Dense(32, activation="relu")(label_input)
+    dec_label_emb_28 = tf.keras.layers.Dense(32, activation=None)(dec_label_emb_28)
+    film_g_28 = tf.keras.layers.Dense(32, activation="sigmoid")(dec_label_emb_28)
+    film_b_28 = tf.keras.layers.Dense(32, activation=None)(dec_label_emb_28)
+    film_g_28 = tf.keras.layers.Reshape((1, 1, 32))(film_g_28)
+    film_b_28 = tf.keras.layers.Reshape((1, 1, 32))(film_b_28)
+    x28 = tf.keras.layers.Multiply()([x28, film_g_28])
+    x28 = tf.keras.layers.Add()([x28, film_b_28])
+
     x = tf.keras.layers.Add()([x, x28])
     x = tf.keras.layers.Dropout(DROPOUT / 2)(x)
 
