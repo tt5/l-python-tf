@@ -45,7 +45,7 @@ L2_REG = 0.00005
 CONTRASTIVE_TEMPERATURE = 0.07
 CONTRASTIVE_START = 0.00005
 CONTRASTIVE_PEAK = 2
-CONTRASTIVE_END = 15
+CONTRASTIVE_END = 14
 CONTRASTIVE_WARMUP_EPOCHS = 7
 CONTRASTIVE_DECAY_EPOCHS = 120 - CONTRASTIVE_WARMUP_EPOCHS
 PERCEPTUAL_START = 0.0
@@ -398,6 +398,14 @@ def build_generator():
 
     x = tf.keras.layers.Concatenate()([latent_input, label_input])
     x = tf.keras.layers.Dense(7 * 7 * 64, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
+    x = tf.keras.layers.LayerNormalization(center=False, scale=False)(x)
+
+    # Second label injection: concat label again after latent LayerNorm, before reshape
+    x_label = tf.keras.layers.Dense(64, activation="relu")(label_input)
+    x_label = tf.keras.layers.Dense(7 * 7 * 64, activation=None)(x_label)
+    x = tf.keras.layers.Concatenate()([x, x_label])
+    x = tf.keras.layers.Dense(7 * 7 * 64, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
+
     x = tf.keras.layers.Reshape((7, 7, 64))(x)
 
     # Multi-head label embedding: one head per spatial scale
