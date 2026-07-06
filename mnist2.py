@@ -47,7 +47,7 @@ IMG_SIZE = 22
 TARGET_SIZE = 28
 LOW_CONF_THRESHOLD = 0.6
 EPOCHS = 60
-DROPOUT = 0.5
+DROPOUT = 0.3
 BASE_LR = 0.001
 WARMUP_EPOCHS = 4
 DECAY_EPOCHS = 30
@@ -217,33 +217,69 @@ def main():
 
     # Build model
     L = tf.keras.layers
+    
+    # CBAM: Convolutional Block Attention Module
+    def channel_attention(x, reduction=16):
+        """Channel Attention (SE) - avg+max pooling."""
+        channels = x.shape[-1]
+        gap = tf.reduce_mean(x, axis=[1, 2], keepdims=True)
+        gmp = tf.reduce_max(x, axis=[1, 2], keepdims=True)
+        mlp = tf.keras.Sequential([
+            L.Dense(channels // reduction, activation='relu'),
+            L.Dense(channels, activation='sigmoid')
+        ])
+        attn = tf.add(mlp(gap), mlp(gmp))
+        return tf.multiply(x, attn)
+
+    def spatial_attention(x):
+        """Spatial Attention - Conv2D 7x7."""
+        avg_pool = tf.reduce_mean(x, axis=-1, keepdims=True)
+        max_pool = tf.reduce_max(x, axis=-1, keepdims=True)
+        concat = tf.concat([avg_pool, max_pool], axis=-1)
+        attn = L.Conv2D(1, 7, padding='same', activation='sigmoid')(concat)
+        return tf.multiply(x, attn)
+
+    def cbam_block(x):
+        """CBAM: Channel attention -> Spatial attention."""
+        x = channel_attention(x)
+        x = spatial_attention(x)
+        return x
+
     inputs = L.Input(shape=(TARGET_SIZE, TARGET_SIZE))
     x = L.Reshape((TARGET_SIZE, TARGET_SIZE, 1))(inputs)
-    x = L.Conv2D(32, 7, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(1e-5))(x)
-    x = L.Conv2D(64, 3, strides=2, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(1e-5), name='conv14')(x)
-    x = L.LayerNormalization()(x)
-    x = L.Conv2D(64, 3, strides=2, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(1e-5), name='conv7_base')(x)
-    x = L.LayerNormalization()(x)
-    x = L.Dropout(DROPOUT)(x)
-    x = L.Conv2D(64, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(1e-5), name='conv7_deep1')(x)
-    x = L.LayerNormalization()(x)
-    x = L.Conv2D(64, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(1e-5), name='conv7_deep2')(x)
-    x = L.LayerNormalization()(x)
-    # Pooled conv output at 14x14 and 7x7 for multi-scale feature extraction
-    x = L.Flatten()(x)
-    x = L.Dense(384, activation='relu')(x)
-    x = L.Dropout(DROPOUT)(x)
-    x_main = L.Dense(192, activation='relu')(x)
-    x = L.Dense(192)(x)
-    x = L.Add()([x_main, x])
+
+    # Conv block 1: 28x28 → 14x14
+    c1 = L.SeparableConv2D(64, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(1e-5))(x)
+    c1 = L.MaxPooling2D(2)(c1)
+    c1 = L.Dropout(DROPOUT)(c1)
+    c1 = cbam_block(c1)
+
+    # Conv block 2: 14x14 → 7x7
+    c2 = L.SeparableConv2D(128, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(1e-5), name='conv14')(c1)
+    c2 = L.MaxPooling2D(2)(c2)
+    c2 = L.Dropout(DROPOUT)(c2)
+    c2 = cbam_block(c2)
+
+    # Conv block 3: 7x7 → 7x7 (no pooling)
+    c3 = L.SeparableConv2D(128, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(1e-5), name='conv7_deep2')(c2)
+    c3 = L.Dropout(DROPOUT)(c3)
+    c3 = cbam_block(c3)
+
+    # Flatten + Dense with 2 residual connections
+    x = L.Flatten()(c3)
+
+    d1 = L.Dense(512, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(1e-5))(x)
+    d1 = L.Dropout(DROPOUT)(d1)
+    p1 = L.Dense(512, kernel_regularizer=tf.keras.regularizers.l2(1e-5))(x)
+    x = L.Add()([d1, p1])
+    x = L.Activation('relu')(x)
+    # 2nd residual connection
+    d2 = L.Dense(512, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(1e-5))(x)
+    d2 = L.Dropout(DROPOUT)(d2)
+    p2 = L.Dense(512, kernel_regularizer=tf.keras.regularizers.l2(1e-5))(x)
+    x = L.Add()([d2, p2])
     x = L.Activation('relu')(x)
 
-    # Squeeze-and-excitation on 192-d features
-    se = L.Dense(192 // 16, activation='relu')(x)
-    se = L.Dense(192, activation='sigmoid')(se)
-    x = L.Multiply()([x, se])
-
-    x = L.Dropout(DROPOUT)(x)
     outputs = L.Dense(NUM_CLASSES)(x)
     model = tf.keras.Model(inputs=inputs, outputs=outputs)
 
@@ -255,7 +291,7 @@ def main():
     print(f"\nTraining for {EPOCHS} epochs...")
     early_stopping = tf.keras.callbacks.EarlyStopping(
         monitor='val_loss',
-        patience=15,
+        patience=150,
         restore_best_weights=True
     )
     lr_schedule = LinearLRSchedule(

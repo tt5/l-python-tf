@@ -47,7 +47,7 @@ KL_FREE_BITS = 0.0
 DROPOUT = 0.25
 AUGMENT = True
 RECON_LOSS_WEIGHT = 0.35
-PERCEPTUAL_FINE_WEIGHT = 50.0
+PERCEPTUAL_FINE_WEIGHT = 1.0
 PERCEPTUAL_COARSE_WEIGHT = 1.0
 PERCEPTUAL_MULTISCALE = True
 PERCEPTUAL_WEIGHTS = [PERCEPTUAL_FINE_WEIGHT, PERCEPTUAL_COARSE_WEIGHT]
@@ -535,7 +535,7 @@ def main():
         restore_best_weights=True
     )
     tensorboard_callback = tf.keras.callbacks.TensorBoard(
-        log_dir=str(Path(__file__).parent / "logs" / "train_cvae1"),
+        log_dir=str(Path(__file__).parent / "logs" / "train_cvae1b"),
         histogram_freq=1,
         write_graph=True,
         update_freq="epoch",
