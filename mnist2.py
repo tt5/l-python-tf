@@ -37,7 +37,7 @@ except Exception:
             return super()._resource_apply_sparse(grad, var, indices, apply_state)
 
 DEFAULT_PBM_DIR = Path(__file__).resolve().parent / "../../telephonegame/data/pbm"
-TB_LOG_DIR = Path(__file__).resolve().parent / "logs" / "mnist2"
+TB_LOG_DIR = Path(__file__).resolve().parent / "logs" / "mnist2b"
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--data-dir", type=Path, default=DEFAULT_PBM_DIR, help="PBM data directory")
@@ -46,11 +46,11 @@ PBM_DIR = args.data_dir
 IMG_SIZE = 22
 TARGET_SIZE = 28
 LOW_CONF_THRESHOLD = 0.6
-EPOCHS = 30
-DROPOUT = 0.45
+EPOCHS = 60
+DROPOUT = 0.5
 BASE_LR = 0.001
-WARMUP_EPOCHS = 3
-DECAY_EPOCHS = 15
+WARMUP_EPOCHS = 4
+DECAY_EPOCHS = 30
 LR_START = 0.00005
 LR_END = 0.00001
 POLY_EPSILON = 2
@@ -224,6 +224,7 @@ def main():
     x = L.LayerNormalization()(x)
     x = L.Conv2D(64, 3, strides=2, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(1e-5), name='conv7_base')(x)
     x = L.LayerNormalization()(x)
+    x = L.Dropout(DROPOUT)(x)
     x = L.Conv2D(64, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(1e-5), name='conv7_deep1')(x)
     x = L.LayerNormalization()(x)
     x = L.Conv2D(64, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(1e-5), name='conv7_deep2')(x)
@@ -254,7 +255,7 @@ def main():
     print(f"\nTraining for {EPOCHS} epochs...")
     early_stopping = tf.keras.callbacks.EarlyStopping(
         monitor='val_loss',
-        patience=6,
+        patience=15,
         restore_best_weights=True
     )
     lr_schedule = LinearLRSchedule(
