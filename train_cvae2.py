@@ -44,7 +44,7 @@ LR_DECAY_EPOCHS = EPOCHS - LR_WARMUP_EPOCHS
 LR_END = 0.000037
 L2_REG = 0.00001
 KL_FREE_BITS = 0.0
-DROPOUT = 0.25
+DROPOUT = 0.5
 AUGMENT = True
 RECON_LOSS_WEIGHT = 0.35
 PERCEPTUAL_FINE_WEIGHT = 1.0
@@ -261,6 +261,11 @@ def build_generator():
     x = tf.keras.layers.Conv2D(96, 1, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = tf.keras.layers.Dropout(DROPOUT/2)(x)
     skip7 = x
+    # SE block at 7x7
+    se7 = tf.keras.layers.GlobalAveragePooling2D()(skip7)
+    se7 = tf.keras.layers.Dense(96 // 4, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(se7)
+    se7 = tf.keras.layers.Dense(96, activation='sigmoid', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(se7)
+    skip7 = tf.keras.layers.Multiply()([skip7, se7])
     x = tf.keras.layers.UpSampling2D(size=2, interpolation='nearest')(x)
     x = tf.keras.layers.Conv2D(48, 3, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = tf.keras.layers.LayerNormalization(center=False, scale=False)(x)
@@ -278,7 +283,22 @@ def build_generator():
     x = tf.keras.layers.Concatenate(axis=-1)([x, label_broadcast_48_14])
     x = tf.keras.layers.Conv2D(48, 1, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = tf.keras.layers.Dropout(DROPOUT/2)(x)
+
+    # Multi-scale kernel block at 14x14
+    b1 = tf.keras.layers.Conv2D(16, 1, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
+    b3 = tf.keras.layers.Conv2D(16, 3, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
+    b5 = tf.keras.layers.Conv2D(16, 5, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
+    x = tf.keras.layers.Concatenate()([b1, b3, b5])
+    x = tf.keras.layers.Conv2D(48, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
+    x = tf.keras.layers.LayerNormalization()(x)
+    x = tf.keras.layers.Dropout(DROPOUT/2)(x)
+
     skip14 = x
+    # SE block at 14x14
+    se14 = tf.keras.layers.GlobalAveragePooling2D()(skip14)
+    se14 = tf.keras.layers.Dense(48 // 4, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(se14)
+    se14 = tf.keras.layers.Dense(48, activation='sigmoid', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(se14)
+    skip14 = tf.keras.layers.Multiply()([skip14, se14])
     x = tf.keras.layers.UpSampling2D(size=2, interpolation='nearest')(x)
     x = tf.keras.layers.Conv2D(48, 3, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = tf.keras.layers.LayerNormalization(center=False, scale=False)(x)
@@ -545,7 +565,7 @@ def main():
         restore_best_weights=True
     )
     tensorboard_callback = tf.keras.callbacks.TensorBoard(
-        log_dir=str(Path(__file__).parent / "logs" / "train_cvae1"),
+        log_dir=str(Path(__file__).parent / "logs" / "train_cvae1b"),
         histogram_freq=1,
         write_graph=True,
         update_freq="epoch",
