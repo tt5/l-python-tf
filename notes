@@ -178,3 +178,13 @@ Deeper 28×28 stack: add another residual conv block after the final sigmoid; th
   Class digit_5: 56.1% correct (2806/5000), avg confidence: 85.7%
   Class digit_6: 10.9% correct (545/5000), avg confidence: 78.7%
   Class low_conf: 59.4% correct (2968/5000), avg confidence: 79.4%
+
+train_cvae3.py
+
+add multi scale kernel block to 14x14 in the encoder. Add multi-scale kernel block to 7x7 7x7 in the generator
+
+Add SE at 14x14 in the encoder and SE at 28x28 in the generator
+
+Latent post-projection: after sampling z, pass through small Dense→LayerNorm→Act before decoder
+
+---

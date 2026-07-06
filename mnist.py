@@ -17,8 +17,8 @@ np.set_printoptions(threshold=sys.maxsize)
 np.set_printoptions(linewidth=np.inf)
 
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "synthetic" / "data"
-NUM_CLASSES = 6
-EPOCHS = 40
+NUM_CLASSES = 3
+EPOCHS = 50
 BATCH_SIZE = 128
 LEARNING_RATE = 0.005
 LR_WARMUP_EPOCHS = 7
@@ -33,7 +33,7 @@ EARLY_STOP_PATIENCE = 7
 GAUSSIAN_NOISE = 0.005
 GAUSSIAN_NOISE_DECAY_EPOCHS = 50
 GAUSSIAN_NOISE_END = 0.0001
-LOG_DIR = "logs/run6"
+LOG_DIR = "logs/cls1"
 
 
 AUGMENT = True  # On-the-fly augmentation: random rotate/transpose
@@ -88,8 +88,7 @@ def load_synthetic():
             print(f"ERROR: No .npy files in {class_dir}")
             sys.exit(1)
 
-        # Split 50% train, 50% test
-        split_idx = int(len(files) * 0.5)
+        split_idx = int(len(files) * 0.8)
         train_files = files[:split_idx]
         test_files = files[split_idx:]
 

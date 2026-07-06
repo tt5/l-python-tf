@@ -19,9 +19,9 @@ from tensorflow.keras import layers
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "synthetic" / "data"
 LATENT_DIM = 512
 PHA1_LATENT_DIM = 128
-EPOCHS = 32
+EPOCHS = 60
 BATCH_SIZE = 128
-NUM_CLASSES = 6
+NUM_CLASSES = 3
 PROGRESSIVE_EPOCHS = 7  # Phase 1: 14x14
 LR = 0.001
 LR_WARMUP_START = 0
@@ -557,7 +557,7 @@ class GeneratorCheckpoint(keras.callbacks.Callback):
             print(f"  Saved best generator (val_loss: {current_loss:.4f})")
 
 callbacks = [
-    keras.callbacks.EarlyStopping(monitor='val_total_loss', patience=10, restore_best_weights=True),
+    keras.callbacks.EarlyStopping(monitor='val_total_loss', patience=9, restore_best_weights=True),
     GeneratorCheckpoint(generator, best_generator_path),
     BestEpochLogger(vae),
     keras.callbacks.TensorBoard(log_dir='logs/run2', histogram_freq=1),
