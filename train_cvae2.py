@@ -164,7 +164,24 @@ def build_encoder():
 
     x = tf.keras.layers.Conv2D(32, 3, strides=2, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(image_input)
     x = tf.keras.layers.LayerNormalization()(x)
-    x = tf.keras.layers.Conv2D(64, 3, strides=2, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
+    x14 = x  # 14x14, 32 channels
+
+    # Label pathway
+    label_emb = tf.keras.layers.Dense(16, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(label_input)
+    lbl_e = tf.keras.layers.Dense(64, activation=None, kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(label_emb)
+
+    def film_enc(features, channels):
+        g = tf.keras.layers.Dense(channels, activation="sigmoid", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(lbl_e)
+        b = tf.keras.layers.Dense(channels, activation=None, kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(lbl_e)
+        g = tf.keras.layers.Reshape((1, 1, channels))(g)
+        b = tf.keras.layers.Reshape((1, 1, channels))(b)
+        x = tf.keras.layers.Multiply()([features, g])
+        return tf.keras.layers.Add()([x, b])
+
+    # FiLM at 14x14
+    x14 = film_enc(x14, 32)
+
+    x = tf.keras.layers.Conv2D(64, 3, strides=2, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x14)
     x = tf.keras.layers.LayerNormalization()(x)
     # Residual conv block
     x_res = x
@@ -192,14 +209,6 @@ def build_encoder():
     # Label pathway
     label_emb = tf.keras.layers.Dense(16, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(label_input)
     lbl_e = tf.keras.layers.Dense(64, activation=None, kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(label_emb)
-
-    def film_enc(features, channels):
-        g = tf.keras.layers.Dense(channels, activation="sigmoid", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(lbl_e)
-        b = tf.keras.layers.Dense(channels, activation=None, kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(lbl_e)
-        g = tf.keras.layers.Reshape((1, 1, channels))(g)
-        b = tf.keras.layers.Reshape((1, 1, channels))(b)
-        x = tf.keras.layers.Multiply()([features, g])
-        return tf.keras.layers.Add()([x, b])
 
     x = film_enc(x, 64)
     x = tf.keras.layers.Flatten()(x)
