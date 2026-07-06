@@ -27,7 +27,7 @@ PBM_DIR = args.data_dir
 
 # ─── Hyperparameters ──────────────────────────────────────────────
 LATENT_DIM = 256
-EPOCHS = 120
+EPOCHS = 130
 BATCH_SIZE = 64
 NUM_CLASSES = None  # derived from data + low_conf
 TARGET_SIZE = 28
@@ -51,9 +51,9 @@ PERCEPTUAL_FINE_WEIGHT = 1.0
 PERCEPTUAL_COARSE_WEIGHT = 1.0
 PERCEPTUAL_MULTISCALE = True
 PERCEPTUAL_WEIGHTS = [PERCEPTUAL_FINE_WEIGHT, PERCEPTUAL_COARSE_WEIGHT]
-PERCEPTUAL_WARMUP_EPOCHS = 3
+PERCEPTUAL_WARMUP_EPOCHS = 4
 PERCEPTUAL_START_WEIGHT = 0.1
-PERCEPTUAL_PEAK_WEIGHT = 16
+PERCEPTUAL_PEAK_WEIGHT = 8
 PERCEPTUAL_DECAY_EPOCHS = 40
 PERCEPTUAL_END_WEIGHT = 1
 PERCEPTUAL_EXTRACTOR_PATH = Path(__file__).parent / "mnist2_model"
@@ -241,12 +241,13 @@ def build_generator():
     x = film(x, 96)
     x = tf.keras.layers.Dropout(DROPOUT/2)(x)
 
-    # Broadcast label for concatenation at every scale
-    label_spatial_96 = tf.keras.layers.Reshape((1, 1, 96))(tf.keras.layers.Dense(96, activation=None, kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(label_emb))
-    label_spatial_48 = tf.keras.layers.Reshape((1, 1, 48))(tf.keras.layers.Dense(48, activation=None, kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(label_emb))
+    # Per-scale label projections
+    label_proj_7x7 = tf.keras.layers.Reshape((1, 1, 96))(tf.keras.layers.Dense(96, activation=None, kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(label_emb))
+    label_proj_14x14 = tf.keras.layers.Reshape((1, 1, 48))(tf.keras.layers.Dense(48, activation=None, kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(label_emb))
+    label_proj_28x28 = tf.keras.layers.Reshape((1, 1, 48))(tf.keras.layers.Dense(48, activation=None, kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(label_emb))
 
     # 7x7 block: broadcast + 1x1 + residual upsample block
-    label_broadcast_96 = tf.keras.layers.Lambda(lambda t: tf.broadcast_to(t[0], tf.shape(t[1])))([label_spatial_96, x])
+    label_broadcast_96 = tf.keras.layers.Lambda(lambda t: tf.broadcast_to(t[0], tf.shape(t[1])))([label_proj_7x7, x])
     x = tf.keras.layers.Concatenate(axis=-1)([x, label_broadcast_96])
     x = tf.keras.layers.Conv2D(96, 1, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = tf.keras.layers.Dropout(DROPOUT/2)(x)
@@ -264,7 +265,7 @@ def build_generator():
     ])
 
     # 14x14 block: broadcast + 1x1 + residual upsample block
-    label_broadcast_48_14 = tf.keras.layers.Lambda(lambda t: tf.broadcast_to(t[0], tf.shape(t[1])))([label_spatial_48, x])
+    label_broadcast_48_14 = tf.keras.layers.Lambda(lambda t: tf.broadcast_to(t[0], tf.shape(t[1])))([label_proj_14x14, x])
     x = tf.keras.layers.Concatenate(axis=-1)([x, label_broadcast_48_14])
     x = tf.keras.layers.Conv2D(48, 1, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = tf.keras.layers.Dropout(DROPOUT/2)(x)
@@ -282,7 +283,7 @@ def build_generator():
     ])
 
     # 28x28: inject label as explicit spatial channels
-    label_broadcast_48 = tf.keras.layers.Lambda(lambda t: tf.broadcast_to(t[0], tf.shape(t[1])))([label_spatial_48, x])
+    label_broadcast_48 = tf.keras.layers.Lambda(lambda t: tf.broadcast_to(t[0], tf.shape(t[1])))([label_proj_28x28, x])
     x = tf.keras.layers.Concatenate(axis=-1)([x, label_broadcast_48])
     x = tf.keras.layers.Conv2D(48, 1, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = tf.keras.layers.LayerNormalization(center=False, scale=False)(x)
@@ -535,7 +536,7 @@ def main():
         restore_best_weights=True
     )
     tensorboard_callback = tf.keras.callbacks.TensorBoard(
-        log_dir=str(Path(__file__).parent / "logs" / "train_cvae1b"),
+        log_dir=str(Path(__file__).parent / "logs" / "train_cvae1"),
         histogram_freq=1,
         write_graph=True,
         update_freq="epoch",
