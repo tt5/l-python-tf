@@ -46,9 +46,9 @@ PBM_DIR = args.data_dir
 IMG_SIZE = 22
 TARGET_SIZE = 28
 LOW_CONF_THRESHOLD = 0.6
-EPOCHS = 140
-DROPOUT = 0.25
-L2_REG = 0.0001
+EPOCHS = 150
+DROPOUT = 0.3
+L2_REG = 0.0002
 BATCH_SIZE = 256
 BASE_LR = 0.0001
 WARMUP_EPOCHS = 5
@@ -253,13 +253,17 @@ def main():
     inputs = L.Input(shape=(TARGET_SIZE, TARGET_SIZE))
     x = L.Reshape((TARGET_SIZE, TARGET_SIZE, 1))(inputs)
 
-    # Conv block 1: 28x28 → 14x14
-    c1 = L.SeparableConv2D(64, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
+    # Conv block 0: 28x28 -> 28x28
+    c0 = L.SeparableConv2D(64, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
+    c0 = L.Dropout(DROPOUT)(c0)
+
+    # Conv block 1: 28x28 -> 14x14
+    c1 = L.SeparableConv2D(64, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(c0)
     c1 = L.MaxPooling2D(2)(c1)
     c1 = L.Dropout(DROPOUT)(c1)
     c1 = cbam_block(c1)
 
-    # Conv block 2: 14x14 → 7x7
+    # Conv block 2: 14x14 -> 7x7
     c2 = L.SeparableConv2D(128, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv14')(c1)
     c2 = L.MaxPooling2D(2)(c2)
     c2 = L.Dropout(DROPOUT)(c2)

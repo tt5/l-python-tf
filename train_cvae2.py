@@ -565,7 +565,7 @@ def main():
         restore_best_weights=True
     )
     tensorboard_callback = tf.keras.callbacks.TensorBoard(
-        log_dir=str(Path(__file__).parent / "logs" / "train_cvae1b"),
+        log_dir=str(Path(__file__).parent / "logs" / "train_cvae1"),
         histogram_freq=1,
         write_graph=True,
         update_freq="epoch",
