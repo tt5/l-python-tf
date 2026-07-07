@@ -27,7 +27,7 @@ PBM_DIR = args.data_dir
 
 # ─── Hyperparameters ──────────────────────────────────────────────
 LATENT_DIM = 256
-EPOCHS = 140
+EPOCHS = 150
 BATCH_SIZE = 64
 NUM_CLASSES = None  # derived from data + low_conf
 TARGET_SIZE = 28
