@@ -37,7 +37,7 @@ except Exception:
             return super()._resource_apply_sparse(grad, var, indices, apply_state)
 
 DEFAULT_PBM_DIR = Path(__file__).resolve().parent / "../../telephonegame/data/pbm"
-TB_LOG_DIR = Path(__file__).resolve().parent / "logs" / "mnist2b"
+TB_LOG_DIR = Path(__file__).resolve().parent / "logs" / "mnist2"
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--data-dir", type=Path, default=DEFAULT_PBM_DIR, help="PBM data directory")
@@ -46,13 +46,13 @@ PBM_DIR = args.data_dir
 IMG_SIZE = 22
 TARGET_SIZE = 28
 LOW_CONF_THRESHOLD = 0.6
-EPOCHS = 120
+EPOCHS = 130
 DROPOUT = 0.25
 L2_REG = 0.0001
 BATCH_SIZE = 256
 BASE_LR = 0.0001
 WARMUP_EPOCHS = 5
-DECAY_EPOCHS = 120
+DECAY_EPOCHS = 130
 LR_START = 0.00001
 LR_END = 0.00001
 POLY_EPSILON = 3
@@ -325,12 +325,20 @@ def main():
 
     if AUGMENT:
         train_gen = AugmentGenerator(x_train, y_train, batch_size=BATCH_SIZE, augment=True)
-        model.fit(train_gen, epochs=EPOCHS, validation_data=(x_test, y_test),
+        history = model.fit(train_gen, epochs=EPOCHS, validation_data=(x_test, y_test),
                   callbacks=[early_stopping, lr_schedule, tb_callback])
     else:
-        model.fit(x_train, y_train, epochs=EPOCHS, batch_size=BATCH_SIZE,
+        history = model.fit(x_train, y_train, epochs=EPOCHS, batch_size=BATCH_SIZE,
                   validation_data=(x_test, y_test),
                   callbacks=[early_stopping, lr_schedule, tb_callback])
+
+    stopped_epoch = getattr(early_stopping, 'stopped_epoch', None)
+    best_epoch = getattr(early_stopping, 'best_epoch', None)
+    print("\nEarlyStopping summary:")
+    if best_epoch is not None:
+        print(f"  Best epoch: {best_epoch + 1}")
+    if stopped_epoch is not None:
+        print(f"  Stopped epoch: {stopped_epoch + 1}")
 
     print("\nFinal evaluation:")
     model.evaluate(x_test, y_test, verbose=2)
