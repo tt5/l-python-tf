@@ -27,7 +27,7 @@ PBM_DIR = args.data_dir
 
 # ─── Hyperparameters ──────────────────────────────────────────────
 LATENT_DIM = 384
-EPOCHS = 90
+EPOCHS = 100
 BATCH_SIZE = 128
 LEARNING_RATE = 0.009
 LR_START = 0.00001
@@ -37,7 +37,7 @@ LR_END = 0.00015
 CLIPNORM = 1.0
 KL_START = 0.000001
 KL_PEAK = 0.45
-KL_END = 0.37
+KL_END = 0.38
 KL_WARMUP_EPOCHS = 5
 KL_DECAY_EPOCHS = 120 - KL_WARMUP_EPOCHS
 DROPOUT = 0.37

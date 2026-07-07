@@ -54,6 +54,8 @@ DECAY_EPOCHS = 10
 LR_START = 1e-4
 LR_END = 1e-5
 POLY_EPSILON = 2
+BATCH_SIZE = 128
+AUGMENT = True  # On-the-fly augmentation: random rotate/transpose
 
 
 def poly_loss(labels, logits, epsilon=None):
@@ -124,6 +126,37 @@ def upscale(grid, dst_h, dst_w):
     return out
 
 
+class AugmentGenerator(tf.keras.utils.Sequence):
+    """On-the-fly augmentation: random rotate 90° and transpose."""
+    def __init__(self, images, labels, batch_size, augment=True):
+        self.images = images
+        self.labels = labels
+        self.batch_size = batch_size
+        self.augment = augment
+        self.indices = np.arange(len(images))
+
+    def __len__(self):
+        return len(self.images) // self.batch_size
+
+    def __getitem__(self, idx):
+        batch_idx = self.indices[idx * self.batch_size:(idx + 1) * self.batch_size]
+        images = self.images[batch_idx].copy()
+        labels = self.labels[batch_idx]
+
+        if self.augment:
+            for i in range(len(images)):
+                k = np.random.randint(0, 4)
+                if k > 0:
+                    images[i] = np.rot90(images[i], k=k)
+                if np.random.random() < 0.5:
+                    images[i] = np.transpose(images[i])
+
+        return images, labels
+
+    def on_epoch_end(self):
+        np.random.shuffle(self.indices)
+
+
 def main():
     files = sorted(PBM_DIR.glob("*.pbm"))
     print(f"Loading {len(files)} PBM images from {PBM_DIR}...")
@@ -186,24 +219,6 @@ def main():
     y_train, y_test = labels[:split], labels[split:]
     print(f"\nTrain: {len(x_train)}, Test: {len(x_test)}")
 
-    # ─── Data augmentation: rotations + transpose ──────────────────
-    def augment_batch(batch):
-        rot90 = np.rot90(batch, k=1, axes=(1, 2))
-        rot180 = np.rot90(batch, k=2, axes=(1, 2))
-        rot270 = np.rot90(batch, k=3, axes=(1, 2))
-        transposed = np.transpose(batch, axes=(0, 2, 1))
-        return np.concatenate([batch, rot90, rot180, rot270, transposed], axis=0)
-
-    x_train = augment_batch(x_train)
-    y_train = np.concatenate([y_train, y_train, y_train, y_train, y_train], axis=0)
-
-    aug_seed = 42
-    rng = np.random.default_rng(aug_seed)
-    perm = rng.permutation(len(x_train))
-    x_train = x_train[perm]
-    y_train = y_train[perm]
-    print(f"After augmentation: Train: {len(x_train)}, Test: {len(x_test)}")
-
     # Build model
     L = tf.keras.layers
     inputs = L.Input(shape=(TARGET_SIZE, TARGET_SIZE))
@@ -253,9 +268,14 @@ def main():
         warmup_epochs=WARMUP_EPOCHS,
         decay_epochs=DECAY_EPOCHS
     )
-    model.fit(x_train, y_train, epochs=EPOCHS, batch_size=128,
-              validation_data=(x_test, y_test),
-              callbacks=[early_stopping, lr_schedule, tf.keras.callbacks.TensorBoard(log_dir=str(TB_LOG_DIR), update_freq='epoch')])
+    if AUGMENT:
+        train_gen = AugmentGenerator(x_train, y_train, batch_size=BATCH_SIZE, augment=True)
+        model.fit(train_gen, epochs=EPOCHS, validation_data=(x_test, y_test),
+                  callbacks=[early_stopping, lr_schedule, tf.keras.callbacks.TensorBoard(log_dir=str(TB_LOG_DIR), update_freq='epoch')])
+    else:
+        model.fit(x_train, y_train, epochs=EPOCHS, batch_size=BATCH_SIZE,
+                  validation_data=(x_test, y_test),
+                  callbacks=[early_stopping, lr_schedule, tf.keras.callbacks.TensorBoard(log_dir=str(TB_LOG_DIR), update_freq='epoch')])
 
     print("\nFinal evaluation:")
     model.evaluate(x_test, y_test, verbose=2)
