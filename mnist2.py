@@ -37,7 +37,7 @@ except Exception:
             return super()._resource_apply_sparse(grad, var, indices, apply_state)
 
 DEFAULT_PBM_DIR = Path(__file__).resolve().parent / "../../telephonegame/data/pbm"
-TB_LOG_DIR = Path(__file__).resolve().parent / "logs" / "mnist2b"
+TB_LOG_DIR = Path(__file__).resolve().parent / "logs" / "mnist2"
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--data-dir", type=Path, default=DEFAULT_PBM_DIR, help="PBM data directory")
@@ -46,13 +46,13 @@ PBM_DIR = args.data_dir
 IMG_SIZE = 22
 TARGET_SIZE = 28
 LOW_CONF_THRESHOLD = 0.6
-EPOCHS = 70
+EPOCHS = 90
 DROPOUT = 0.25
 L2_REG = 0.0001
-BATCH_SIZE = 128
+BATCH_SIZE = 256
 BASE_LR = 0.0001
 WARMUP_EPOCHS = 5
-DECAY_EPOCHS = 40
+DECAY_EPOCHS = 90
 LR_START = 0.00001
 LR_END = 0.00001
 POLY_EPSILON = 3
@@ -292,6 +292,12 @@ def main():
     d2 = L.Dropout(DROPOUT)(d2)
     p2 = L.Dense(512, kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = L.Add()([d2, p2])
+    x = L.Activation('relu')(x)
+    # 3rd residual connection
+    d3 = L.Dense(512, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
+    d3 = L.Dropout(DROPOUT)(d3)
+    p3 = L.Dense(512, kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
+    x = L.Add()([d3, p3])
     x = L.Activation('relu')(x)
 
     outputs = L.Dense(NUM_CLASSES)(x)
