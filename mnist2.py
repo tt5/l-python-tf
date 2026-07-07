@@ -47,12 +47,14 @@ IMG_SIZE = 22
 TARGET_SIZE = 28
 LOW_CONF_THRESHOLD = 0.6
 EPOCHS = 70
-DROPOUT = 0.4
-BASE_LR = 0.0005
+DROPOUT = 0.25
+L2_REG = 0.0001
+BATCH_SIZE = 128
+BASE_LR = 0.0001
 WARMUP_EPOCHS = 5
-DECAY_EPOCHS = 60
-LR_START = 0.00005
-LR_END = 0.00002
+DECAY_EPOCHS = 40
+LR_START = 0.00001
+LR_END = 0.00001
 POLY_EPSILON = 3
 AUGMENT = True  # On-the-fly augmentation: random rotate/transpose
 
@@ -88,17 +90,20 @@ class AugmentGenerator(tf.keras.utils.Sequence):
         np.random.shuffle(self.indices)
 
 
-def poly_loss(labels, logits, epsilon=None):
-    """CE + 0.25 * (1 - p_t)^2."""
-    if epsilon is None:
-        epsilon = POLY_EPSILON
-    ce = tf.keras.losses.sparse_categorical_crossentropy(labels, logits, from_logits=True)
-    probs = tf.nn.softmax(logits, axis=-1)
-    labels_one_hot = tf.one_hot(tf.cast(labels, tf.int32), depth=tf.shape(logits)[-1])
-    p_t = tf.reduce_sum(probs * labels_one_hot, axis=-1)
-    p_t = tf.clip_by_value(p_t, 1e-7, 1.0)
-    pt_loss = 0.25 * tf.pow(1.0 - p_t, 2)
-    return tf.reduce_mean(ce + epsilon * pt_loss)
+def symmetric_cross_entropy(alpha=0.5, beta=0.5):
+    """Symmetric Cross Entropy loss."""
+    def loss_fn(y_true, y_pred):
+        # Standard CE: true labels vs predictions
+        ce_true = tf.keras.losses.sparse_categorical_crossentropy(y_true, y_pred, from_logits=True)
+        
+        # Reverse CE: predictions vs true labels
+        probs = tf.nn.softmax(y_pred, axis=-1)
+        y_true_one_hot = tf.one_hot(tf.cast(tf.squeeze(y_true), tf.int32), depth=tf.shape(y_pred)[-1])
+        ce_reverse = tf.keras.losses.categorical_crossentropy(y_true_one_hot, probs)
+        
+        return alpha * tf.reduce_mean(ce_true) + beta * tf.reduce_mean(ce_reverse)
+    return loss_fn
+
 
 
 class LinearLRSchedule(tf.keras.callbacks.Callback):
@@ -249,41 +254,50 @@ def main():
     x = L.Reshape((TARGET_SIZE, TARGET_SIZE, 1))(inputs)
 
     # Conv block 1: 28x28 → 14x14
-    c1 = L.SeparableConv2D(64, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(1e-5))(x)
+    c1 = L.SeparableConv2D(64, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     c1 = L.MaxPooling2D(2)(c1)
     c1 = L.Dropout(DROPOUT)(c1)
     c1 = cbam_block(c1)
 
     # Conv block 2: 14x14 → 7x7
-    c2 = L.SeparableConv2D(128, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(1e-5), name='conv14')(c1)
+    c2 = L.SeparableConv2D(128, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv14')(c1)
     c2 = L.MaxPooling2D(2)(c2)
     c2 = L.Dropout(DROPOUT)(c2)
     c2 = cbam_block(c2)
 
     # Conv block 3: 7x7 → 7x7 (no pooling)
-    c3 = L.SeparableConv2D(128, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(1e-5), name='conv7_deep2')(c2)
+    c3 = L.SeparableConv2D(128, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv7_deep2')(c2)
     c3 = L.Dropout(DROPOUT)(c3)
     c3 = cbam_block(c3)
+
+    # Multi-scale kernel block at 7x7
+    b1 = L.Conv2D(16, 1, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(c3)
+    b3 = L.Conv2D(16, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(c3)
+    b5 = L.Conv2D(16, 5, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(c3)
+    c3 = L.Concatenate()([b1, b3, b5])
+    c3 = L.Conv2D(128, 1, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(c3)
+    c3 = L.LayerNormalization()(c3)
+    c3 = L.Dropout(DROPOUT/2)(c3)
 
     # Flatten + Dense with 2 residual connections
     x = L.Flatten()(c3)
 
-    d1 = L.Dense(512, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(1e-5))(x)
+    d1 = L.Dense(512, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     d1 = L.Dropout(DROPOUT)(d1)
-    p1 = L.Dense(512, kernel_regularizer=tf.keras.regularizers.l2(1e-5))(x)
+    p1 = L.Dense(512, kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = L.Add()([d1, p1])
     x = L.Activation('relu')(x)
     # 2nd residual connection
-    d2 = L.Dense(512, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(1e-5))(x)
+    d2 = L.Dense(512, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     d2 = L.Dropout(DROPOUT)(d2)
-    p2 = L.Dense(512, kernel_regularizer=tf.keras.regularizers.l2(1e-5))(x)
+    p2 = L.Dense(512, kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = L.Add()([d2, p2])
     x = L.Activation('relu')(x)
 
     outputs = L.Dense(NUM_CLASSES)(x)
     model = tf.keras.Model(inputs=inputs, outputs=outputs)
 
-    model.compile(optimizer=AdamW(clipnorm=1.0, weight_decay=1e-5, learning_rate=BASE_LR), loss=poly_loss, metrics=['accuracy'])
+    model.compile(optimizer=AdamW(clipnorm=1.0, weight_decay=1e-5, learning_rate=BASE_LR), loss=symmetric_cross_entropy(), metrics=['accuracy'])
 
     print("\nModel summary:")
     model.summary()
@@ -304,11 +318,11 @@ def main():
     tb_callback = tf.keras.callbacks.TensorBoard(log_dir=str(TB_LOG_DIR), update_freq='epoch')
 
     if AUGMENT:
-        train_gen = AugmentGenerator(x_train, y_train, batch_size=128, augment=True)
+        train_gen = AugmentGenerator(x_train, y_train, batch_size=BATCH_SIZE, augment=True)
         model.fit(train_gen, epochs=EPOCHS, validation_data=(x_test, y_test),
                   callbacks=[early_stopping, lr_schedule, tb_callback])
     else:
-        model.fit(x_train, y_train, epochs=EPOCHS, batch_size=128,
+        model.fit(x_train, y_train, epochs=EPOCHS, batch_size=BATCH_SIZE,
                   validation_data=(x_test, y_test),
                   callbacks=[early_stopping, lr_schedule, tb_callback])
 
