@@ -37,7 +37,7 @@ except Exception:
             return super()._resource_apply_sparse(grad, var, indices, apply_state)
 
 DEFAULT_PBM_DIR = Path(__file__).resolve().parent / "../../telephonegame/data/pbm"
-TB_LOG_DIR = Path(__file__).resolve().parent / "logs" / "mnist2"
+TB_LOG_DIR = Path(__file__).resolve().parent / "logs" / "mnist2b"
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--data-dir", type=Path, default=DEFAULT_PBM_DIR, help="PBM data directory")
@@ -46,13 +46,13 @@ PBM_DIR = args.data_dir
 IMG_SIZE = 22
 TARGET_SIZE = 28
 LOW_CONF_THRESHOLD = 0.6
-EPOCHS = 90
+EPOCHS = 120
 DROPOUT = 0.25
 L2_REG = 0.0001
 BATCH_SIZE = 256
 BASE_LR = 0.0001
 WARMUP_EPOCHS = 5
-DECAY_EPOCHS = 90
+DECAY_EPOCHS = 120
 LR_START = 0.00001
 LR_END = 0.00001
 POLY_EPSILON = 3
