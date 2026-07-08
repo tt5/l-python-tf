@@ -252,9 +252,6 @@ def build_generator():
     label_emb = tf.keras.layers.Dense(32, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(label_input)
     label_emb = tf.keras.layers.Dense(96, activation=None, kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(label_emb)
 
-    def film(features, channels):
-        return label_cross_attention(features, label_input, channels, L2_REG)
-
     # Concatenate latent and label for initial expansion
     z = tf.keras.layers.Dense(64, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(latent_input)
     z = tf.keras.layers.Dropout(0.1)(z)
@@ -263,18 +260,8 @@ def build_generator():
     x = tf.keras.layers.Reshape((7, 7, 96))(x)
     x = label_cross_attention(x, label_input, 96, L2_REG)
     x = tf.keras.layers.SpatialDropout2D(DROPOUT/2)(x)
-
-    # Per-scale label projections
-    label_proj_7x7 = tf.keras.layers.Reshape((1, 1, 96))(tf.keras.layers.Dense(96, activation=None, kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(label_emb))
-    label_proj_14x14 = tf.keras.layers.Reshape((1, 1, 48))(tf.keras.layers.Dense(48, activation=None, kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(label_emb))
-    label_proj_28x28 = tf.keras.layers.Reshape((1, 1, 48))(tf.keras.layers.Dense(48, activation=None, kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(label_emb))
-
-    # 7x7 block: broadcast + 1x1 + residual upsample block
-    label_broadcast_96 = tf.keras.layers.Lambda(lambda t: tf.broadcast_to(t[0], tf.shape(t[1])))([label_proj_7x7, x])
-    x = tf.keras.layers.Concatenate(axis=-1)([x, label_broadcast_96])
-    x = tf.keras.layers.Conv2D(96, 1, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
-    x = tf.keras.layers.SpatialDropout2D(DROPOUT/2)(x)
     skip7 = x
+
     # SE block at 7x7
     se7 = tf.keras.layers.GlobalAveragePooling2D()(skip7)
     se7 = tf.keras.layers.Dense(96 // 4, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(se7)
@@ -293,11 +280,7 @@ def build_generator():
         )
     ])
 
-    # 14x14 block: broadcast + 1x1 + residual upsample block
-    label_broadcast_48_14 = tf.keras.layers.Lambda(lambda t: tf.broadcast_to(t[0], tf.shape(t[1])))([label_proj_14x14, x])
-    x = tf.keras.layers.Concatenate(axis=-1)([x, label_broadcast_48_14])
-    x = tf.keras.layers.Conv2D(48, 1, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
-    x = tf.keras.layers.SpatialDropout2D(DROPOUT/2)(x)
+    # 14x14 block
     x = label_cross_attention(x, label_input, 48, L2_REG)
 
     # Multi-scale kernel block at 14x14
@@ -329,11 +312,7 @@ def build_generator():
     ])
     x = tf.keras.layers.SpatialDropout2D(DROPOUT/2)(x)
 
-    # 28x28: inject label as explicit spatial channels
-    label_broadcast_48 = tf.keras.layers.Lambda(lambda t: tf.broadcast_to(t[0], tf.shape(t[1])))([label_proj_28x28, x])
-    x = tf.keras.layers.Concatenate(axis=-1)([x, label_broadcast_48])
-    x = tf.keras.layers.Conv2D(48, 1, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
-    x = tf.keras.layers.LayerNormalization(center=False, scale=False)(x)
+    # 28x28 block
     x = label_cross_attention(x, label_input, 48, L2_REG)
 
     x = tf.keras.layers.SpatialDropout2D(DROPOUT/2)(x)
