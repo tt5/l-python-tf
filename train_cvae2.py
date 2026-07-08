@@ -38,13 +38,13 @@ KL_WEIGHT = 0.45
 KL_DECAY_EPOCHS = EPOCHS // 2
 KL_WEIGHT_END = 0.04
 LEARNING_RATE = 0.003
-LR_WARMUP_EPOCHS = 5
+LR_WARMUP_EPOCHS = 6
 LR_START = 0.00001
 LR_DECAY_EPOCHS = EPOCHS - LR_WARMUP_EPOCHS
 LR_END = 0.00001
-L2_REG = 0.00005
+L2_REG = 0.00001
 KL_FREE_BITS = 0.0
-DROPOUT = 0.35
+DROPOUT = 0.37
 AUGMENT = True
 RECON_LOSS_WEIGHT = 0.35
 PERCEPTUAL_FINE_WEIGHT = 1.0
@@ -57,7 +57,11 @@ PERCEPTUAL_PEAK_WEIGHT = 64
 PERCEPTUAL_DECAY_EPOCHS = 40
 PERCEPTUAL_END_WEIGHT = 0
 PERCEPTUAL_EXTRACTOR_PATH = Path(__file__).parent / "mnist2_model"
-TV_WEIGHT = 0.01
+TV_WARMUP_EPOCHS = 2
+TV_START_WEIGHT = 0.02
+TV_PEAK_WEIGHT = 0.04
+TV_DECAY_EPOCHS = 40
+TV_END_WEIGHT = 0.0
 
 def load_pbm(path):
     """Load a P4 PBM file and return a 2D numpy array of 0/1 float32."""
@@ -339,6 +343,7 @@ class CVAE(tf.keras.Model):
         self.kl_weight = 0.0
         self.perceptual_weight = float(PERCEPTUAL_PEAK_WEIGHT)
         self.perceptual_coarse_weight = float(PERCEPTUAL_COARSE_WEIGHT)
+        self.tv_weight = float(TV_PEAK_WEIGHT)
 
     @property
     def metrics(self):
@@ -396,7 +401,7 @@ class CVAE(tf.keras.Model):
             else:
                 perceptual_loss = perceptual_loss_fine + perceptual_loss_coarse
 
-            total_loss = (RECON_LOSS_WEIGHT * recon_loss) + (float(self.perceptual_weight) * perceptual_loss) + (float(self.kl_weight) * kl_loss) + float(TV_WEIGHT) * tv_loss
+            total_loss = (RECON_LOSS_WEIGHT * recon_loss) + (float(self.perceptual_weight) * perceptual_loss) + (float(self.kl_weight) * kl_loss) + float(self.tv_weight) * tv_loss
 
         grads = tape.gradient(total_loss, self.trainable_weights)
         self.optimizer.apply_gradients(zip(grads, self.trainable_weights))
@@ -544,6 +549,26 @@ class LRWarmup(tf.keras.callbacks.Callback):
         if self.model is not None and self.model.optimizer is not None:
             tf.keras.backend.set_value(self.model.optimizer.lr, float(lr))
 
+
+class TVWarmup(tf.keras.callbacks.Callback):
+    def __init__(self, cvae, warmup_epochs, start_weight, peak_weight, decay_epochs, end_weight):
+        self.cvae = cvae
+        self.warmup_epochs = warmup_epochs
+        self.start_weight = start_weight
+        self.peak_weight = peak_weight
+        self.decay_epochs = decay_epochs
+        self.end_weight = end_weight
+
+    def on_epoch_begin(self, epoch, logs=None):
+        if epoch < self.warmup_epochs:
+            weight = self.start_weight + (self.peak_weight - self.start_weight) * (epoch / max(1, self.warmup_epochs - 1))
+        elif epoch < self.warmup_epochs + self.decay_epochs:
+            t = (epoch - self.warmup_epochs) / max(1, self.decay_epochs - 1)
+            weight = self.peak_weight + (self.end_weight - self.peak_weight) * t
+        else:
+            weight = self.end_weight
+        self.cvae.tv_weight = float(weight)
+
 # ─── Build & train ───────────────────────────────────────────────
 def main():
     x_train, y_train, x_test, y_test = load_dataset()
@@ -574,12 +599,13 @@ def main():
     kl_warmup = KLWarmup(cvae, warmup_epochs=KL_WARMUP_EPOCHS, start_weight=KL_START_WEIGHT, kl_weight_final=KL_WEIGHT, decay_epochs=KL_DECAY_EPOCHS, kl_weight_end=KL_WEIGHT_END)
     lr_warmup = LRWarmup(lr_start=LR_START, lr_peak=LEARNING_RATE, warmup_epochs=LR_WARMUP_EPOCHS, lr_end=LR_END, decay_epochs=LR_DECAY_EPOCHS)
     perceptual_warmup = PerceptualWarmup(cvae, warmup_epochs=PERCEPTUAL_WARMUP_EPOCHS, start_weight=PERCEPTUAL_START_WEIGHT, peak_weight=PERCEPTUAL_PEAK_WEIGHT, decay_epochs=PERCEPTUAL_DECAY_EPOCHS, end_weight=PERCEPTUAL_END_WEIGHT)
+    tv_warmup = TVWarmup(cvae, warmup_epochs=TV_WARMUP_EPOCHS, start_weight=TV_START_WEIGHT, peak_weight=TV_PEAK_WEIGHT, decay_epochs=TV_DECAY_EPOCHS, end_weight=TV_END_WEIGHT)
     cvae.fit(
         x_train, y_train,
         validation_data=(x_test, y_test),
         epochs=EPOCHS,
         batch_size=BATCH_SIZE,
-        callbacks=[early_stopping, tensorboard_callback, kl_warmup, lr_warmup, perceptual_warmup],
+        callbacks=[early_stopping, tensorboard_callback, kl_warmup, lr_warmup, perceptual_warmup, tv_warmup],
     )
 
     # ─── Save as ONNX ──────────────────────────────────────────────
