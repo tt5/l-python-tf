@@ -209,6 +209,15 @@ def build_encoder():
     # Cross-attention at 14x14
     x14 = label_cross_attention(x14, label_input, 32, L2_REG)
 
+    # 14x14 residual block
+    x14_res = x14
+    x14 = tf.keras.layers.Conv2D(32, 3, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x14)
+    x14 = tf.keras.layers.LayerNormalization()(x14)
+    x14 = tf.keras.layers.Conv2D(32, 3, padding="same", activation=None, kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x14)
+    x14 = tf.keras.layers.LayerNormalization()(x14)
+    x14 = tf.keras.layers.Add()([x14, x14_res])
+    x14 = tf.keras.layers.Activation("relu")(x14)
+
     x = tf.keras.layers.Conv2D(64, 3, strides=1, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x14)
     x = tf.keras.layers.LayerNormalization()(x)
     x = tf.keras.layers.SpatialDropout2D(DROPOUT)(x)
