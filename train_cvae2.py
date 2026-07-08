@@ -57,6 +57,7 @@ PERCEPTUAL_PEAK_WEIGHT = 64
 PERCEPTUAL_DECAY_EPOCHS = 40
 PERCEPTUAL_END_WEIGHT = 0
 PERCEPTUAL_EXTRACTOR_PATH = Path(__file__).parent / "mnist2_model"
+TV_WEIGHT = 0.01
 
 def load_pbm(path):
     """Load a P4 PBM file and return a 2D numpy array of 0/1 float32."""
@@ -367,6 +368,9 @@ class CVAE(tf.keras.Model):
                     axis=(1, 2)
                 )
             )
+            tv_loss = tf.reduce_mean(
+                tf.image.total_variation(reconstruction)
+            )
             kl_per_dim = -0.5 * (1 + z_log_var - tf.square(z_mean) - tf.exp(z_log_var))
             kl_per_dim = tf.maximum(kl_per_dim, KL_FREE_BITS)
             kl_loss = tf.reduce_mean(tf.reduce_sum(kl_per_dim, axis=1))
@@ -392,7 +396,7 @@ class CVAE(tf.keras.Model):
             else:
                 perceptual_loss = perceptual_loss_fine + perceptual_loss_coarse
 
-            total_loss = (RECON_LOSS_WEIGHT * recon_loss) + (float(self.perceptual_weight) * perceptual_loss) + (float(self.kl_weight) * kl_loss)
+            total_loss = (RECON_LOSS_WEIGHT * recon_loss) + (float(self.perceptual_weight) * perceptual_loss) + (float(self.kl_weight) * kl_loss) + float(TV_WEIGHT) * tv_loss
 
         grads = tape.gradient(total_loss, self.trainable_weights)
         self.optimizer.apply_gradients(zip(grads, self.trainable_weights))
