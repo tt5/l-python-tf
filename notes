@@ -188,3 +188,5 @@ Add SE at 14x14 in the encoder and SE at 28x28 in the generator
 Latent post-projection: after sampling z, pass through small Dense→LayerNorm→Act before decoder
 
 ---
+
+57.3%

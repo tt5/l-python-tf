@@ -47,15 +47,17 @@ IMG_SIZE = 22
 TARGET_SIZE = 28
 LOW_CONF_THRESHOLD = 0.6
 EPOCHS = 150
-DROPOUT = 0.3
+DROPOUT = 0.35 # unused
+SPATIAL_DROPOUT = 0.3
+DENSE_DROPOUT = 0.05
 L2_REG = 0.0002
 BATCH_SIZE = 256
-BASE_LR = 0.0002
+BASE_LR = 0.0003
 WARMUP_EPOCHS = 5
 DECAY_EPOCHS = EPOCHS - WARMUP_EPOCHS
 LR_START = 0.00001
-LR_END = 0.00005
-POLY_EPSILON = 3
+LR_END = 0.00006
+POLY_EPSILON = 2
 AUGMENT = True  # On-the-fly augmentation: random rotate/transpose
 
 
@@ -255,23 +257,27 @@ def main():
 
     # Conv block 0: 28x28 -> 28x28
     c0 = L.SeparableConv2D(64, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
-    c0 = L.SpatialDropout2D(DROPOUT)(c0)
+    c0 = L.SpatialDropout2D(SPATIAL_DROPOUT)(c0)
+    c0 = L.Dropout(DENSE_DROPOUT)(c0)
 
     # Conv block 1: 28x28 -> 14x14
     c1 = L.SeparableConv2D(64, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(c0)
     c1 = L.MaxPooling2D(2)(c1)
-    c1 = L.SpatialDropout2D(DROPOUT)(c1)
+    c1 = L.SpatialDropout2D(SPATIAL_DROPOUT)(c1)
+    c1 = L.Dropout(DENSE_DROPOUT)(c1)
     c1 = cbam_block(c1)
 
     # Conv block 2: 14x14 -> 7x7
     c2 = L.SeparableConv2D(128, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv14')(c1)
     c2 = L.MaxPooling2D(2)(c2)
-    c2 = L.SpatialDropout2D(DROPOUT)(c2)
+    c2 = L.SpatialDropout2D(SPATIAL_DROPOUT)(c2)
+    c2 = L.Dropout(DENSE_DROPOUT)(c2)
     c2 = cbam_block(c2)
 
     # Conv block 3: 7x7 → 7x7 (no pooling)
     c3 = L.SeparableConv2D(128, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv7_deep2')(c2)
-    c3 = L.SpatialDropout2D(DROPOUT)(c3)
+    c3 = L.SpatialDropout2D(SPATIAL_DROPOUT)(c3)
+    c3 = L.Dropout(DENSE_DROPOUT)(c3)
     c3 = cbam_block(c3)
 
     # Multi-scale kernel block at 7x7
@@ -281,25 +287,25 @@ def main():
     c3 = L.Concatenate()([b1, b3, b5])
     c3 = L.Conv2D(128, 1, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(c3)
     c3 = L.LayerNormalization()(c3)
-    c3 = L.Dropout(DROPOUT/2)(c3)
+    c3 = L.Dropout(DENSE_DROPOUT/2)(c3)
 
     # Flatten + Dense with 2 residual connections
     x = L.Flatten()(c3)
 
     d1 = L.Dense(512, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
-    d1 = L.Dropout(DROPOUT)(d1)
+    d1 = L.Dropout(DENSE_DROPOUT)(d1)
     p1 = L.Dense(512, kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = L.Add()([d1, p1])
     x = L.Activation('relu')(x)
     # 2nd residual connection
     d2 = L.Dense(512, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
-    d2 = L.Dropout(DROPOUT)(d2)
+    d2 = L.Dropout(DENSE_DROPOUT)(d2)
     p2 = L.Dense(512, kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = L.Add()([d2, p2])
     x = L.Activation('relu')(x)
     # 3rd residual connection
     d3 = L.Dense(512, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
-    d3 = L.Dropout(DROPOUT)(d3)
+    d3 = L.Dropout(DENSE_DROPOUT)(d3)
     p3 = L.Dense(512, kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = L.Add()([d3, p3])
     x = L.Activation('relu')(x)
