@@ -41,19 +41,19 @@ LEARNING_RATE = 0.003
 LR_WARMUP_EPOCHS = 5
 LR_START = 0.00001
 LR_DECAY_EPOCHS = EPOCHS - LR_WARMUP_EPOCHS
-LR_END = 0.00005
-L2_REG = 0.00002
+LR_END = 0.00001
+L2_REG = 0.00005
 KL_FREE_BITS = 0.0
-DROPOUT = 0.4
+DROPOUT = 0.35
 AUGMENT = True
 RECON_LOSS_WEIGHT = 0.35
 PERCEPTUAL_FINE_WEIGHT = 1.0
 PERCEPTUAL_COARSE_WEIGHT = 1.0
 PERCEPTUAL_MULTISCALE = True
 PERCEPTUAL_WEIGHTS = [PERCEPTUAL_FINE_WEIGHT, PERCEPTUAL_COARSE_WEIGHT]
-PERCEPTUAL_WARMUP_EPOCHS = 10
+PERCEPTUAL_WARMUP_EPOCHS = 9
 PERCEPTUAL_START_WEIGHT = 0.005
-PERCEPTUAL_PEAK_WEIGHT = 128
+PERCEPTUAL_PEAK_WEIGHT = 64
 PERCEPTUAL_DECAY_EPOCHS = 40
 PERCEPTUAL_END_WEIGHT = 0
 PERCEPTUAL_EXTRACTOR_PATH = Path(__file__).parent / "mnist2_model"
@@ -162,9 +162,10 @@ def build_encoder():
     image_input = tf.keras.layers.Input(shape=(28, 28, 1), name="image_input")
     label_input = tf.keras.layers.Input(shape=(NUM_CLASSES,), name="label_input")
 
-    x = tf.keras.layers.Conv2D(32, 3, strides=2, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(image_input)
+    x = tf.keras.layers.Conv2D(32, 3, strides=1, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(image_input)
     x = tf.keras.layers.LayerNormalization()(x)
     x = tf.keras.layers.SpatialDropout2D(DROPOUT)(x)
+    x = tf.keras.layers.MaxPooling2D(2)(x)
     x14 = x  # 14x14, 32 channels
 
     # Label pathway
@@ -182,9 +183,10 @@ def build_encoder():
     # FiLM at 14x14
     x14 = film_enc(x14, 32)
 
-    x = tf.keras.layers.Conv2D(64, 3, strides=2, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x14)
+    x = tf.keras.layers.Conv2D(64, 3, strides=1, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x14)
     x = tf.keras.layers.LayerNormalization()(x)
     x = tf.keras.layers.SpatialDropout2D(DROPOUT)(x)
+    x = tf.keras.layers.MaxPooling2D(2)(x)
     # Residual conv block
     x_res = x
     x = tf.keras.layers.Conv2D(64, 3, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
