@@ -197,6 +197,12 @@ def build_encoder():
     x = tf.keras.layers.MaxPooling2D(2)(x)
     x14 = x  # 14x14, 32 channels
 
+    # SE block at 14x14
+    se14_enc = tf.keras.layers.GlobalAveragePooling2D()(x14)
+    se14_enc = tf.keras.layers.Dense(32 // 4, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(se14_enc)
+    se14_enc = tf.keras.layers.Dense(32, activation='sigmoid', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(se14_enc)
+    x14 = tf.keras.layers.Multiply()([x14, se14_enc])
+
     # Label pathway
     label_emb = tf.keras.layers.Dense(16, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(label_input)
 
@@ -322,6 +328,13 @@ def build_generator():
 
     x = tf.keras.layers.SpatialDropout2D(DROPOUT/2)(x)
     x = tf.keras.layers.Conv2D(48, 3, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
+
+    # SE block at 28x28
+    se28 = tf.keras.layers.GlobalAveragePooling2D()(x)
+    se28 = tf.keras.layers.Dense(48 // 4, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(se28)
+    se28 = tf.keras.layers.Dense(48, activation='sigmoid', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(se28)
+    x = tf.keras.layers.Multiply()([x, se28])
+
     x = tf.keras.layers.Conv2D(1, 1, padding="same", activation="sigmoid")(x)
 
     return tf.keras.Model([latent_input, label_input], x, name="generator")
