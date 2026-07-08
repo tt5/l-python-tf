@@ -44,7 +44,7 @@ LR_DECAY_EPOCHS = EPOCHS - LR_WARMUP_EPOCHS
 LR_END = 0.00005
 L2_REG = 0.00002
 KL_FREE_BITS = 0.0
-DROPOUT = 0.48
+DROPOUT = 0.35
 AUGMENT = True
 RECON_LOSS_WEIGHT = 0.35
 PERCEPTUAL_FINE_WEIGHT = 1.0
@@ -570,7 +570,7 @@ def main():
         restore_best_weights=True
     )
     tensorboard_callback = tf.keras.callbacks.TensorBoard(
-        log_dir=str(Path(__file__).parent / "logs" / "train_cvae1b"),
+        log_dir=str(Path(__file__).parent / "logs" / "train_cvae1"),
         histogram_freq=1,
         write_graph=True,
         update_freq="epoch",
