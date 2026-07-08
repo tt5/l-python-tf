@@ -158,6 +158,30 @@ class Sampling(tf.keras.layers.Layer):
         return z_mean + tf.exp(0.5 * z_log_var) * epsilon
 
 # ─── Encoder ─────────────────────────────────────────────────────
+def label_cross_attention(spatial, label_input, channels, l2_reg):
+    B = tf.shape(spatial)[0]
+    H = int(spatial.shape[1])
+    W = int(spatial.shape[2])
+    flat = H * W
+
+    le = tf.keras.layers.Dense(16, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(l2_reg))(label_input)
+    le = tf.keras.layers.Dense(64, activation=None, kernel_regularizer=tf.keras.regularizers.l2(l2_reg))(le)
+
+    q = tf.keras.layers.Dense(channels)(spatial)
+    q = tf.reshape(q, [B, flat, channels])
+
+    k = tf.keras.layers.Dense(channels)(le)
+    v = tf.keras.layers.Dense(channels)(le)
+
+    scores = tf.matmul(q, tf.expand_dims(k, -1)) / tf.sqrt(tf.cast(channels, tf.float32))
+    attn = tf.nn.softmax(scores, axis=1)
+
+    ctx = attn * tf.expand_dims(v, 1)
+    ctx = tf.reshape(ctx, [B, H, W, channels])
+    ctx = tf.keras.layers.LayerNormalization(center=False, scale=False)(ctx)
+
+    return tf.keras.layers.Add()([spatial, ctx])
+
 def build_encoder():
     image_input = tf.keras.layers.Input(shape=(28, 28, 1), name="image_input")
     label_input = tf.keras.layers.Input(shape=(NUM_CLASSES,), name="label_input")
@@ -170,18 +194,9 @@ def build_encoder():
 
     # Label pathway
     label_emb = tf.keras.layers.Dense(16, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(label_input)
-    lbl_e = tf.keras.layers.Dense(64, activation=None, kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(label_emb)
 
-    def film_enc(features, channels):
-        g = tf.keras.layers.Dense(channels, activation="sigmoid", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(lbl_e)
-        b = tf.keras.layers.Dense(channels, activation=None, kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(lbl_e)
-        g = tf.keras.layers.Reshape((1, 1, channels))(g)
-        b = tf.keras.layers.Reshape((1, 1, channels))(b)
-        x = tf.keras.layers.Multiply()([features, g])
-        return tf.keras.layers.Add()([x, b])
-
-    # FiLM at 14x14
-    x14 = film_enc(x14, 32)
+    # Cross-attention at 14x14
+    x14 = label_cross_attention(x14, label_input, 32, L2_REG)
 
     x = tf.keras.layers.Conv2D(64, 3, strides=1, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x14)
     x = tf.keras.layers.LayerNormalization()(x)
@@ -212,9 +227,8 @@ def build_encoder():
     x = tf.keras.layers.SpatialDropout2D(DROPOUT/2)(x)
     # Label pathway
     label_emb = tf.keras.layers.Dense(16, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(label_input)
-    lbl_e = tf.keras.layers.Dense(64, activation=None, kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(label_emb)
 
-    x = film_enc(x, 64)
+    x = label_cross_attention(x, label_input, 64, L2_REG)
     x = tf.keras.layers.Flatten()(x)
     x = tf.keras.layers.Concatenate()([x, label_emb])
     x = tf.keras.layers.Dense(128, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
@@ -239,12 +253,7 @@ def build_generator():
     label_emb = tf.keras.layers.Dense(96, activation=None, kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(label_emb)
 
     def film(features, channels):
-        g = tf.keras.layers.Dense(channels, activation="sigmoid", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(label_emb)
-        b = tf.keras.layers.Dense(channels, activation=None, kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(label_emb)
-        g = tf.keras.layers.Reshape((1, 1, channels))(g)
-        b = tf.keras.layers.Reshape((1, 1, channels))(b)
-        x = tf.keras.layers.Multiply()([features, g])
-        return tf.keras.layers.Add()([x, b])
+        return label_cross_attention(features, label_input, channels, L2_REG)
 
     # Concatenate latent and label for initial expansion
     z = tf.keras.layers.Dense(64, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(latent_input)
@@ -252,7 +261,7 @@ def build_generator():
     x = tf.keras.layers.Concatenate()([z, label_emb])
     x = tf.keras.layers.Dense(7 * 7 * 96, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = tf.keras.layers.Reshape((7, 7, 96))(x)
-    x = film(x, 96)
+    x = label_cross_attention(x, label_input, 96, L2_REG)
     x = tf.keras.layers.SpatialDropout2D(DROPOUT/2)(x)
 
     # Per-scale label projections
@@ -276,7 +285,7 @@ def build_generator():
     x = tf.keras.layers.Conv2D(48, 3, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = tf.keras.layers.LayerNormalization(center=False, scale=False)(x)
     x = tf.keras.layers.Activation("relu")(x)
-    x = film(x, 48)
+    x = label_cross_attention(x, label_input, 48, L2_REG)
     x = tf.keras.layers.Add()([
         x,
         tf.keras.layers.Conv2DTranspose(48, 2, strides=2, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(
@@ -289,6 +298,7 @@ def build_generator():
     x = tf.keras.layers.Concatenate(axis=-1)([x, label_broadcast_48_14])
     x = tf.keras.layers.Conv2D(48, 1, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = tf.keras.layers.SpatialDropout2D(DROPOUT/2)(x)
+    x = label_cross_attention(x, label_input, 48, L2_REG)
 
     # Multi-scale kernel block at 14x14
     b1 = tf.keras.layers.Conv2D(16, 1, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
@@ -310,7 +320,7 @@ def build_generator():
     x = tf.keras.layers.Conv2D(48, 3, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = tf.keras.layers.LayerNormalization(center=False, scale=False)(x)
     x = tf.keras.layers.Activation("relu")(x)
-    x = film(x, 48)
+    x = label_cross_attention(x, label_input, 48, L2_REG)
     x = tf.keras.layers.Add()([
         x,
         tf.keras.layers.Conv2DTranspose(48, 2, strides=2, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(
@@ -324,7 +334,7 @@ def build_generator():
     x = tf.keras.layers.Concatenate(axis=-1)([x, label_broadcast_48])
     x = tf.keras.layers.Conv2D(48, 1, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = tf.keras.layers.LayerNormalization(center=False, scale=False)(x)
-    x = film(x, 48)
+    x = label_cross_attention(x, label_input, 48, L2_REG)
 
     x = tf.keras.layers.SpatialDropout2D(DROPOUT/2)(x)
     x = tf.keras.layers.Conv2D(48, 3, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
