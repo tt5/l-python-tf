@@ -55,14 +55,15 @@ BATCH_SIZE = 256
 BASE_LR = 0.0009
 WARMUP_EPOCHS = 3
 DECAY_EPOCHS = EPOCHS - WARMUP_EPOCHS
-LR_START = 0.000021
+LR_START = 0.00003
 LR_END = 0.00002
 POLY_EPSILON = 2
 GRAD_NORM_EMA_DECAY = 0.95
 GRAD_NORM_TARGET = 1.0
 GRAD_ADAPTIVE_FACTOR = 0.01
-GRAD_ADAPTIVE_MIN_LR = 3e-6
-GRAD_ADAPTIVE_MAX_LR = 2e-3
+GRAD_ADAPTIVE_BATCH_INTERVAL = 1
+GRAD_ADAPTIVE_MIN_LR = 3e-5
+GRAD_ADAPTIVE_MAX_LR = 0.01
 REDUCE_LR_FACTOR = 0.5
 REDUCE_LR_PATIENCE = 8
 REDUCE_LR_COOLDOWN = 3
@@ -155,7 +156,7 @@ class _GradNormObserver:
 
 
 class GradNormEMACallback(tf.keras.callbacks.Callback):
-    def __init__(self, decay=0.95, target=1.0, factor=0.01, min_lr=3e-6, max_lr=2e-3, start_epoch=0):
+    def __init__(self, decay=0.95, target=1.0, factor=0.01, min_lr=3e-6, max_lr=2e-3, start_epoch=0, batch_interval=1):
         super().__init__()
         self.decay = decay
         self.target = target
@@ -163,11 +164,13 @@ class GradNormEMACallback(tf.keras.callbacks.Callback):
         self.min_lr = min_lr
         self.max_lr = max_lr
         self.start_epoch = start_epoch
+        self.batch_interval = batch_interval
         self.ema_norm = 0.0
         self._observer = None
         self._epoch = None
         self._norm_var = None
         self._optimizer = None
+        self._batch = 0
 
     def set_model(self, model):
         super().set_model(model)
@@ -177,6 +180,7 @@ class GradNormEMACallback(tf.keras.callbacks.Callback):
 
     def on_epoch_begin(self, epoch, logs=None):
         self._epoch = epoch
+        self._batch = 0
 
     def on_train_batch_end(self, batch, logs=None):
         if self._epoch is None or self._epoch < self.start_epoch:
@@ -185,17 +189,19 @@ class GradNormEMACallback(tf.keras.callbacks.Callback):
             return
         norm = float(self._norm_var.numpy())
         self.ema_norm = self.decay * self.ema_norm + (1.0 - self.decay) * norm
+        self._batch += 1
+        if self.batch_interval <= 0 or (self._batch % self.batch_interval) == 0:
+            current_lr = float(tf.keras.backend.get_value(self._optimizer.learning_rate))
+            ema = float(self.ema_norm)
+            delta = (self.target - ema) / (ema + 1e-8)
+            new_lr = current_lr * (1.0 + self.factor * delta)
+            new_lr = max(self.min_lr, min(self.max_lr, new_lr))
+            self._optimizer.learning_rate.assign(new_lr)
+            print(f"  GradNormEMA batch: ema_norm={ema:.4f}, lr={new_lr:.6f}")
 
     def on_epoch_end(self, epoch, logs=None):
-        if self._epoch is None or self._epoch < self.start_epoch:
-            return
-        current_lr = float(tf.keras.backend.get_value(self._optimizer.learning_rate))
-        ema = float(self.ema_norm)
-        delta = (self.target - ema) / (ema + 1e-8)
-        new_lr = current_lr * (1.0 + self.factor * delta)
-        new_lr = max(self.min_lr, min(self.max_lr, new_lr))
-        self._optimizer.learning_rate.assign(new_lr)
-        print(f"  GradNormEMA: ema_norm={ema:.4f}, lr={new_lr:.6f}")
+        # no-op: LR is adjusted per batch in on_train_batch_end
+        return
 
 
 def load_pbm(path):
@@ -395,13 +401,6 @@ def main():
         patience=150,
         restore_best_weights=True
     )
-    lr_schedule = LinearLRSchedule(
-        lr_start=LR_START,
-        lr_peak=BASE_LR,
-        lr_end=LR_END,
-        warmup_epochs=WARMUP_EPOCHS,
-        decay_epochs=DECAY_EPOCHS
-    )
     tb_callback = tf.keras.callbacks.TensorBoard(log_dir=str(TB_LOG_DIR), update_freq='epoch')
     reduce_lr = tf.keras.callbacks.ReduceLROnPlateau(
         monitor='val_loss',
@@ -417,17 +416,18 @@ def main():
         factor=GRAD_ADAPTIVE_FACTOR,
         min_lr=GRAD_ADAPTIVE_MIN_LR,
         max_lr=GRAD_ADAPTIVE_MAX_LR,
-        start_epoch=max(WARMUP_EPOCHS, 1),
+        start_epoch=0,
+        batch_interval=GRAD_ADAPTIVE_BATCH_INTERVAL,
     )
 
     if AUGMENT:
         train_gen = AugmentGenerator(x_train, y_train, batch_size=BATCH_SIZE, augment=True)
         history = model.fit(train_gen, epochs=EPOCHS, validation_data=(x_test, y_test),
-                  callbacks=[early_stopping, lr_schedule, reduce_lr, grad_norm_cb, tb_callback])
+                  callbacks=[early_stopping, reduce_lr, grad_norm_cb, tb_callback])
     else:
         history = model.fit(x_train, y_train, epochs=EPOCHS, batch_size=BATCH_SIZE,
                   validation_data=(x_test, y_test),
-                  callbacks=[early_stopping, lr_schedule, reduce_lr, grad_norm_cb, tb_callback])
+                  callbacks=[early_stopping, reduce_lr, grad_norm_cb, tb_callback])
 
     stopped_epoch = getattr(early_stopping, 'stopped_epoch', None)
     best_epoch = getattr(early_stopping, 'best_epoch', None)
