@@ -27,24 +27,24 @@ PBM_DIR = args.data_dir
 
 # ─── Hyperparameters ──────────────────────────────────────────────
 LATENT_DIM = 256
-EPOCHS = 170
+EPOCHS = 180
 BATCH_SIZE = 64
 NUM_CLASSES = None  # derived from data + low_conf
 TARGET_SIZE = 28
 LOW_CONF_THRESHOLD = 0.6
 KL_WARMUP_EPOCHS = 2
-KL_START_WEIGHT = 0.1
+KL_START_WEIGHT = 0.09
 KL_WEIGHT = 0.45
 KL_DECAY_EPOCHS = EPOCHS // 2
 KL_WEIGHT_END = 0.04
 LEARNING_RATE = 0.0021
 LR_WARMUP_EPOCHS = 8
-LR_START = 0.000085
+LR_START = 0.000087
 LR_DECAY_EPOCHS = EPOCHS - LR_WARMUP_EPOCHS
-LR_END = 0.00001
+LR_END = 0.000015
 L2_REG = 0.00001
 KL_FREE_BITS = 0.0
-DROPOUT = 0.38
+DROPOUT = 0.37
 AUGMENT = True
 RECON_LOSS_WEIGHT = 0.35
 PERCEPTUAL_FINE_WEIGHT = 1.0
@@ -54,13 +54,13 @@ PERCEPTUAL_WEIGHTS = [PERCEPTUAL_FINE_WEIGHT, PERCEPTUAL_COARSE_WEIGHT]
 PERCEPTUAL_WARMUP_EPOCHS = 9
 PERCEPTUAL_START_WEIGHT = 0.006
 PERCEPTUAL_PEAK_WEIGHT = 65
-PERCEPTUAL_DECAY_EPOCHS = 50
+PERCEPTUAL_DECAY_EPOCHS = 60
 PERCEPTUAL_END_WEIGHT = 0
 PERCEPTUAL_EXTRACTOR_PATH = Path(__file__).parent / "mnist2_model"
 TV_WARMUP_EPOCHS = 2
-TV_START_WEIGHT = 0.04
-TV_PEAK_WEIGHT = 0.16
-TV_DECAY_EPOCHS = 40
+TV_START_WEIGHT = 0.07
+TV_PEAK_WEIGHT = 0.17
+TV_DECAY_EPOCHS = 50
 TV_END_WEIGHT = 0.0
 
 def load_pbm(path):
@@ -611,7 +611,7 @@ def main():
         restore_best_weights=True
     )
     tensorboard_callback = tf.keras.callbacks.TensorBoard(
-        log_dir=str(Path(__file__).parent / "logs" / "train_cvae1b"),
+        log_dir=str(Path(__file__).parent / "logs" / "train_cvae1"),
         histogram_freq=1,
         write_graph=True,
         update_freq="epoch",
