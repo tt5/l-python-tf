@@ -35,13 +35,13 @@ LOW_CONF_THRESHOLD = 0.6
 KL_WARMUP_EPOCHS = 2
 KL_START_WEIGHT = 0.09
 KL_WEIGHT = 0.45
-KL_DECAY_EPOCHS = EPOCHS // 2
+KL_DECAY_EPOCHS = EPOCHS
 KL_WEIGHT_END = 0.04
 LEARNING_RATE = 0.0021
 LR_WARMUP_EPOCHS = 8
 LR_START = 0.000087
 LR_DECAY_EPOCHS = EPOCHS - LR_WARMUP_EPOCHS
-LR_END = 0.000015
+LR_END = 0.000005
 L2_REG = 0.00001
 KL_FREE_BITS = 0.0
 DROPOUT = 0.37
@@ -285,6 +285,15 @@ def build_generator():
     se7 = tf.keras.layers.Dense(96 // 4, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(se7)
     se7 = tf.keras.layers.Dense(96, activation='sigmoid', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(se7)
     skip7 = tf.keras.layers.Multiply()([skip7, se7])
+    # small 3x3 residual conv at 7x7
+    x7_res = x
+    x = tf.keras.layers.Conv2D(96, 3, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
+    x = tf.keras.layers.LayerNormalization()(x)
+    x = tf.keras.layers.Activation("relu")(x)
+    x = tf.keras.layers.Conv2D(96, 3, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
+    x = tf.keras.layers.LayerNormalization()(x)
+    x = tf.keras.layers.Add()([x, x7_res])
+    x = tf.keras.layers.Activation("relu")(x)
     x = tf.keras.layers.Conv2DTranspose(48, 2, strides=2, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = tf.keras.layers.Conv2D(48, 3, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = tf.keras.layers.LayerNormalization(center=False, scale=False)(x)
@@ -614,7 +623,7 @@ def main():
     print(f"\nTraining CVAE for {EPOCHS} epochs...")
     early_stopping = tf.keras.callbacks.EarlyStopping(
         monitor='val_total_loss',
-        patience=15,
+        patience=150,
         restore_best_weights=True
     )
     tensorboard_callback = tf.keras.callbacks.TensorBoard(
