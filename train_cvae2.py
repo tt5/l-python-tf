@@ -285,19 +285,17 @@ def build_generator():
     se7 = tf.keras.layers.Dense(96 // 4, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(se7)
     se7 = tf.keras.layers.Dense(96, activation='sigmoid', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(se7)
     skip7 = tf.keras.layers.Multiply()([skip7, se7])
-    x = tf.keras.layers.SpatialDropout2D(DROPOUT)(x)
     x = tf.keras.layers.Conv2DTranspose(48, 2, strides=2, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = tf.keras.layers.Conv2D(48, 3, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = tf.keras.layers.LayerNormalization(center=False, scale=False)(x)
     x = tf.keras.layers.Activation("relu")(x)
-    x = label_cross_attention(x, label_input, 48, L2_REG)
+    x = tf.keras.layers.SpatialDropout2D(DROPOUT)(x)
     x = tf.keras.layers.Add()([
         x,
         tf.keras.layers.Conv2DTranspose(48, 2, strides=2, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(
             skip7
         )
     ])
-    x = tf.keras.layers.LayerNormalization()(x)
 
     # 14x14 block
     label_emb_block = tf.keras.layers.Dense(16, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(label_input)
@@ -327,6 +325,7 @@ def build_generator():
     x = tf.keras.layers.Conv2D(48, 3, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = tf.keras.layers.LayerNormalization(center=False, scale=False)(x)
     x = tf.keras.layers.Activation("relu")(x)
+    x = tf.keras.layers.SpatialDropout2D(DROPOUT/2)(x)
     x = label_cross_attention(x, label_input, 48, L2_REG)
     x = tf.keras.layers.Add()([
         x,
@@ -335,7 +334,6 @@ def build_generator():
         )
     ])
     x = tf.keras.layers.LayerNormalization()(x)
-    x = tf.keras.layers.SpatialDropout2D(DROPOUT/2)(x)
 
     # 28x28 block
     x = label_cross_attention(x, label_input, 48, L2_REG)
