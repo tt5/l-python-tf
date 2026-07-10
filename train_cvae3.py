@@ -40,7 +40,7 @@ KL_PEAK = 0.45
 KL_END = 0.38
 KL_WARMUP_EPOCHS = 5
 KL_DECAY_EPOCHS = 120 - KL_WARMUP_EPOCHS
-DROPOUT = 0.45
+DROPOUT = 0.5
 L2_REG = 0.00005
 CONTRASTIVE_TEMPERATURE = 0.07
 CONTRASTIVE_START = 0.00005
@@ -702,6 +702,7 @@ def main():
         validation_data=val_ds,
         epochs=EPOCHS,
         callbacks=[early_stopping, checkpoint, tensorboard_callback, lr_schedule, kl_schedule, contrastive_schedule, perceptual_schedule, LogLRCallback(TB_LOG_DIR)],
+        verbose=2
     )
 
     # ─── Save as ONNX from best restored weights ───────────────────
