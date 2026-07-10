@@ -19,10 +19,10 @@ from tensorflow.keras import layers
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "synthetic" / "data"
 LATENT_DIM = 512
 PHA1_LATENT_DIM = 128
-EPOCHS = 60
+EPOCHS = 80
 BATCH_SIZE = 128
 NUM_CLASSES = 3
-PROGRESSIVE_EPOCHS = 7  # Phase 1: 14x14
+PROGRESSIVE_EPOCHS = 11  # Phase 1: 14x14
 LR = 0.001
 LR_WARMUP_START = 0
 LR_WARMUP_EPOCHS = 1
@@ -39,9 +39,10 @@ GRAD_NOISE_SCALE = 0.005
 GRAD_NOISE_DECAY_EPOCHS = EPOCHS
 INFO_NCE_WEIGHT = 0.0
 TEMPERATURE = 1.0
-DROPOUT = 0.35
+DROPOUT = 0.5
+SPATIAL_DROPOUT = 0.5
 # Phase 2 KL schedule (configurable start)
-PHA2_KL_WARMUP_START = 0
+PHA2_KL_WARMUP_START = 0.00001
 PHA2_KL_WEIGHT_START = 0.5
 PHA2_KL_WEIGHT_TARGET = 0.4
 PHA2_KL_WARMUP_EPOCHS = 1
@@ -110,6 +111,7 @@ def build_encoder():
     se1 = layers.Dense(64, activation="sigmoid")(se1)
     se1 = layers.Reshape((1, 1, 64))(se1)
     c1 = layers.Multiply()([c1, se1])
+    c1 = layers.SpatialDropout2D(SPATIAL_DROPOUT)(c1)
 
     # Conv block 2: 14x14 → 7x7
     c2 = layers.Conv2D(128, 3, strides=2, padding="same")(c1)
@@ -124,6 +126,7 @@ def build_encoder():
     se2 = layers.Dense(128, activation="sigmoid")(se2)
     se2 = layers.Reshape((1, 1, 128))(se2)
     c2 = layers.Multiply()([c2, se2])
+    c2 = layers.SpatialDropout2D(SPATIAL_DROPOUT)(c2)
 
     # Conv block 3: 7x7 → 7x7 (stride 1)
     c3 = layers.Conv2D(256, 3, strides=1, padding="same")(c2)
@@ -138,6 +141,7 @@ def build_encoder():
     se3 = layers.Dense(256, activation="sigmoid")(se3)
     se3 = layers.Reshape((1, 1, 256))(se3)
     c3 = layers.Multiply()([c3, se3])
+    c3 = layers.SpatialDropout2D(SPATIAL_DROPOUT)(c3)
 
     # Bottleneck
     x = layers.Flatten()(c3)
@@ -163,6 +167,7 @@ def build_encoder_14():
     se1 = layers.Dense(64, activation="sigmoid")(se1)
     se1 = layers.Reshape((1, 1, 64))(se1)
     c1 = layers.Multiply()([c1, se1])
+    c1 = layers.SpatialDropout2D(SPATIAL_DROPOUT)(c1)
 
     # Conv block 2: 7x7 → 7x7 (stride 1)
     c2 = layers.Conv2D(128, 3, strides=1, padding="same")(c1)
@@ -175,6 +180,7 @@ def build_encoder_14():
     se2 = layers.Dense(128, activation="sigmoid")(se2)
     se2 = layers.Reshape((1, 1, 128))(se2)
     c2 = layers.Multiply()([c2, se2])
+    c2 = layers.SpatialDropout2D(SPATIAL_DROPOUT)(c2)
 
     # Bottleneck
     x = layers.Flatten()(c2)
@@ -209,6 +215,7 @@ def build_generator_14():
 
     # Initial projection to 7x7
     x = layers.Dense(7 * 7 * 128, activation="relu")(z)
+    x = layers.Dropout(DROPOUT)(x)
     x = layers.Reshape((7, 7, 128))(x)
     gamma7, beta7 = make_film(128)(lbl)
     gamma7 = layers.Reshape((1, 1, 128))(gamma7)
@@ -227,6 +234,8 @@ def build_generator_14():
     c1 = layers.Multiply()([c1, se1])
     sa1 = layers.Conv2D(1, 1, activation='sigmoid')(c1)
     c1 = layers.Multiply()([c1, sa1])
+    c1 = layers.SpatialDropout2D(SPATIAL_DROPOUT)(c1)
+    c1 = layers.Dropout(DROPOUT)(c1)
 
     # 7x7 → 14x14
     x = upsample(c1, [14, 14])
@@ -249,6 +258,7 @@ def build_generator_14():
     skip = layers.Conv2D(64, 1, padding="same")(c1)
     skip_up = upsample(skip, [14, 14])
     x = layers.Add()([x, skip_up])
+    x = layers.SpatialDropout2D(SPATIAL_DROPOUT)(x)
 
     x = layers.Conv2D(1, 3, padding="same", activation="sigmoid", dtype="float32")(x)
     return keras.Model([z, lbl], x, name="generator_14")
@@ -269,6 +279,7 @@ def build_generator():
 
     # Initial projection
     x = layers.Dense(7 * 7 * 256, activation="relu")(z)
+    x = layers.Dropout(DROPOUT)(x)
     x = layers.Reshape((7, 7, 256))(x)
     # FiLM at 7x7
     gamma7, beta7 = make_film(256)(lbl)
@@ -285,6 +296,7 @@ def build_generator():
     # Spatial attention before conv
     sa_init = layers.Conv2D(1, 1, activation='sigmoid')(x)
     x = layers.Multiply()([x, sa_init])
+    x = layers.SpatialDropout2D(SPATIAL_DROPOUT)(x)
 
     # 7x7 → 14x14
     x = layers.Conv2D(128, 3, padding="same", activation="relu")(x)
@@ -303,6 +315,7 @@ def build_generator():
     # Spatial attention 7x7
     sa7 = layers.Conv2D(1, 1, activation='sigmoid')(x)
     x = layers.Multiply()([x, sa7])
+    x = layers.SpatialDropout2D(SPATIAL_DROPOUT)(x)
     skip_7 = layers.Conv2D(128, 1, padding="same")(x)
     x = upsample(x, [14, 14])
     x = layers.Conv2D(128, 3, padding="same", activation="relu")(x)
@@ -319,6 +332,7 @@ def build_generator():
     skip_7_up = upsample(skip_7, [14, 14])
     x = layers.Add()([x, skip_7_up])
     x = layers.Activation("relu")(x)
+    x = layers.SpatialDropout2D(SPATIAL_DROPOUT)(x)
 
     # 14x14 → 28x28
     x = layers.Conv2D(64, 3, padding="same", activation="relu")(x)
@@ -337,6 +351,7 @@ def build_generator():
     # Spatial attention 14x14
     sa14 = layers.Conv2D(1, 1, activation='sigmoid')(x)
     x = layers.Multiply()([x, sa14])
+    x = layers.SpatialDropout2D(SPATIAL_DROPOUT)(x)
     skip_14 = layers.Conv2D(64, 1, padding="same")(x)
     x = upsample(x, [28, 28])
     x = layers.Conv2D(64, 3, padding="same", activation="relu")(x)
@@ -349,6 +364,8 @@ def build_generator():
     # Spatial attention
     sa28_pre = layers.Conv2D(1, 1, activation='sigmoid')(x)
     x = layers.Multiply()([x, sa28_pre])
+    x = layers.SpatialDropout2D(SPATIAL_DROPOUT)(x)
+    x = layers.Dropout(DROPOUT)(x)
 
     x = layers.Conv2D(1, 3, padding="same", activation="sigmoid", dtype="float32")(x)
     return keras.Model([z, lbl], x, name="generator")

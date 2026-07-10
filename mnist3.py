@@ -46,7 +46,7 @@ PBM_DIR = args.data_dir
 IMG_SIZE = 22
 TARGET_SIZE = 28
 LOW_CONF_THRESHOLD = 0.6
-EPOCHS = 20
+EPOCHS = 30
 DROPOUT = 0.3
 BASE_LR = 1e-3
 WARMUP_EPOCHS = 2
@@ -258,7 +258,7 @@ def main():
     print(f"\nTraining for {EPOCHS} epochs...")
     early_stopping = tf.keras.callbacks.EarlyStopping(
         monitor='val_loss',
-        patience=6,
+        patience=10,
         restore_best_weights=True
     )
     lr_schedule = LinearLRSchedule(

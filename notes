@@ -202,3 +202,12 @@ Latent post-projection: after sampling z, pass through small Denseâ†’LayerNormâ†
   Class 1: 69.0% correctly classified (3450/5000), avg confidence: 79.3%
   Class 2: 92.7% correctly classified (4635/5000), avg confidence: 98.7%
   Class 3: 38.7% correctly classified (1937/5000), avg confidence: 64.5%
+
+  Class 0: 99.9% correctly classified (4995/5000), avg confidence: 100.0%
+  Class 1: 49.4% correctly classified (2469/5000), avg confidence: 79.9%
+  Class 2: 88.4% correctly classified (4420/5000), avg confidence: 97.6%
+  Class 3: 55.0% correctly classified (2751/5000), avg confidence: 74.9%
+  Class 0: 251/251 = 100.0%
+  Class 1: 193/251 = 76.9%
+  Class 2: 236/248 = 95.2%
+  Class low_conf: 175/250 = 70.0%

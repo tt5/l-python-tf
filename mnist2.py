@@ -48,16 +48,20 @@ TARGET_SIZE = 28
 LOW_CONF_THRESHOLD = 0.6
 EPOCHS = 170
 DROPOUT = 0.35 # unused
-SPATIAL_DROPOUT = 0.39
-DENSE_DROPOUT = 0.09
-L2_REG = 0.0001
+SPATIAL_DROPOUT = 0.4
+DENSE_DROPOUT = 0.2
+L2_REG = 0.00005
 BATCH_SIZE = 256
-BASE_LR = 0.0007
-WARMUP_EPOCHS = 4
+BASE_LR = 0.0009
+WARMUP_EPOCHS = 3
 DECAY_EPOCHS = EPOCHS - WARMUP_EPOCHS
 LR_START = 0.000021
-LR_END = 0.00001
+LR_END = 0.00002
 POLY_EPSILON = 2
+REDUCE_LR_FACTOR = 0.5
+REDUCE_LR_PATIENCE = 8
+REDUCE_LR_COOLDOWN = 3
+REDUCE_LR_MIN_LR = LR_END
 AUGMENT = True  # On-the-fly augmentation: random rotate/transpose
 
 
@@ -332,15 +336,23 @@ def main():
         decay_epochs=DECAY_EPOCHS
     )
     tb_callback = tf.keras.callbacks.TensorBoard(log_dir=str(TB_LOG_DIR), update_freq='epoch')
+    reduce_lr = tf.keras.callbacks.ReduceLROnPlateau(
+        monitor='val_loss',
+        factor=REDUCE_LR_FACTOR,
+        patience=REDUCE_LR_PATIENCE,
+        min_lr=REDUCE_LR_MIN_LR,
+        cooldown=REDUCE_LR_COOLDOWN,
+        verbose=1
+    )
 
     if AUGMENT:
         train_gen = AugmentGenerator(x_train, y_train, batch_size=BATCH_SIZE, augment=True)
         history = model.fit(train_gen, epochs=EPOCHS, validation_data=(x_test, y_test),
-                  callbacks=[early_stopping, lr_schedule, tb_callback])
+                  callbacks=[early_stopping, lr_schedule, reduce_lr, tb_callback])
     else:
         history = model.fit(x_train, y_train, epochs=EPOCHS, batch_size=BATCH_SIZE,
                   validation_data=(x_test, y_test),
-                  callbacks=[early_stopping, lr_schedule, tb_callback])
+                  callbacks=[early_stopping, lr_schedule, reduce_lr, tb_callback])
 
     stopped_epoch = getattr(early_stopping, 'stopped_epoch', None)
     best_epoch = getattr(early_stopping, 'best_epoch', None)
