@@ -342,6 +342,8 @@ def build_generator():
     se28 = tf.keras.layers.Dense(48, activation='sigmoid', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(se28)
     x = tf.keras.layers.Multiply()([x, se28])
 
+    x = label_cross_attention(x, label_input, 48, L2_REG)
+
     x = tf.keras.layers.Conv2D(1, 1, padding="same", activation="sigmoid")(x)
 
     return tf.keras.Model([latent_input, label_input], x, name="generator")
