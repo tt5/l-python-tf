@@ -58,6 +58,11 @@ DECAY_EPOCHS = EPOCHS - WARMUP_EPOCHS
 LR_START = 0.000021
 LR_END = 0.00002
 POLY_EPSILON = 2
+GRAD_NORM_EMA_DECAY = 0.95
+GRAD_NORM_TARGET = 1.0
+GRAD_ADAPTIVE_FACTOR = 0.01
+GRAD_ADAPTIVE_MIN_LR = 3e-6
+GRAD_ADAPTIVE_MAX_LR = 2e-3
 REDUCE_LR_FACTOR = 0.5
 REDUCE_LR_PATIENCE = 8
 REDUCE_LR_COOLDOWN = 3
@@ -129,6 +134,68 @@ class LinearLRSchedule(tf.keras.callbacks.Callback):
         else:
             lr = self.lr_end
         tf.keras.backend.set_value(self.model.optimizer.lr, float(lr))
+
+
+class _GradNormObserver:
+    def __init__(self, optimizer, output_var):
+        self.optimizer = optimizer
+        self._output_var = output_var
+        self._original_apply = optimizer.apply_gradients
+
+        def _wrapped_apply(grads_and_vars, **kwargs):
+            grads = [g for g, _ in grads_and_vars if g is not None]
+            if grads:
+                gn = tf.linalg.global_norm(grads)
+            else:
+                gn = tf.constant(0.0, dtype=tf.float32)
+            self._output_var.assign(gn)
+            return self._original_apply(grads_and_vars, **kwargs)
+
+        optimizer.apply_gradients = _wrapped_apply
+
+
+class GradNormEMACallback(tf.keras.callbacks.Callback):
+    def __init__(self, decay=0.95, target=1.0, factor=0.01, min_lr=3e-6, max_lr=2e-3, start_epoch=0):
+        super().__init__()
+        self.decay = decay
+        self.target = target
+        self.factor = factor
+        self.min_lr = min_lr
+        self.max_lr = max_lr
+        self.start_epoch = start_epoch
+        self.ema_norm = 0.0
+        self._observer = None
+        self._epoch = None
+        self._norm_var = None
+        self._optimizer = None
+
+    def set_model(self, model):
+        super().set_model(model)
+        self._norm_var = tf.Variable(0.0, trainable=False)
+        self._observer = _GradNormObserver(model.optimizer, self._norm_var)
+        self._optimizer = model.optimizer
+
+    def on_epoch_begin(self, epoch, logs=None):
+        self._epoch = epoch
+
+    def on_train_batch_end(self, batch, logs=None):
+        if self._epoch is None or self._epoch < self.start_epoch:
+            return
+        if self._norm_var is None:
+            return
+        norm = float(self._norm_var.numpy())
+        self.ema_norm = self.decay * self.ema_norm + (1.0 - self.decay) * norm
+
+    def on_epoch_end(self, epoch, logs=None):
+        if self._epoch is None or self._epoch < self.start_epoch:
+            return
+        current_lr = float(tf.keras.backend.get_value(self._optimizer.learning_rate))
+        ema = float(self.ema_norm)
+        delta = (self.target - ema) / (ema + 1e-8)
+        new_lr = current_lr * (1.0 + self.factor * delta)
+        new_lr = max(self.min_lr, min(self.max_lr, new_lr))
+        self._optimizer.learning_rate.assign(new_lr)
+        print(f"  GradNormEMA: ema_norm={ema:.4f}, lr={new_lr:.6f}")
 
 
 def load_pbm(path):
@@ -344,15 +411,23 @@ def main():
         cooldown=REDUCE_LR_COOLDOWN,
         verbose=1
     )
+    grad_norm_cb = GradNormEMACallback(
+        decay=GRAD_NORM_EMA_DECAY,
+        target=GRAD_NORM_TARGET,
+        factor=GRAD_ADAPTIVE_FACTOR,
+        min_lr=GRAD_ADAPTIVE_MIN_LR,
+        max_lr=GRAD_ADAPTIVE_MAX_LR,
+        start_epoch=max(WARMUP_EPOCHS, 1),
+    )
 
     if AUGMENT:
         train_gen = AugmentGenerator(x_train, y_train, batch_size=BATCH_SIZE, augment=True)
         history = model.fit(train_gen, epochs=EPOCHS, validation_data=(x_test, y_test),
-                  callbacks=[early_stopping, lr_schedule, reduce_lr, tb_callback])
+                  callbacks=[early_stopping, lr_schedule, reduce_lr, grad_norm_cb, tb_callback])
     else:
         history = model.fit(x_train, y_train, epochs=EPOCHS, batch_size=BATCH_SIZE,
                   validation_data=(x_test, y_test),
-                  callbacks=[early_stopping, lr_schedule, reduce_lr, tb_callback])
+                  callbacks=[early_stopping, lr_schedule, reduce_lr, grad_norm_cb, tb_callback])
 
     stopped_epoch = getattr(early_stopping, 'stopped_epoch', None)
     best_epoch = getattr(early_stopping, 'best_epoch', None)
