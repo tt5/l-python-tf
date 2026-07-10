@@ -297,6 +297,7 @@ def build_generator():
             skip7
         )
     ])
+    x = tf.keras.layers.LayerNormalization()(x)
 
     # 14x14 block
     label_emb_block = tf.keras.layers.Dense(16, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(label_input)
@@ -333,7 +334,8 @@ def build_generator():
             skip14
         )
     ])
-    x = tf.keras.layers.SpatialDropout2D(DROPOUT)(x)
+    x = tf.keras.layers.LayerNormalization()(x)
+    x = tf.keras.layers.SpatialDropout2D(DROPOUT/2)(x)
 
     # 28x28 block
     x = label_cross_attention(x, label_input, 48, L2_REG)
