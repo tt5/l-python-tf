@@ -58,12 +58,12 @@ DECAY_EPOCHS = EPOCHS - WARMUP_EPOCHS
 LR_START = 0.00003
 LR_END = 0.00002
 POLY_EPSILON = 2
-GRAD_NORM_EMA_DECAY = 0.95
+GRAD_NORM_EMA_DECAY = 0.97
 GRAD_NORM_TARGET = 1.0
-GRAD_ADAPTIVE_FACTOR = 0.01
-GRAD_ADAPTIVE_BATCH_INTERVAL = 1
-GRAD_ADAPTIVE_MIN_LR = 3e-5
-GRAD_ADAPTIVE_MAX_LR = 0.01
+GRAD_ADAPTIVE_FACTOR = 0.0019
+GRAD_ADAPTIVE_BATCH_INTERVAL = 2
+GRAD_ADAPTIVE_MIN_LR = 0.000005
+GRAD_ADAPTIVE_MAX_LR = 0.02
 REDUCE_LR_FACTOR = 0.5
 REDUCE_LR_PATIENCE = 8
 REDUCE_LR_COOLDOWN = 3
@@ -408,7 +408,7 @@ def main():
         patience=REDUCE_LR_PATIENCE,
         min_lr=REDUCE_LR_MIN_LR,
         cooldown=REDUCE_LR_COOLDOWN,
-        verbose=1
+        verbose=0
     )
     grad_norm_cb = GradNormEMACallback(
         decay=GRAD_NORM_EMA_DECAY,
@@ -423,7 +423,7 @@ def main():
     if AUGMENT:
         train_gen = AugmentGenerator(x_train, y_train, batch_size=BATCH_SIZE, augment=True)
         history = model.fit(train_gen, epochs=EPOCHS, validation_data=(x_test, y_test),
-                  callbacks=[early_stopping, reduce_lr, grad_norm_cb, tb_callback])
+                  callbacks=[early_stopping, reduce_lr, grad_norm_cb, tb_callback], verbose=2)
     else:
         history = model.fit(x_train, y_train, epochs=EPOCHS, batch_size=BATCH_SIZE,
                   validation_data=(x_test, y_test),
