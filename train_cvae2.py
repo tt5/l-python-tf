@@ -299,7 +299,12 @@ def build_generator():
     ])
 
     # 14x14 block
-    x = label_cross_attention(x, label_input, 48, L2_REG)
+    label_emb_block = tf.keras.layers.Dense(16, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(label_input)
+    scale = tf.keras.layers.Dense(48, kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(label_emb_block)
+    offset = tf.keras.layers.Dense(48, kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(label_emb_block)
+    scale = tf.keras.layers.Reshape((1, 1, 48))(scale)
+    offset = tf.keras.layers.Reshape((1, 1, 48))(offset)
+    x = x * (1.0 + scale) + offset
 
     # Multi-scale kernel block at 14x14
     b1 = tf.keras.layers.Conv2D(16, 1, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
@@ -628,6 +633,7 @@ def main():
         epochs=EPOCHS,
         batch_size=BATCH_SIZE,
         callbacks=[early_stopping, tensorboard_callback, kl_warmup, lr_warmup, perceptual_warmup, tv_warmup],
+        verbose=2
     )
 
     # ─── Save as ONNX ──────────────────────────────────────────────
