@@ -37,7 +37,7 @@ except Exception:
             return super()._resource_apply_sparse(grad, var, indices, apply_state=apply_state)
 
 DEFAULT_PBM_DIR = Path(__file__).resolve().parent / "../../telephonegame/data/pbm2"
-TB_LOG_DIR = Path(__file__).resolve().parent / "logs" / "mnist3"
+TB_LOG_DIR = Path(__file__).resolve().parent / "logs" / "mnist3b"
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--data-dir", type=Path, default=DEFAULT_PBM_DIR, help="PBM data directory")
@@ -46,7 +46,7 @@ PBM_DIR = args.data_dir
 IMG_SIZE = 22
 TARGET_SIZE = 28
 LOW_CONF_THRESHOLD = 0.6
-EPOCHS = 80
+EPOCHS = 90
 DROPOUT = 0.3
 SPATIAL_DROPOUT = 0.3
 BASE_LR = 1e-3
@@ -179,6 +179,21 @@ def upscale(grid, dst_h, dst_w):
     return out
 
 
+def _cbam(x, filters, spatial_kernel=7):
+    """Lightweight CBAM block: channel + spatial attention."""
+    # channel attention
+    ch = tf.keras.layers.GlobalAveragePooling2D()(x)
+    ch = tf.keras.layers.Dense(filters // 4, activation="relu")(ch)
+    ch = tf.keras.layers.Dense(filters, activation="sigmoid")(ch)
+    ch = tf.keras.layers.Reshape((1, 1, filters))(ch)
+    x = tf.keras.layers.Multiply()([x, ch])
+    # spatial attention
+    sp = tf.keras.layers.Lambda(lambda t: tf.reduce_mean(t, axis=-1, keepdims=True))(x)
+    sp = tf.keras.layers.Conv2D(1, spatial_kernel, padding="same", activation="sigmoid")(sp)
+    x = tf.keras.layers.Multiply()([x, sp])
+    return x
+
+
 class AugmentGenerator(tf.keras.utils.Sequence):
     """On-the-fly augmentation: random rotate 90° and transpose."""
     def __init__(self, images, labels, batch_size, augment=True):
@@ -276,12 +291,24 @@ def main():
     inputs = L.Input(shape=(TARGET_SIZE, TARGET_SIZE))
     x = L.Reshape((TARGET_SIZE, TARGET_SIZE, 1))(inputs)
     out_28 = L.Conv2D(32, 7, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(1e-5))(x)
+    out_28 = _cbam(out_28, 32)
+    se28 = L.GlobalAveragePooling2D()(out_28)
+    se28 = L.Dense(32 // 16, activation="relu")(se28)
+    se28 = L.Dense(32, activation="sigmoid")(se28)
+    se28 = L.Reshape((1, 1, 32))(se28)
+    out_28 = L.Multiply()([out_28, se28])
     # 28x28 -> 14x14 with residual skip
     x = L.Conv2D(64, 3, strides=2, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(1e-5), name='conv14')(out_28)
     skip_28_to_14 = L.Conv2D(64, 1, strides=2, padding='same', kernel_regularizer=tf.keras.regularizers.l2(1e-5))(out_28)
     x = L.LayerNormalization()(x)
     x = L.Add()([x, skip_28_to_14])
     x = L.SpatialDropout2D(SPATIAL_DROPOUT)(x)
+    x = _cbam(x, 64)
+    sax = L.GlobalAveragePooling2D()(x)
+    sax = L.Dense(64 // 16, activation="relu")(sax)
+    sax = L.Dense(64, activation="sigmoid")(sax)
+    sax = L.Reshape((1, 1, 64))(sax)
+    x = L.Multiply()([x, sax])
     # 14x14 -> 7x7 with residual skip
     out_14 = x
     x = L.Conv2D(64, 3, strides=2, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(1e-5), name='conv7_base')(x)
@@ -289,6 +316,12 @@ def main():
     x = L.LayerNormalization()(x)
     x = L.Add()([x, skip_14_to_7])
     x = L.SpatialDropout2D(SPATIAL_DROPOUT)(x)
+    x = _cbam(x, 64)
+    seb = L.GlobalAveragePooling2D()(x)
+    seb = L.Dense(64 // 16, activation="relu")(seb)
+    seb = L.Dense(64, activation="sigmoid")(seb)
+    seb = L.Reshape((1, 1, 64))(seb)
+    x = L.Multiply()([x, seb])
     x = L.Conv2D(64, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(1e-5), name='conv7_deep1')(x)
     x = L.LayerNormalization()(x)
     x = L.Conv2D(64, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(1e-5), name='conv7_deep2')(x)

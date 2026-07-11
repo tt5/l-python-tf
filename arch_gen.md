@@ -11,6 +11,10 @@ l2 regulation
 
 residual connections
 
+## classifier
+
+cbam
+
 ## cvae
 
 Contrastive z regularization Within each batch, push apart latents of different classes, pull together latents of the same class. Straightforward cosine/InfoNCE loss on z. Often helps when the bottleneck is class separation, not reconstruction.
