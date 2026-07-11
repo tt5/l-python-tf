@@ -41,6 +41,7 @@ KL_END = 0.38
 KL_WARMUP_EPOCHS = 5
 KL_DECAY_EPOCHS = 120 - KL_WARMUP_EPOCHS
 DROPOUT = 0.5
+SPATIAL_DROPOUT = 0.5
 L2_REG = 0.00005
 CONTRASTIVE_TEMPERATURE = 0.07
 CONTRASTIVE_START = 0.00005
@@ -303,6 +304,7 @@ def build_encoder():
     x = tf.keras.layers.LayerNormalization(center=False, scale=False)(x)
     x = tf.keras.layers.Conv2D(32, 3, strides=2, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     skip1 = x  # 14x14, 32ch
+    x = tf.keras.layers.SpatialDropout2D(SPATIAL_DROPOUT)(x)
 
     # Multi-head label embedding: one head per spatial scale
     # 14x14 head
@@ -356,6 +358,7 @@ def build_encoder():
     label_map = tf.keras.layers.Reshape((7, 7, 64))(label_map)
     label_map = tf.keras.layers.LayerNormalization(center=False, scale=False)(label_map)
     x = tf.keras.layers.Add()([x, label_map])
+    x = tf.keras.layers.SpatialDropout2D(SPATIAL_DROPOUT)(x)
 
     x = tf.keras.layers.Dropout(DROPOUT)(x)
 
@@ -439,7 +442,8 @@ def build_generator():
             tf.keras.layers.UpSampling2D(size=2, interpolation='nearest')(skip7)
         )
     ])
-    x = tf.keras.layers.Dropout(DROPOUT / 2)(x)
+    x = tf.keras.layers.Dropout(DROPOUT)(x)
+    x = tf.keras.layers.SpatialDropout2D(SPATIAL_DROPOUT)(x)
 
     # Multi-scale kernel block at 14x14
     b1 = tf.keras.layers.Conv2D(16, 1, padding='same', activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
@@ -478,7 +482,8 @@ def build_generator():
             tf.keras.layers.UpSampling2D(size=2, interpolation='nearest')(skip14)
         )
     ])
-    x = tf.keras.layers.Dropout(DROPOUT / 2)(x)
+    x = tf.keras.layers.Dropout(DROPOUT)(x)
+    x = tf.keras.layers.SpatialDropout2D(SPATIAL_DROPOUT)(x)
 
     # second 28x28 refinement block
     x28 = tf.keras.layers.Conv2D(32, 3, padding='same', activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
@@ -496,7 +501,8 @@ def build_generator():
     x28 = tf.keras.layers.Add()([x28, film_b_28])
 
     x = tf.keras.layers.Add()([x, x28])
-    x = tf.keras.layers.Dropout(DROPOUT / 2)(x)
+    x = tf.keras.layers.Dropout(DROPOUT)(x)
+    x = tf.keras.layers.SpatialDropout2D(SPATIAL_DROPOUT)(x)
 
     x = tf.keras.layers.Conv2D(1, 3, padding="same", activation="sigmoid", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
 
