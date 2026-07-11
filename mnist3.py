@@ -46,18 +46,18 @@ PBM_DIR = args.data_dir
 IMG_SIZE = 22
 TARGET_SIZE = 28
 LOW_CONF_THRESHOLD = 0.6
-EPOCHS = 90
+EPOCHS = 110
 DROPOUT = 0.3
-SPATIAL_DROPOUT = 0.3
+SPATIAL_DROPOUT = 0.2
 BASE_LR = 1e-3
 POLY_EPSILON = 2
 BATCH_SIZE = 128
 AUGMENT = True  # On-the-fly augmentation: random rotate/transpose
-GRAD_NORM_EMA_DECAY = 0.97
+GRAD_NORM_EMA_DECAY = 0.95
 GRAD_NORM_TARGET = 1.0
-GRAD_ADAPTIVE_FACTOR = 0.0018
-GRAD_ADAPTIVE_BATCH_INTERVAL = 2
-GRAD_ADAPTIVE_MIN_LR = 0.000005
+GRAD_ADAPTIVE_FACTOR = 0.002
+GRAD_ADAPTIVE_BATCH_INTERVAL = 3
+GRAD_ADAPTIVE_MIN_LR = 0.00001
 GRAD_ADAPTIVE_MAX_LR = 0.02
 
 
@@ -353,7 +353,7 @@ def main():
     print(f"\nTraining for {EPOCHS} epochs...")
     early_stopping = tf.keras.callbacks.EarlyStopping(
         monitor='val_loss',
-        patience=10,
+        patience=20,
         restore_best_weights=True
     )
     grad_norm_cb = GradNormEMACallback(

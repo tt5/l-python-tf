@@ -45,19 +45,24 @@ KL annealing with free bits — Allow some dimensions to have low KL penalty
 Data: 18. Curriculum learning — Start with easy classes, gradually add harder ones 19. Class-balanced sampling — Ensure equal representation of all classes per batch
 
   Class digit_0: 100.0% correct (5000/5000), avg confidence: 100.0%
-  Class digit_1: 62.8% correct (3138/5000), avg confidence: 95.0%
-  Class digit_2: 99.5% correct (4977/5000), avg confidence: 99.9%
-  Class digit_3: 46.4% correct (2321/5000), avg confidence: 92.7%
-  Class low_conf: 29.9% correct (1495/5000), avg confidence: 81.2%
+  Class digit_1: 60.1% correct (3003/5000), avg confidence: 91.1%
+  Class digit_2: 99.2% correct (4961/5000), avg confidence: 99.8%
+  Class digit_3: 44.6% correct (2230/5000), avg confidence: 88.3%
+  Class low_conf: 35.9% correct (1795/5000), avg confidence: 77.7%
 
-  Class digit_0: 230/230 = 100.0%
-  Class digit_1: 400/413 = 96.9%
-  Class digit_2: 344/352 = 97.7%
-  Class digit_3: 364/381 = 95.5%
-  Class low_conf: 298/400 = 74.5%
+  Class digit_1: 683/725 = 94.2%
+  Class digit_2: 625/643 = 97.2%
+  Class digit_3: 609/654 = 93.1%
+  Class low_conf: 515/600 = 85.8%
 
-  Class digit_0: 375/375 = 100.0%
-  Class digit_1: 655/678 = 96.6%
-  Class digit_2: 585/598 = 97.8%
-  Class digit_3: 583/609 = 95.7%
-  Class low_conf: 457/600 = 76.2%
+  Class digit_0: 100.0% correct (5000/5000), avg confidence: 100.0%
+  Class digit_1: 61.5% correct (3075/5000), avg confidence: 91.3%
+  Class digit_2: 99.3% correct (4967/5000), avg confidence: 99.8%
+  Class digit_3: 43.9% correct (2194/5000), avg confidence: 87.9%
+  Class low_conf: 36.2% correct (1811/5000), avg confidence: 77.6%
+
+  Class digit_0: 100.0% correct (5000/5000), avg confidence: 100.0%
+  Class digit_1: 65.4% correct (3272/5000), avg confidence: 91.4%
+  Class digit_2: 99.3% correct (4967/5000), avg confidence: 99.8%
+  Class digit_3: 45.4% correct (2270/5000), avg confidence: 88.5%
+  Class low_conf: 35.6% correct (1780/5000), avg confidence: 77.5%  
