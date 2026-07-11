@@ -55,3 +55,9 @@ Data: 18. Curriculum learning — Start with easy classes, gradually add harder 
   Class digit_2: 344/352 = 97.7%
   Class digit_3: 364/381 = 95.5%
   Class low_conf: 298/400 = 74.5%
+
+  Class digit_0: 375/375 = 100.0%
+  Class digit_1: 655/678 = 96.6%
+  Class digit_2: 585/598 = 97.8%
+  Class digit_3: 583/609 = 95.7%
+  Class low_conf: 457/600 = 76.2%

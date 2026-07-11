@@ -46,15 +46,16 @@ PBM_DIR = args.data_dir
 IMG_SIZE = 22
 TARGET_SIZE = 28
 LOW_CONF_THRESHOLD = 0.6
-EPOCHS = 70
+EPOCHS = 80
 DROPOUT = 0.3
+SPATIAL_DROPOUT = 0.3
 BASE_LR = 1e-3
 POLY_EPSILON = 2
 BATCH_SIZE = 128
 AUGMENT = True  # On-the-fly augmentation: random rotate/transpose
 GRAD_NORM_EMA_DECAY = 0.97
 GRAD_NORM_TARGET = 1.0
-GRAD_ADAPTIVE_FACTOR = 0.002
+GRAD_ADAPTIVE_FACTOR = 0.0018
 GRAD_ADAPTIVE_BATCH_INTERVAL = 2
 GRAD_ADAPTIVE_MIN_LR = 0.000005
 GRAD_ADAPTIVE_MAX_LR = 0.02
@@ -136,7 +137,7 @@ class GradNormEMACallback(tf.keras.callbacks.Callback):
             new_lr = current_lr * (1.0 + self.factor * delta)
             new_lr = max(self.min_lr, min(self.max_lr, new_lr))
             self._optimizer.learning_rate.assign(new_lr)
-            print(f"  GradNormEMA batch: ema_norm={ema:.4f}, lr={new_lr:.6f}")
+            #print(f"  GradNormEMA batch: ema_norm={ema:.4f}, lr={new_lr:.6f}")
 
     def on_epoch_end(self, epoch, logs=None):
         return
@@ -280,16 +281,19 @@ def main():
     skip_28_to_14 = L.Conv2D(64, 1, strides=2, padding='same', kernel_regularizer=tf.keras.regularizers.l2(1e-5))(out_28)
     x = L.LayerNormalization()(x)
     x = L.Add()([x, skip_28_to_14])
+    x = L.SpatialDropout2D(SPATIAL_DROPOUT)(x)
     # 14x14 -> 7x7 with residual skip
     out_14 = x
     x = L.Conv2D(64, 3, strides=2, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(1e-5), name='conv7_base')(x)
     skip_14_to_7 = L.Conv2D(64, 1, strides=2, padding='same', kernel_regularizer=tf.keras.regularizers.l2(1e-5))(out_14)
     x = L.LayerNormalization()(x)
     x = L.Add()([x, skip_14_to_7])
+    x = L.SpatialDropout2D(SPATIAL_DROPOUT)(x)
     x = L.Conv2D(64, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(1e-5), name='conv7_deep1')(x)
     x = L.LayerNormalization()(x)
     x = L.Conv2D(64, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(1e-5), name='conv7_deep2')(x)
     x = L.LayerNormalization()(x)
+    x = L.SpatialDropout2D(SPATIAL_DROPOUT)(x)
     # Pooled conv output at 14x14 and 7x7 for multi-scale feature extraction
     x = L.Flatten()(x)
     x = L.Dense(384, activation='relu')(x)
