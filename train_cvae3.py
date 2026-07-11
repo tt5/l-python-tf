@@ -27,7 +27,7 @@ PBM_DIR = args.data_dir
 
 # ─── Hyperparameters ──────────────────────────────────────────────
 LATENT_DIM = 384
-EPOCHS = 110
+EPOCHS = 130
 BATCH_SIZE = 128
 LEARNING_RATE = 0.009
 LR_START = 0.00001
@@ -53,11 +53,11 @@ PERCEPTUAL_START = 0.0
 PERCEPTUAL_PEAK = 4.0
 PERCEPTUAL_END = 0.0
 PERCEPTUAL_WARMUP_EPOCHS = 20
-PERCEPTUAL_DECAY_EPOCHS = 120 - PERCEPTUAL_WARMUP_EPOCHS
+PERCEPTUAL_DECAY_EPOCHS = EPOCHS - PERCEPTUAL_WARMUP_EPOCHS
 NUM_CLASSES = None  # derived from data + low_conf
 TARGET_SIZE = 28
 LOW_CONF_THRESHOLD = 0.6
-TB_LOG_DIR = Path(__file__).resolve().parent / "logs" / "cvae3"
+TB_LOG_DIR = Path(__file__).resolve().parent / "logs" / "cvae3b"
 
 def load_pbm(path):
     """Load a P4 PBM file and return a 2D numpy array of 0/1 float32."""
@@ -317,6 +317,8 @@ def build_encoder():
     film_b_14 = tf.keras.layers.Reshape((1, 1, 32))(film_b_14)
     x = tf.keras.layers.Multiply()([x, film_g_14])
     x = tf.keras.layers.Add()([x, film_b_14])
+    x = tf.keras.layers.SpatialDropout2D(SPATIAL_DROPOUT)(x)
+    x = tf.keras.layers.Dropout(DROPOUT)(x)
 
     # Residual downsampling into 64ch / 7x7
     x = tf.keras.layers.Conv2D(64, 3, strides=2, padding="same", activation=None, kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
@@ -337,6 +339,8 @@ def build_encoder():
     film_b = tf.keras.layers.Reshape((1, 1, 64))(film_b)
     x = tf.keras.layers.Multiply()([x, film_g])
     x = tf.keras.layers.Add()([x, film_b])
+    x = tf.keras.layers.SpatialDropout2D(SPATIAL_DROPOUT)(x)
+    x = tf.keras.layers.Dropout(DROPOUT)(x)
 
     # Multi-scale kernel block at 7x7
     b1 = tf.keras.layers.Conv2D(16, 1, padding='same', activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
@@ -376,6 +380,7 @@ def build_encoder():
     enc_film_b = tf.keras.layers.Dense(256, activation=None)(enc_film_emb)
     x = tf.keras.layers.Multiply()([x, enc_film_g])
     x = tf.keras.layers.Add()([x, enc_film_b])
+    x = tf.keras.layers.Dropout(DROPOUT)(x)
 
     # deeper label injection before latent stats using 7x7 head
     enc_film_emb_deep = tf.keras.layers.Dense(128, activation="relu")(enc_label_emb_head_7)
@@ -422,6 +427,8 @@ def build_generator():
     film_b = tf.keras.layers.Reshape((1, 1, 64))(film_b)
     x = tf.keras.layers.Multiply()([x, film_g])
     x = tf.keras.layers.Add()([x, film_b])
+    x = tf.keras.layers.SpatialDropout2D(SPATIAL_DROPOUT)(x)
+    x = tf.keras.layers.Dropout(DROPOUT)(x)
 
     # SE on 7x7 generator features
     se = tf.keras.layers.GlobalAveragePooling2D()(x)
@@ -462,6 +469,8 @@ def build_generator():
     film_b_14 = tf.keras.layers.Reshape((1, 1, 64))(film_b_14)
     x = tf.keras.layers.Multiply()([x, film_g_14])
     x = tf.keras.layers.Add()([x, film_b_14])
+    x = tf.keras.layers.SpatialDropout2D(SPATIAL_DROPOUT)(x)
+    x = tf.keras.layers.Dropout(DROPOUT)(x)
 
     # SE on 14x14 generator features
     se_14 = tf.keras.layers.GlobalAveragePooling2D()(x)
@@ -499,6 +508,8 @@ def build_generator():
     film_b_28 = tf.keras.layers.Reshape((1, 1, 32))(film_b_28)
     x28 = tf.keras.layers.Multiply()([x28, film_g_28])
     x28 = tf.keras.layers.Add()([x28, film_b_28])
+    x28 = tf.keras.layers.SpatialDropout2D(SPATIAL_DROPOUT)(x28)
+    x28 = tf.keras.layers.Dropout(DROPOUT)(x28)
 
     x = tf.keras.layers.Add()([x, x28])
     x = tf.keras.layers.Dropout(DROPOUT)(x)
