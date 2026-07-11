@@ -292,7 +292,7 @@ def _make_perceptual_backbone():
     model_path = Path(__file__).parent / "mnist3_model"
     backbone = tf.keras.models.load_model(str(model_path), custom_objects=custom_objects)
     backbone.trainable = False
-    out = backbone.get_layer("dense_5").output
+    out = backbone.get_layer("logits").output
     return tf.keras.Model(backbone.input, out, name="mnist3_backbone")
 
 # ─── Encoder ─────────────────────────────────────────────────────

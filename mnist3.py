@@ -298,7 +298,7 @@ def main():
     x = L.Multiply()([x, se])
 
     x = L.Dropout(DROPOUT)(x)
-    outputs = L.Dense(NUM_CLASSES)(x)
+    outputs = L.Dense(NUM_CLASSES, name="logits")(x)
     model = tf.keras.Model(inputs=inputs, outputs=outputs)
 
     model.compile(optimizer=AdamW(clipnorm=1.0, weight_decay=1e-5, learning_rate=BASE_LR), loss=poly_loss, metrics=['accuracy'])

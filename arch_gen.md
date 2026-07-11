@@ -1,14 +1,17 @@
-# stage 3 generator
+# stage 3
 
 ## current
 
 early stopping
 data augmentation
 dropout
-lr schedule
-residual connections
+lr schedule, adaptive gradient lr (batch)
 gradient clipping
 l2 regulation
+
+residual connections
+
+## cvae
 
 Contrastive z regularization Within each batch, push apart latents of different classes, pull together latents of the same class. Straightforward cosine/InfoNCE loss on z. Often helps when the bottleneck is class separation, not reconstruction.
 
