@@ -46,16 +46,18 @@ PBM_DIR = args.data_dir
 IMG_SIZE = 22
 TARGET_SIZE = 28
 LOW_CONF_THRESHOLD = 0.6
-EPOCHS = 30
+EPOCHS = 50
 DROPOUT = 0.3
 BASE_LR = 1e-3
-WARMUP_EPOCHS = 2
-DECAY_EPOCHS = 10
-LR_START = 1e-4
-LR_END = 1e-5
 POLY_EPSILON = 2
 BATCH_SIZE = 128
 AUGMENT = True  # On-the-fly augmentation: random rotate/transpose
+GRAD_NORM_EMA_DECAY = 0.97
+GRAD_NORM_TARGET = 1.0
+GRAD_ADAPTIVE_FACTOR = 0.0019
+GRAD_ADAPTIVE_BATCH_INTERVAL = 2
+GRAD_ADAPTIVE_MIN_LR = 0.000005
+GRAD_ADAPTIVE_MAX_LR = 0.02
 
 
 def poly_loss(labels, logits, epsilon=None):
@@ -71,23 +73,73 @@ def poly_loss(labels, logits, epsilon=None):
     return tf.reduce_mean(ce + epsilon * pt_loss)
 
 
-class LinearLRSchedule(tf.keras.callbacks.Callback):
-    def __init__(self, lr_start, lr_peak, lr_end, warmup_epochs, decay_epochs):
-        self.lr_start = lr_start
-        self.lr_peak = lr_peak
-        self.lr_end = lr_end
-        self.warmup_epochs = warmup_epochs
-        self.decay_epochs = decay_epochs
+class _GradNormObserver:
+    def __init__(self, optimizer, output_var):
+        self.optimizer = optimizer
+        self._output_var = output_var
+        self._original_apply = optimizer.apply_gradients
+
+        def _wrapped_apply(grads_and_vars, **kwargs):
+            if self.optimizer is None:
+                return None
+            grads = [g for g, _ in grads_and_vars if g is not None]
+            if grads:
+                gn = tf.linalg.global_norm(grads)
+            else:
+                gn = tf.constant(0.0, dtype=tf.float32)
+            self._output_var.assign(gn)
+            return self._original_apply(grads_and_vars, **kwargs)
+
+        optimizer.apply_gradients = _wrapped_apply
+
+
+class GradNormEMACallback(tf.keras.callbacks.Callback):
+    def __init__(self, decay=0.95, target=1.0, factor=0.01, min_lr=3e-6, max_lr=2e-3, start_epoch=0, batch_interval=1):
+        super().__init__()
+        self.decay = decay
+        self.target = target
+        self.factor = factor
+        self.min_lr = min_lr
+        self.max_lr = max_lr
+        self.start_epoch = start_epoch
+        self.batch_interval = batch_interval
+        self.ema_norm = 0.0
+        self._observer = None
+        self._epoch = None
+        self._norm_var = None
+        self._optimizer = None
+        self._batch = 0
+
+    def set_model(self, model):
+        super().set_model(model)
+        optimizer = model.optimizer
+        self._norm_var = tf.Variable(0.0, trainable=False)
+        self._observer = _GradNormObserver(optimizer, self._norm_var)
+        self._optimizer = optimizer
 
     def on_epoch_begin(self, epoch, logs=None):
-        if epoch < self.warmup_epochs:
-            lr = self.lr_start + (self.lr_peak - self.lr_start) * (epoch / max(1, self.warmup_epochs - 1))
-        elif epoch < self.warmup_epochs + self.decay_epochs:
-            t = (epoch - self.warmup_epochs) / max(1, self.decay_epochs - 1)
-            lr = self.lr_peak + (self.lr_end - self.lr_peak) * t
-        else:
-            lr = self.lr_end
-        tf.keras.backend.set_value(self.model.optimizer.lr, float(lr))
+        self._epoch = epoch
+        self._batch = 0
+
+    def on_train_batch_end(self, batch, logs=None):
+        if self._epoch is None or self._epoch < self.start_epoch:
+            return
+        if self._norm_var is None:
+            return
+        norm = float(self._norm_var.numpy())
+        self.ema_norm = self.decay * self.ema_norm + (1.0 - self.decay) * norm
+        self._batch += 1
+        if self.batch_interval <= 0 or (self._batch % self.batch_interval) == 0:
+            current_lr = float(tf.keras.backend.get_value(self._optimizer.learning_rate))
+            ema = float(self.ema_norm)
+            delta = (self.target - ema) / (ema + 1e-8)
+            new_lr = current_lr * (1.0 + self.factor * delta)
+            new_lr = max(self.min_lr, min(self.max_lr, new_lr))
+            self._optimizer.learning_rate.assign(new_lr)
+            print(f"  GradNormEMA batch: ema_norm={ema:.4f}, lr={new_lr:.6f}")
+
+    def on_epoch_end(self, epoch, logs=None):
+        return
 
 
 def load_pbm(path):
@@ -172,7 +224,6 @@ def main():
 
         img = load_pbm(f)
         img_28 = upscale(img, TARGET_SIZE, TARGET_SIZE)
-        # Binarize (should already be binary from upscale, but ensure)
         img_28 = (img_28 > 0.5).astype(np.float32)
 
         images.append(img_28)
@@ -261,21 +312,24 @@ def main():
         patience=10,
         restore_best_weights=True
     )
-    lr_schedule = LinearLRSchedule(
-        lr_start=LR_START,
-        lr_peak=BASE_LR,
-        lr_end=LR_END,
-        warmup_epochs=WARMUP_EPOCHS,
-        decay_epochs=DECAY_EPOCHS
+    grad_norm_cb = GradNormEMACallback(
+        decay=GRAD_NORM_EMA_DECAY,
+        target=GRAD_NORM_TARGET,
+        factor=GRAD_ADAPTIVE_FACTOR,
+        min_lr=GRAD_ADAPTIVE_MIN_LR,
+        max_lr=GRAD_ADAPTIVE_MAX_LR,
+        start_epoch=0,
+        batch_interval=GRAD_ADAPTIVE_BATCH_INTERVAL,
     )
     if AUGMENT:
         train_gen = AugmentGenerator(x_train, y_train, batch_size=BATCH_SIZE, augment=True)
         model.fit(train_gen, epochs=EPOCHS, validation_data=(x_test, y_test),
-                  callbacks=[early_stopping, lr_schedule, tf.keras.callbacks.TensorBoard(log_dir=str(TB_LOG_DIR), update_freq='epoch')])
+                  callbacks=[early_stopping, grad_norm_cb, tf.keras.callbacks.TensorBoard(log_dir=str(TB_LOG_DIR), update_freq='epoch')],
+                  verbose=2)
     else:
         model.fit(x_train, y_train, epochs=EPOCHS, batch_size=BATCH_SIZE,
                   validation_data=(x_test, y_test),
-                  callbacks=[early_stopping, lr_schedule, tf.keras.callbacks.TensorBoard(log_dir=str(TB_LOG_DIR), update_freq='epoch')])
+                  callbacks=[early_stopping, grad_norm_cb, tf.keras.callbacks.TensorBoard(log_dir=str(TB_LOG_DIR), update_freq='epoch')])
 
     print("\nFinal evaluation:")
     model.evaluate(x_test, y_test, verbose=2)
