@@ -49,3 +49,9 @@ Data: 18. Curriculum learning — Start with easy classes, gradually add harder 
   Class digit_2: 99.5% correct (4977/5000), avg confidence: 99.9%
   Class digit_3: 46.4% correct (2321/5000), avg confidence: 92.7%
   Class low_conf: 29.9% correct (1495/5000), avg confidence: 81.2%
+
+  Class digit_0: 230/230 = 100.0%
+  Class digit_1: 400/413 = 96.9%
+  Class digit_2: 344/352 = 97.7%
+  Class digit_3: 364/381 = 95.5%
+  Class low_conf: 298/400 = 74.5%

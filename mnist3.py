@@ -46,7 +46,7 @@ PBM_DIR = args.data_dir
 IMG_SIZE = 22
 TARGET_SIZE = 28
 LOW_CONF_THRESHOLD = 0.6
-EPOCHS = 50
+EPOCHS = 70
 DROPOUT = 0.3
 BASE_LR = 1e-3
 POLY_EPSILON = 2
@@ -54,7 +54,7 @@ BATCH_SIZE = 128
 AUGMENT = True  # On-the-fly augmentation: random rotate/transpose
 GRAD_NORM_EMA_DECAY = 0.97
 GRAD_NORM_TARGET = 1.0
-GRAD_ADAPTIVE_FACTOR = 0.0019
+GRAD_ADAPTIVE_FACTOR = 0.002
 GRAD_ADAPTIVE_BATCH_INTERVAL = 2
 GRAD_ADAPTIVE_MIN_LR = 0.000005
 GRAD_ADAPTIVE_MAX_LR = 0.02
@@ -274,11 +274,18 @@ def main():
     L = tf.keras.layers
     inputs = L.Input(shape=(TARGET_SIZE, TARGET_SIZE))
     x = L.Reshape((TARGET_SIZE, TARGET_SIZE, 1))(inputs)
-    x = L.Conv2D(32, 7, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(1e-5))(x)
-    x = L.Conv2D(64, 3, strides=2, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(1e-5), name='conv14')(x)
+    out_28 = L.Conv2D(32, 7, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(1e-5))(x)
+    # 28x28 -> 14x14 with residual skip
+    x = L.Conv2D(64, 3, strides=2, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(1e-5), name='conv14')(out_28)
+    skip_28_to_14 = L.Conv2D(64, 1, strides=2, padding='same', kernel_regularizer=tf.keras.regularizers.l2(1e-5))(out_28)
     x = L.LayerNormalization()(x)
+    x = L.Add()([x, skip_28_to_14])
+    # 14x14 -> 7x7 with residual skip
+    out_14 = x
     x = L.Conv2D(64, 3, strides=2, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(1e-5), name='conv7_base')(x)
+    skip_14_to_7 = L.Conv2D(64, 1, strides=2, padding='same', kernel_regularizer=tf.keras.regularizers.l2(1e-5))(out_14)
     x = L.LayerNormalization()(x)
+    x = L.Add()([x, skip_14_to_7])
     x = L.Conv2D(64, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(1e-5), name='conv7_deep1')(x)
     x = L.LayerNormalization()(x)
     x = L.Conv2D(64, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(1e-5), name='conv7_deep2')(x)
