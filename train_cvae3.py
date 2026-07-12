@@ -320,6 +320,13 @@ def build_encoder():
     x = tf.keras.layers.SpatialDropout2D(SPATIAL_DROPOUT)(x)
     x = tf.keras.layers.Dropout(DROPOUT)(x)
 
+    # SE on 14x14 spatial features
+    se = tf.keras.layers.GlobalAveragePooling2D()(x)
+    se = tf.keras.layers.Dense(32 // 4, activation="relu")(se)
+    se = tf.keras.layers.Dense(32, activation="sigmoid")(se)
+    se = tf.keras.layers.Reshape((1, 1, 32))(se)
+    x = tf.keras.layers.Multiply()([x, se])
+
     # Residual downsampling into 64ch / 7x7
     x = tf.keras.layers.Conv2D(64, 3, strides=2, padding="same", activation=None, kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = tf.keras.layers.LayerNormalization(center=False, scale=False)(x)

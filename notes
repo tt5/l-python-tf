@@ -25,44 +25,27 @@ python -m tf2onnx.convert --keras cvae_generator.h5 --output cvae_generator.onnx
 
 python convert_generator.py && python test_cvae.py
 
-Architecture:
-
-Different activation functions — Try LeakyReLU, GELU, or Swish instead of ReLU
-Residual connections in generator — Skip connections between conv layers
-Multi-scale label injection — Inject label at different resolutions (not just spatial tiling)
-
-One-cycle policy — Single cycle of LR increase then decrease
 Gradient accumulation — Simulate larger batch sizes with smaller physical batches
+
 Exponential moving average — EMA of generator weights for more stable generation
 
-Regularization: 11. Spectral normalization — Normalize weight matrices instead of activations
+Spectral normalization — Normalize weight matrices instead of activations
+
 Feature matching loss — Match intermediate feature distributions
 
 Perceptual loss — Use VGG features for reconstruction loss
 Adversarial loss — Add a discriminator for sharper outputs
-KL annealing with free bits — Allow some dimensions to have low KL penalty
 
-Data: 18. Curriculum learning — Start with easy classes, gradually add harder ones 19. Class-balanced sampling — Ensure equal representation of all classes per batch
+Curriculum learning — Start with easy classes, gradually add harder ones 19. Class-balanced sampling — Ensure equal representation of all classes per batch
 
-  Class digit_0: 100.0% correct (5000/5000), avg confidence: 100.0%
-  Class digit_1: 60.1% correct (3003/5000), avg confidence: 91.1%
-  Class digit_2: 99.2% correct (4961/5000), avg confidence: 99.8%
-  Class digit_3: 44.6% correct (2230/5000), avg confidence: 88.3%
-  Class low_conf: 35.9% correct (1795/5000), avg confidence: 77.7%
-
-  Class digit_1: 683/725 = 94.2%
-  Class digit_2: 625/643 = 97.2%
-  Class digit_3: 609/654 = 93.1%
-  Class low_conf: 515/600 = 85.8%
+  Class digit_0: 377/377 = 100.0%
+  Class digit_1: 698/725 = 96.3%
+  Class digit_2: 628/643 = 97.7%
+  Class digit_3: 614/654 = 93.9%
+  Class low_conf: 524/600 = 87.3%
 
   Class digit_0: 100.0% correct (5000/5000), avg confidence: 100.0%
-  Class digit_1: 61.5% correct (3075/5000), avg confidence: 91.3%
-  Class digit_2: 99.3% correct (4967/5000), avg confidence: 99.8%
-  Class digit_3: 43.9% correct (2194/5000), avg confidence: 87.9%
-  Class low_conf: 36.2% correct (1811/5000), avg confidence: 77.6%
-
-  Class digit_0: 100.0% correct (5000/5000), avg confidence: 100.0%
-  Class digit_1: 65.4% correct (3272/5000), avg confidence: 91.4%
-  Class digit_2: 99.3% correct (4967/5000), avg confidence: 99.8%
-  Class digit_3: 45.4% correct (2270/5000), avg confidence: 88.5%
-  Class low_conf: 35.6% correct (1780/5000), avg confidence: 77.5%  
+  Class digit_1: 67.0% correct (3348/5000), avg confidence: 93.4%
+  Class digit_2: 99.7% correct (4983/5000), avg confidence: 99.9%
+  Class digit_3: 51.0% correct (2548/5000), avg confidence: 90.1%
+  Class low_conf: 33.9% correct (1696/5000), avg confidence: 78.5%
