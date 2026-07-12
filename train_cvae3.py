@@ -50,7 +50,7 @@ CONTRASTIVE_END = 0.0001
 CONTRASTIVE_WARMUP_EPOCHS = 8
 CONTRASTIVE_DECAY_EPOCHS = 32
 PERCEPTUAL_START = 0.00002
-PERCEPTUAL_PEAK = 32.0
+PERCEPTUAL_PEAK = 16.0
 PERCEPTUAL_END = 2.0
 PERCEPTUAL_WARMUP_EPOCHS = 40
 PERCEPTUAL_DECAY_EPOCHS = EPOCHS - PERCEPTUAL_WARMUP_EPOCHS
@@ -349,12 +349,6 @@ def build_encoder():
     se = tf.keras.layers.Reshape((1, 1, 64))(se)
     x = tf.keras.layers.Multiply()([x, se])
 
-    # 7x7 head for broadcast label map
-    label_map_head = tf.keras.layers.Dense(128, activation="relu")(enc_label_emb_head_7)
-    label_map = tf.keras.layers.Dense(7 * 7 * 64, activation=None)(label_map_head)
-    label_map = tf.keras.layers.Reshape((7, 7, 64))(label_map)
-    label_map = tf.keras.layers.LayerNormalization(center=False, scale=False)(label_map)
-    x = tf.keras.layers.Add()([x, label_map])
     x = tf.keras.layers.SpatialDropout2D(SPATIAL_DROPOUT)(x)
 
     x = tf.keras.layers.Dropout(DROPOUT)(x)
