@@ -27,7 +27,7 @@ PBM_DIR = args.data_dir
 
 # ─── Hyperparameters ──────────────────────────────────────────────
 LATENT_DIM = 384
-EPOCHS = 200
+EPOCHS = 210
 BATCH_SIZE = 64
 LEARNING_RATE = 0.01
 LR_START = 0.000066
@@ -50,14 +50,14 @@ CONTRASTIVE_END = 0.0001
 CONTRASTIVE_WARMUP_EPOCHS = 8
 CONTRASTIVE_DECAY_EPOCHS = 32
 PERCEPTUAL_START = 0.00002
-PERCEPTUAL_PEAK = 16.0
+PERCEPTUAL_PEAK = 32.0
 PERCEPTUAL_END = 2.0
-PERCEPTUAL_WARMUP_EPOCHS = 22
+PERCEPTUAL_WARMUP_EPOCHS = 40
 PERCEPTUAL_DECAY_EPOCHS = EPOCHS - PERCEPTUAL_WARMUP_EPOCHS
 NUM_CLASSES = None  # derived from data + low_conf
 TARGET_SIZE = 28
 LOW_CONF_THRESHOLD = 0.6
-TB_LOG_DIR = Path(__file__).resolve().parent / "logs" / "cvae3b"
+TB_LOG_DIR = Path(__file__).resolve().parent / "logs" / "cvae3"
 
 def load_pbm(path):
     """Load a P4 PBM file and return a 2D numpy array of 0/1 float32."""
@@ -342,13 +342,6 @@ def build_encoder():
     x = tf.keras.layers.SpatialDropout2D(SPATIAL_DROPOUT)(x)
     x = tf.keras.layers.Dropout(DROPOUT)(x)
 
-    # Multi-scale kernel block at 7x7
-    b1 = tf.keras.layers.Conv2D(16, 1, padding='same', activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
-    b3 = tf.keras.layers.Conv2D(16, 3, padding='same', activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
-    b5 = tf.keras.layers.Conv2D(16, 5, padding='same', activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
-    x = tf.keras.layers.Concatenate()([b1, b3, b5])
-    x = tf.keras.layers.Conv2D(64, 1, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
-
     # SE on 7x7 spatial features
     se = tf.keras.layers.GlobalAveragePooling2D()(x)
     se = tf.keras.layers.Dense(64 // 4, activation="relu")(se)
@@ -373,21 +366,6 @@ def build_encoder():
     x = tf.keras.layers.LayerNormalization(center=False, scale=False)(x)
     x = tf.keras.layers.Activation("relu")(x)
     x = tf.keras.layers.Add()([x, x_save])
-
-    # Dense-stage FiLM before latent stats using 7x7 head
-    enc_film_emb = tf.keras.layers.Dense(128, activation="relu")(enc_label_emb_head_7)
-    enc_film_g = tf.keras.layers.Dense(256, activation="sigmoid")(enc_film_emb)
-    enc_film_b = tf.keras.layers.Dense(256, activation=None)(enc_film_emb)
-    x = tf.keras.layers.Multiply()([x, enc_film_g])
-    x = tf.keras.layers.Add()([x, enc_film_b])
-    x = tf.keras.layers.Dropout(DROPOUT)(x)
-
-    # deeper label injection before latent stats using 7x7 head
-    enc_film_emb_deep = tf.keras.layers.Dense(128, activation="relu")(enc_label_emb_head_7)
-    enc_film_g_deep = tf.keras.layers.Dense(256, activation="sigmoid")(enc_film_emb_deep)
-    enc_film_b_deep = tf.keras.layers.Dense(256, activation=None)(enc_film_emb_deep)
-    x = tf.keras.layers.Multiply()([x, enc_film_g_deep])
-    x = tf.keras.layers.Add()([x, enc_film_b_deep])
 
     x = tf.keras.layers.Dropout(DROPOUT)(x)
 
