@@ -20,11 +20,13 @@ DATA_DIR = Path(__file__).resolve().parent.parent.parent / "synthetic" / "data"
 NUM_CLASSES = 5
 EPOCHS = 60
 BATCH_SIZE = 256
-LEARNING_RATE = 0.005
-LR_WARMUP_EPOCHS = 7
-LR_MIN = 0.00005
-LR_DECAY_EPOCHS = EPOCHS
-BATCH_DECAY_FACTOR = 0.05
+BASE_LR = 0.001
+GRAD_ADAPTIVE_MIN_LR = 0.00001
+GRAD_ADAPTIVE_MAX_LR = 0.001
+GRAD_ADAPTIVE_FACTOR = 0.0001
+GRAD_ADAPTIVE_BATCH_INTERVAL = 3
+GRAD_NORM_EMA_DECAY = 0.95
+GRAD_NORM_TARGET = 1.0
 DROPOUT = 0.45
 DENSE_SIZE = 512
 L2_DECAY = 1e-5
@@ -33,7 +35,7 @@ EARLY_STOP_PATIENCE = 100
 GAUSSIAN_NOISE = 0.005
 GAUSSIAN_NOISE_DECAY_EPOCHS = 50
 GAUSSIAN_NOISE_END = 0.00005
-LOG_DIR = "logs/cls1b"
+LOG_DIR = "logs/cls1"
 
 
 AUGMENT = True  # On-the-fly augmentation: random rotate/transpose
@@ -224,47 +226,77 @@ def gce_loss(q=0.5):
     return loss_fn
 
 loss_fn = gce_loss(q=GCE_Q)
-model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=LEARNING_RATE, clipvalue=1.0),
+model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=BASE_LR, clipvalue=1.0),
               loss=loss_fn, metrics=['accuracy'])
 
-# ─── LR Warmup + Decay Callback ────────────────────────────────────
-class LRWarmupDecay(tf.keras.callbacks.Callback):
-    def __init__(self, warmup_epochs=5, target_lr=1e-3, decay_epochs=50, end_lr=1e-5, steps_per_epoch=100, batch_decay_factor=0.5):
+class _GradNormObserver:
+    def __init__(self, optimizer, output_var):
+        self.optimizer = optimizer
+        self._output_var = output_var
+        self._original_apply = optimizer.apply_gradients
+
+        def _wrapped_apply(grads_and_vars, **kwargs):
+            if self.optimizer is None:
+                return None
+            grads = [g for g, _ in grads_and_vars if g is not None]
+            if grads:
+                gn = tf.linalg.global_norm(grads)
+            else:
+                gn = tf.constant(0.0, dtype=tf.float32)
+            self._output_var.assign(gn)
+            return self._original_apply(grads_and_vars, **kwargs)
+
+        optimizer.apply_gradients = _wrapped_apply
+
+
+class GradNormEMACallback(tf.keras.callbacks.Callback):
+    def __init__(self, decay=0.95, target=1.0, factor=0.01, min_lr=3e-6, max_lr=2e-3, start_epoch=0, batch_interval=1):
         super().__init__()
-        self.warmup_epochs = warmup_epochs
-        self.target_lr = target_lr
-        self.decay_epochs = decay_epochs
-        self.end_lr = end_lr
-        self.steps_per_epoch = steps_per_epoch
-        self.current_step = 0
-        self.batch_decay_factor = batch_decay_factor
+        self.decay = decay
+        self.target = target
+        self.factor = factor
+        self.min_lr = min_lr
+        self.max_lr = max_lr
+        self.start_epoch = start_epoch
+        self.batch_interval = batch_interval
+        self.ema_norm = 0.0
+        self._observer = None
+        self._epoch = None
+        self._norm_var = None
+        self._optimizer = None
+        self._batch = 0
+
+    def set_model(self, model):
+        super().set_model(model)
+        optimizer = model.optimizer
+        self._norm_var = tf.Variable(0.0, trainable=False)
+        self._observer = _GradNormObserver(optimizer, self._norm_var)
+        self._optimizer = optimizer
 
     def on_epoch_begin(self, epoch, logs=None):
-        self.current_epoch = epoch
-        if epoch < self.warmup_epochs:
-            self.epoch_start_lr = self.target_lr * (epoch + 1) / self.warmup_epochs
-        else:
-            decay_epoch = epoch - self.warmup_epochs
-            decay_progress = min(1.0, decay_epoch / self.decay_epochs)
-            self.epoch_start_lr = self.target_lr + (self.end_lr - self.target_lr) * decay_progress
-        self.epoch_end_lr = self.epoch_start_lr
-        if self.current_epoch + 1 < self.warmup_epochs:
-            self.epoch_end_lr = self.target_lr * (self.current_epoch + 2) / self.warmup_epochs
-        elif self.current_epoch + 1 >= self.warmup_epochs:
-            next_epoch = self.current_epoch + 1
-            decay_epoch = next_epoch - self.warmup_epochs
-            decay_progress = min(1.0, decay_epoch / self.decay_epochs)
-            self.epoch_end_lr = self.target_lr + (self.end_lr - self.target_lr) * decay_progress
-        tf.keras.backend.set_value(self.model.optimizer.learning_rate, self.epoch_start_lr)
-        print(f"  LR: {self.epoch_start_lr:.6f} → {self.epoch_end_lr:.6f}")
+        self._epoch = epoch
+        self._batch = 0
 
-    def on_train_batch_begin(self, batch, logs=None):
-        self.current_step += 1
-        batch_progress = batch / max(1, self.steps_per_epoch - 1)
-        # Per-batch decay goes below epoch_end_lr by batch_decay_factor
-        lr_min = self.epoch_end_lr - (self.epoch_start_lr - self.epoch_end_lr) * self.batch_decay_factor
-        lr = self.epoch_start_lr + (lr_min - self.epoch_start_lr) * batch_progress
-        tf.keras.backend.set_value(self.model.optimizer.learning_rate, lr)
+    def on_train_batch_end(self, batch, logs=None):
+        if self._epoch is None or self._epoch < self.start_epoch:
+            return
+        if self._norm_var is None:
+            return
+        norm = float(self._norm_var.numpy())
+        self.ema_norm = self.decay * self.ema_norm + (1.0 - self.decay) * norm
+        self._batch += 1
+        if self.batch_interval <= 0 or (self._batch % self.batch_interval) == 0:
+            current_lr = float(tf.keras.backend.get_value(self._optimizer.learning_rate))
+            ema = float(self.ema_norm)
+            delta = (self.target - ema) / (ema + 1e-8)
+            new_lr = current_lr * (1.0 + self.factor * delta)
+            new_lr = max(self.min_lr, min(self.max_lr, new_lr))
+            self._optimizer.learning_rate.assign(new_lr)
+            #print(f"  GradNormEMA batch: ema_norm={ema:.4f}, lr={new_lr:.6f}")
+
+    def on_epoch_end(self, epoch, logs=None):
+        return
+
 
 total_steps = len(x_train) // BATCH_SIZE
 
@@ -302,7 +334,7 @@ class BestEpochLogger(tf.keras.callbacks.Callback):
 
 
 callbacks = [
-    LRWarmupDecay(warmup_epochs=LR_WARMUP_EPOCHS, target_lr=LEARNING_RATE, decay_epochs=LR_DECAY_EPOCHS, end_lr=LR_MIN, steps_per_epoch=total_steps, batch_decay_factor=BATCH_DECAY_FACTOR),
+    GradNormEMACallback(decay=GRAD_NORM_EMA_DECAY, target=GRAD_NORM_TARGET, factor=GRAD_ADAPTIVE_FACTOR, min_lr=GRAD_ADAPTIVE_MIN_LR, max_lr=GRAD_ADAPTIVE_MAX_LR, start_epoch=0, batch_interval=GRAD_ADAPTIVE_BATCH_INTERVAL),
     tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=EARLY_STOP_PATIENCE, restore_best_weights=True),
     GaussianNoiseDecay(GAUSSIAN_NOISE, GAUSSIAN_NOISE_DECAY_EPOCHS),
     BestEpochLogger(),
