@@ -35,6 +35,7 @@ EARLY_STOP_PATIENCE = 100
 GAUSSIAN_NOISE = 0.005
 GAUSSIAN_NOISE_DECAY_EPOCHS = 50
 GAUSSIAN_NOISE_END = 0.00005
+SPATIAL_DROPOUT = 0.3
 LOG_DIR = "logs/cls1b"
 
 
@@ -190,6 +191,7 @@ skip_14_to_7 = L.Conv2D(128, 1, strides=2, padding='same', kernel_regularizer=tf
 c2 = L.Add()([c2, skip_14_to_7])
 c2 = L.Dropout(DROPOUT)(c2)
 c2 = cbam_block(c2)
+c2 = L.SpatialDropout2D(SPATIAL_DROPOUT)(c2)
 
 # Conv block 3: 7x7 → 7x7 (no pooling)
 c3 = L.SeparableConv2D(128, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_DECAY))(c2)
