@@ -20,22 +20,22 @@ DATA_DIR = Path(__file__).resolve().parent.parent.parent / "synthetic" / "data"
 NUM_CLASSES = 5
 EPOCHS = 60
 BATCH_SIZE = 256
-BASE_LR = 0.001
+BASE_LR = 0.0005
 GRAD_ADAPTIVE_MIN_LR = 0.00001
-GRAD_ADAPTIVE_MAX_LR = 0.001
-GRAD_ADAPTIVE_FACTOR = 0.0001
+GRAD_ADAPTIVE_MAX_LR = 0.0005
+GRAD_ADAPTIVE_FACTOR = 0.00009
 GRAD_ADAPTIVE_BATCH_INTERVAL = 3
-GRAD_NORM_EMA_DECAY = 0.95
+GRAD_NORM_EMA_DECAY = 0.94
 GRAD_NORM_TARGET = 1.0
 DROPOUT = 0.45
 DENSE_SIZE = 512
-L2_DECAY = 1e-5
+L2_DECAY = 0.00005
 GCE_Q = 0.5
 EARLY_STOP_PATIENCE = 100
 GAUSSIAN_NOISE = 0.005
 GAUSSIAN_NOISE_DECAY_EPOCHS = 50
 GAUSSIAN_NOISE_END = 0.00005
-LOG_DIR = "logs/cls1"
+LOG_DIR = "logs/cls1b"
 
 
 AUGMENT = True  # On-the-fly augmentation: random rotate/transpose
@@ -177,15 +177,17 @@ def cbam_block(x):
     x = spatial_attention(x)
     return x
 
-# Conv block 1: 28x28 → 14x14
-c1 = L.SeparableConv2D(64, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_DECAY))(x)
-c1 = L.MaxPooling2D(2)(c1)
+# Conv block 1: 28x28 → 14x14 with residual skip
+c1 = L.SeparableConv2D(64, 3, strides=2, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_DECAY))(x)
+skip_28_to_14 = L.Conv2D(64, 1, strides=2, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_DECAY))(x)
+c1 = L.Add()([c1, skip_28_to_14])
 c1 = L.Dropout(DROPOUT)(c1)
 c1 = cbam_block(c1)
 
-# Conv block 2: 14x14 → 7x7
-c2 = L.SeparableConv2D(128, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_DECAY))(c1)
-c2 = L.MaxPooling2D(2)(c2)
+# Conv block 2: 14x14 → 7x7 with residual skip
+c2 = L.SeparableConv2D(128, 3, strides=2, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_DECAY))(c1)
+skip_14_to_7 = L.Conv2D(128, 1, strides=2, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_DECAY))(c1)
+c2 = L.Add()([c2, skip_14_to_7])
 c2 = L.Dropout(DROPOUT)(c2)
 c2 = cbam_block(c2)
 
