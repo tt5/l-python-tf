@@ -21,7 +21,7 @@ LATENT_DIM = 512
 PHA1_LATENT_DIM = 128
 EPOCHS = 80
 BATCH_SIZE = 128
-NUM_CLASSES = 3
+NUM_CLASSES = 5
 PROGRESSIVE_EPOCHS = 11  # Phase 1: 14x14
 LR = 0.001
 LR_WARMUP_START = 0
@@ -59,19 +59,36 @@ PHA1_INFO_NCE_WEIGHT = 0.5
 # ─── Data ──────────────────────────────────────────────────────────
 def load_data():
     x_train, y_train_oh, x_test, y_test_oh = [], [], [], []
-    for c in range(NUM_CLASSES):
+    max_train, max_test = 0, 0
+
+    for c in range(NUM_CLASSES - 2):
         files = sorted((DATA_DIR / f"class_{c}").glob("*.npy"))
         split = int(len(files) * 0.5)
         for f in files[:split]:
             img = np.load(str(f)).astype(np.float32) / 255.0
+            img = np.asarray(img).reshape(28, 28, 1)
             img = (img > 0.5).astype(np.float32)  # binary thresholding
             x_train.append(img)
             y_train_oh.append(c)
         for f in files[split:]:
             img = np.load(str(f)).astype(np.float32) / 255.0
+            img = np.asarray(img).reshape(28, 28, 1)
             img = (img > 0.5).astype(np.float32)  # binary thresholding
             x_test.append(img)
             y_test_oh.append(c)
+
+        max_train = max(max_train, len(files[:split]))
+        max_test = max(max_test, len(files[split:]))
+
+    black = np.zeros((28, 28, 1), dtype=np.float32)
+    white = np.ones((28, 28, 1), dtype=np.float32)
+    for img, label in [(black, NUM_CLASSES - 2), (white, NUM_CLASSES - 1)]:
+        for _ in range(max_train):
+            x_train.append(img)
+            y_train_oh.append(label)
+        for _ in range(max_test):
+            x_test.append(img)
+            y_test_oh.append(label)
 
     x_train = np.array(x_train).reshape(-1, 28, 28, 1)
     x_test = np.array(x_test).reshape(-1, 28, 28, 1)
