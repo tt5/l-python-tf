@@ -19,28 +19,23 @@ from tensorflow.keras import layers
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "synthetic" / "data"
 LATENT_DIM = 512
 PHA1_LATENT_DIM = 128
-EPOCHS = 100
-BATCH_SIZE = 128
+EPOCHS = 130
+BATCH_SIZE = 256
 NUM_CLASSES = 5
-PROGRESSIVE_EPOCHS = 11  # Phase 1: 14x14
-LR = 0.001
-LR_WARMUP_START = 0
+PROGRESSIVE_EPOCHS = 12  # Phase 1: 14x14
+LR = 0.002
+LR_WARMUP_START = 0.000001
 LR_WARMUP_EPOCHS = 1
 LR_DECAY_EPOCHS = EPOCHS - LR_WARMUP_EPOCHS
-LR_END = 0.0002
-KL_WARMUP_START = 0.05
-KL_WEIGHT_START = 0.6
-KL_WEIGHT_TARGET = 0.4
-KL_WARMUP_EPOCHS = PROGRESSIVE_EPOCHS
-KL_DECAY_EPOCHS = EPOCHS - KL_WARMUP_EPOCHS
+LR_END = 0.0001
 PIXEL_LOSS_WEIGHT = 0.45
 PERCEPTUAL_LOSS_WEIGHT = 0.55
-GRAD_NOISE_SCALE = 0.005
+GRAD_NOISE_SCALE = 0.00005
 GRAD_NOISE_DECAY_EPOCHS = EPOCHS
 INFO_NCE_WEIGHT = 0.0
 TEMPERATURE = 1.0
-DROPOUT = 0.5
-SPATIAL_DROPOUT = 0.5
+DROPOUT = 0.3
+SPATIAL_DROPOUT = 0.3
 # Phase 2 KL schedule (configurable start)
 PHA2_KL_WARMUP_START = 0.00001
 PHA2_KL_WEIGHT_START = 0.5
@@ -594,7 +589,7 @@ callbacks = [
     keras.callbacks.EarlyStopping(monitor='val_total_loss', patience=9, restore_best_weights=True),
     GeneratorCheckpoint(generator, best_generator_path),
     BestEpochLogger(vae),
-    keras.callbacks.TensorBoard(log_dir='logs/run2', histogram_freq=1),
+    keras.callbacks.TensorBoard(log_dir='logs/gen1', histogram_freq=1),
 ]
 
 # ─── Phase 1: Train at 14×14 (progressive growing) ────────────────
@@ -656,7 +651,7 @@ vae_14.train_step = vae_14.train_step_14
 callbacks_14 = [
     keras.callbacks.EarlyStopping(monitor='val_total_loss', patience=10, restore_best_weights=True),
     BestEpochLogger(vae_14),
-    keras.callbacks.TensorBoard(log_dir='logs/run2/phase1', histogram_freq=1),
+    keras.callbacks.TensorBoard(log_dir='logs/gen1/phase1', histogram_freq=1),
 ]
 
 history1 = vae_14.fit(x_train_14, y_train, validation_data=(x_test_14, y_test),

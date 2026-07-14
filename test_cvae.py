@@ -47,7 +47,7 @@ cls_session = ort.InferenceSession(str(save_dir / "mnist_model.onnx"))
 cls_input_name = cls_session.get_inputs()[0].name
 cls_output_name = cls_session.get_outputs()[0].name
 
-SAMPLES_PER_CLASS = 5000
+SAMPLES_PER_CLASS = 1000
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "synthetic" / "test_data"
 
 # ─── Generation quality ─────────────────────────────────────────────
