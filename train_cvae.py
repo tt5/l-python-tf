@@ -367,15 +367,6 @@ def build_generator():
     skip_14 = layers.Conv2D(64, 1, padding="same")(x)
     x = upsample(x, [28, 28])
     x = layers.Conv2D(64, 3, padding="same", activation="relu")(x)
-    # FiLM at output resolution
-    gamma28c, beta28c = make_film(64)(lbl)
-    gamma28c = layers.Reshape((1, 1, 64))(gamma28c)
-    beta28c = layers.Reshape((1, 1, 64))(beta28c)
-    x = layers.Multiply()([x, gamma28c])
-    x = layers.Add()([x, beta28c])
-    # Spatial attention
-    sa28_pre = layers.Conv2D(1, 1, activation='sigmoid')(x)
-    x = layers.Multiply()([x, sa28_pre])
     x = layers.SpatialDropout2D(SPATIAL_DROPOUT)(x)
     x = layers.Dropout(DROPOUT)(x)
 
@@ -589,7 +580,7 @@ callbacks = [
     keras.callbacks.EarlyStopping(monitor='val_total_loss', patience=9, restore_best_weights=True),
     GeneratorCheckpoint(generator, best_generator_path),
     BestEpochLogger(vae),
-    keras.callbacks.TensorBoard(log_dir='logs/gen1', histogram_freq=1),
+    keras.callbacks.TensorBoard(log_dir='logs/gen1b', histogram_freq=1),
 ]
 
 # ─── Phase 1: Train at 14×14 (progressive growing) ────────────────
@@ -651,7 +642,7 @@ vae_14.train_step = vae_14.train_step_14
 callbacks_14 = [
     keras.callbacks.EarlyStopping(monitor='val_total_loss', patience=10, restore_best_weights=True),
     BestEpochLogger(vae_14),
-    keras.callbacks.TensorBoard(log_dir='logs/gen1/phase1', histogram_freq=1),
+    keras.callbacks.TensorBoard(log_dir='logs/gen1b/phase1', histogram_freq=1),
 ]
 
 history1 = vae_14.fit(x_train_14, y_train, validation_data=(x_test_14, y_test),

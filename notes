@@ -38,14 +38,13 @@ Adversarial loss — Add a discriminator for sharper outputs
 
 Curriculum learning — Start with easy classes, gradually add harder ones 19. Class-balanced sampling — Ensure equal representation of all classes per batch
 
-  Class digit_0: 377/377 = 100.0%
-  Class digit_1: 698/725 = 96.3%
-  Class digit_2: 628/643 = 97.7%
-  Class digit_3: 614/654 = 93.9%
-  Class low_conf: 524/600 = 87.3%
+  Class 0: 100.0% correctly classified (1000/1000), avg confidence: 99.9%
+  Class 1: 90.5% correctly classified (905/1000), avg confidence: 99.6%
+  Class 2: 95.6% correctly classified (956/1000), avg confidence: 98.9%
+  Class 3: 100.0% correctly classified (1000/1000), avg confidence: 100.0%
+  Class 4: 100.0% correctly classified (1000/1000), avg confidence: 100.0%
 
-  Class digit_0: 100.0% correct (5000/5000), avg confidence: 100.0%
-  Class digit_1: 67.0% correct (3348/5000), avg confidence: 93.4%
-  Class digit_2: 99.7% correct (4983/5000), avg confidence: 99.9%
-  Class digit_3: 51.0% correct (2548/5000), avg confidence: 90.1%
-  Class low_conf: 33.9% correct (1696/5000), avg confidence: 78.5%
+─── Real data classification (from synthetic project) ───
+  Class 0: 100.0% correctly classified (1000/1000)
+  Class 1: 92.4% correctly classified (924/1000)
+  Class 2: 89.8% correctly classified (898/1000)
