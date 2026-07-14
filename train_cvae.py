@@ -19,7 +19,7 @@ from tensorflow.keras import layers
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "synthetic" / "data"
 LATENT_DIM = 512
 PHA1_LATENT_DIM = 128
-EPOCHS = 80
+EPOCHS = 100
 BATCH_SIZE = 128
 NUM_CLASSES = 5
 PROGRESSIVE_EPOCHS = 11  # Phase 1: 14x14
@@ -67,13 +67,13 @@ def load_data():
         for f in files[:split]:
             img = np.load(str(f)).astype(np.float32) / 255.0
             img = np.asarray(img).reshape(28, 28, 1)
-            img = (img > 0.5).astype(np.float32)  # binary thresholding
+            img = img.astype(np.float32)
             x_train.append(img)
             y_train_oh.append(c)
         for f in files[split:]:
             img = np.load(str(f)).astype(np.float32) / 255.0
             img = np.asarray(img).reshape(28, 28, 1)
-            img = (img > 0.5).astype(np.float32)  # binary thresholding
+            img = img.astype(np.float32)
             x_test.append(img)
             y_test_oh.append(c)
 

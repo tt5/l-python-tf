@@ -79,7 +79,7 @@ for c in range(NUM_CLASSES):
 # ─── Real data classification ────────────────────────────────────────
 print(f"\n─── Real data classification (from synthetic project) ───")
 
-for c in range(NUM_CLASSES):
+for c in range(NUM_CLASSES - 2):
     class_dir = DATA_DIR / f"class_{c}"
     files = sorted(class_dir.glob("*.npy"))
     if not files:
