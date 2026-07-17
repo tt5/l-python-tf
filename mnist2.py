@@ -108,26 +108,37 @@ def symmetric_cross_entropy(alpha=0.5, beta=0.5):
 
 
 class LinearWarmupCosineDecay(tf.keras.callbacks.Callback):
-    def __init__(self, lr_start, lr_peak, lr_end, warmup_epochs=0, total_epochs=0):
+    def __init__(self, lr_start, lr_peak, lr_end, warmup_epochs=0, total_epochs=0, log_dir=None):
         super().__init__()
         self.lr_start = float(lr_start)
         self.lr_peak = float(lr_peak)
         self.lr_end = float(lr_end)
         self.warmup_epochs = int(warmup_epochs)
         self.total_epochs = int(total_epochs)
+        self.log_dir = str(log_dir) if log_dir else None
+        self._writer = None
+
+    def set_model(self, model):
+        super().set_model(model)
+        if self.log_dir:
+            self._writer = tf.summary.create_file_writer(self.log_dir)
 
     def on_epoch_begin(self, epoch, logs=None):
         if epoch < self.warmup_epochs:
-            lr = self.lr_start + (self.lr_peak - self.lr_start) * (
-                epoch / max(1, self.warmup_epochs - 1)
-                if self.warmup_epochs > 1
-                else 1.0
-            )
+            progress = epoch / max(1, self.warmup_epochs - 1) if self.warmup_epochs > 1 else 1.0
+            lr = self.lr_start + (self.lr_peak - self.lr_start) * progress
         else:
             progress = (epoch - self.warmup_epochs) / max(1, self.total_epochs - self.warmup_epochs - 1)
             progress = max(0.0, min(1.0, progress))
             lr = self.lr_end + 0.5 * (self.lr_peak - self.lr_end) * (1.0 + tf.math.cos(progress * 3.141592653589793))
         tf.keras.backend.set_value(self.model.optimizer.learning_rate, float(lr))
+
+    def on_epoch_end(self, epoch, logs=None):
+        lr = float(tf.keras.backend.get_value(self.model.optimizer.learning_rate))
+        print(f"  epoch={epoch + 1:03d} lr={lr:.8f}")
+        if self._writer is not None:
+            with self._writer.as_default():
+                tf.summary.scalar('lr', lr, step=epoch)
 
 
 def load_pbm(path):
@@ -334,6 +345,7 @@ def main():
         lr_end=LR_END,
         warmup_epochs=LR_WARMUP_EPOCHS,
         total_epochs=EPOCHS,
+        log_dir=TB_LOG_DIR,
     )
 
     if AUGMENT:
