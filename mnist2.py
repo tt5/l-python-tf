@@ -52,16 +52,10 @@ DENSE_DROPOUT = 0.4
 L2_REG = 0.00001
 BATCH_SIZE = 128
 BASE_LR = 0.002
-GRAD_NORM_EMA_DECAY = 0.96
-GRAD_NORM_TARGET = 1.0
-GRAD_ADAPTIVE_FACTOR = 0.0002
-GRAD_ADAPTIVE_BATCH_INTERVAL = 3
-GRAD_ADAPTIVE_MIN_LR = 0.00001
-GRAD_ADAPTIVE_MAX_LR = 0.0005
-REDUCE_LR_FACTOR = 0.5
-REDUCE_LR_PATIENCE = 2000
-REDUCE_LR_COOLDOWN = 5
-REDUCE_LR_MIN_LR = 0.00003
+LR_START = 0.00003
+LR_WARMUP_EPOCHS = 3
+LR_END = 0.00003
+LR_DECAY_EPOCHS = EPOCHS - LR_WARMUP_EPOCHS
 AUGMENT = True  # On-the-fly augmentation: random rotate/transpose
 
 
@@ -113,71 +107,27 @@ def symmetric_cross_entropy(alpha=0.5, beta=0.5):
 
 
 
-class _GradNormObserver:
-    def __init__(self, optimizer, output_var):
-        self.optimizer = optimizer
-        self._output_var = output_var
-        self._original_apply = optimizer.apply_gradients
-
-        def _wrapped_apply(grads_and_vars, **kwargs):
-            grads = [g for g, _ in grads_and_vars if g is not None]
-            if grads:
-                gn = tf.linalg.global_norm(grads)
-            else:
-                gn = tf.constant(0.0, dtype=tf.float32)
-            self._output_var.assign(gn)
-            return self._original_apply(grads_and_vars, **kwargs)
-
-        optimizer.apply_gradients = _wrapped_apply
-
-
-class GradNormEMACallback(tf.keras.callbacks.Callback):
-    def __init__(self, decay=0.95, target=1.0, factor=0.01, min_lr=3e-6, max_lr=2e-3, start_epoch=0, batch_interval=1):
+class LinearWarmupCosineDecay(tf.keras.callbacks.Callback):
+    def __init__(self, lr_start, lr_peak, lr_end, warmup_epochs=0, total_epochs=0):
         super().__init__()
-        self.decay = decay
-        self.target = target
-        self.factor = factor
-        self.min_lr = min_lr
-        self.max_lr = max_lr
-        self.start_epoch = start_epoch
-        self.batch_interval = batch_interval
-        self.ema_norm = 0.0
-        self._observer = None
-        self._epoch = None
-        self._norm_var = None
-        self._optimizer = None
-        self._batch = 0
-
-    def set_model(self, model):
-        super().set_model(model)
-        self._norm_var = tf.Variable(0.0, trainable=False)
-        self._observer = _GradNormObserver(model.optimizer, self._norm_var)
-        self._optimizer = model.optimizer
+        self.lr_start = float(lr_start)
+        self.lr_peak = float(lr_peak)
+        self.lr_end = float(lr_end)
+        self.warmup_epochs = int(warmup_epochs)
+        self.total_epochs = int(total_epochs)
 
     def on_epoch_begin(self, epoch, logs=None):
-        self._epoch = epoch
-        self._batch = 0
-
-    def on_train_batch_end(self, batch, logs=None):
-        if self._epoch is None or self._epoch < self.start_epoch:
-            return
-        if self._norm_var is None:
-            return
-        norm = float(self._norm_var.numpy())
-        self.ema_norm = self.decay * self.ema_norm + (1.0 - self.decay) * norm
-        self._batch += 1
-        if self.batch_interval <= 0 or (self._batch % self.batch_interval) == 0:
-            current_lr = float(tf.keras.backend.get_value(self._optimizer.learning_rate))
-            ema = float(self.ema_norm)
-            delta = (self.target - ema) / (ema + 1e-8)
-            new_lr = current_lr * (1.0 + self.factor * delta)
-            new_lr = max(self.min_lr, min(self.max_lr, new_lr))
-            self._optimizer.learning_rate.assign(new_lr)
-            #print(f"  GradNormEMA batch: ema_norm={ema:.4f}, lr={new_lr:.6f}")
-
-    def on_epoch_end(self, epoch, logs=None):
-        # no-op: LR is adjusted per batch in on_train_batch_end
-        return
+        if epoch < self.warmup_epochs:
+            lr = self.lr_start + (self.lr_peak - self.lr_start) * (
+                epoch / max(1, self.warmup_epochs - 1)
+                if self.warmup_epochs > 1
+                else 1.0
+            )
+        else:
+            progress = (epoch - self.warmup_epochs) / max(1, self.total_epochs - self.warmup_epochs - 1)
+            progress = max(0.0, min(1.0, progress))
+            lr = self.lr_end + 0.5 * (self.lr_peak - self.lr_end) * (1.0 + tf.math.cos(progress * 3.141592653589793))
+        tf.keras.backend.set_value(self.model.optimizer.learning_rate, float(lr))
 
 
 def load_pbm(path):
@@ -378,24 +328,22 @@ def main():
         restore_best_weights=True
     )
     tb_callback = tf.keras.callbacks.TensorBoard(log_dir=str(TB_LOG_DIR), update_freq='epoch')
-    grad_norm_cb = GradNormEMACallback(
-        decay=GRAD_NORM_EMA_DECAY,
-        target=GRAD_NORM_TARGET,
-        factor=GRAD_ADAPTIVE_FACTOR,
-        min_lr=GRAD_ADAPTIVE_MIN_LR,
-        max_lr=GRAD_ADAPTIVE_MAX_LR,
-        start_epoch=0,
-        batch_interval=GRAD_ADAPTIVE_BATCH_INTERVAL,
+    lr_cb = LinearWarmupCosineDecay(
+        lr_start=LR_START,
+        lr_peak=BASE_LR,
+        lr_end=LR_END,
+        warmup_epochs=LR_WARMUP_EPOCHS,
+        total_epochs=EPOCHS,
     )
 
     if AUGMENT:
         train_gen = AugmentGenerator(x_train, y_train, batch_size=BATCH_SIZE, augment=True)
         history = model.fit(train_gen, epochs=EPOCHS, validation_data=(x_test, y_test),
-                  callbacks=[early_stopping, grad_norm_cb, tb_callback], verbose=2)
+                  callbacks=[early_stopping, lr_cb, tb_callback], verbose=2)
     else:
         history = model.fit(x_train, y_train, epochs=EPOCHS, batch_size=BATCH_SIZE,
                   validation_data=(x_test, y_test),
-                  callbacks=[early_stopping, grad_norm_cb, tb_callback])
+                  callbacks=[early_stopping, lr_cb, tb_callback])
 
     stopped_epoch = getattr(early_stopping, 'stopped_epoch', None)
     best_epoch = getattr(early_stopping, 'best_epoch', None)
