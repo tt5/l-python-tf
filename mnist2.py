@@ -37,7 +37,7 @@ except Exception:
             return super()._resource_apply_sparse(grad, var, indices, apply_state)
 
 DEFAULT_PBM_DIR = Path(__file__).resolve().parent / "../../telephonegame/data/pbm"
-TB_LOG_DIR = Path(__file__).resolve().parent / "logs" / "mnist2b"
+TB_LOG_DIR = Path(__file__).resolve().parent / "logs" / "mnist2"
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--data-dir", type=Path, default=DEFAULT_PBM_DIR, help="PBM data directory")
@@ -340,7 +340,7 @@ def main():
     c3 = L.Concatenate()([b1, b3, b5])
     c3 = L.Conv2D(128, 1, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(c3)
     c3 = L.LayerNormalization()(c3)
-    c3 = L.Dropout(DENSE_DROPOUT/2)(c3)
+    c3 = L.Dropout(DENSE_DROPOUT)(c3)
 
     # Flatten + Dense with 2 residual connections
     x = L.Flatten()(c3)
