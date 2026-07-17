@@ -37,7 +37,7 @@ except Exception:
             return super()._resource_apply_sparse(grad, var, indices, apply_state)
 
 DEFAULT_PBM_DIR = Path(__file__).resolve().parent / "../../telephonegame/data/pbm"
-TB_LOG_DIR = Path(__file__).resolve().parent / "logs" / "mnist2"
+TB_LOG_DIR = Path(__file__).resolve().parent / "logs" / "mnist2b"
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--data-dir", type=Path, default=DEFAULT_PBM_DIR, help="PBM data directory")
@@ -46,24 +46,23 @@ PBM_DIR = args.data_dir
 IMG_SIZE = 22
 TARGET_SIZE = 28
 LOW_CONF_THRESHOLD = 0.6
-EPOCHS = 170
-DROPOUT = 0.35 # unused
+EPOCHS = 180
 SPATIAL_DROPOUT = 0.4
-DENSE_DROPOUT = 0.2
+DENSE_DROPOUT = 0.3
 L2_REG = 0.00005
 BATCH_SIZE = 256
-BASE_LR = 0.0009
+BASE_LR = 0.0008
 WARMUP_EPOCHS = 3
 DECAY_EPOCHS = EPOCHS - WARMUP_EPOCHS
 LR_START = 0.00003
-LR_END = 0.00002
+LR_END = 0.00003
 POLY_EPSILON = 2
-GRAD_NORM_EMA_DECAY = 0.97
+GRAD_NORM_EMA_DECAY = 0.96
 GRAD_NORM_TARGET = 1.0
 GRAD_ADAPTIVE_FACTOR = 0.0019
 GRAD_ADAPTIVE_BATCH_INTERVAL = 3
 GRAD_ADAPTIVE_MIN_LR = 0.000005
-GRAD_ADAPTIVE_MAX_LR = 0.02
+GRAD_ADAPTIVE_MAX_LR = 0.01
 REDUCE_LR_FACTOR = 0.5
 REDUCE_LR_PATIENCE = 8
 REDUCE_LR_COOLDOWN = 3
@@ -117,24 +116,6 @@ def symmetric_cross_entropy(alpha=0.5, beta=0.5):
     return loss_fn
 
 
-
-class LinearLRSchedule(tf.keras.callbacks.Callback):
-    def __init__(self, lr_start, lr_peak, lr_end, warmup_epochs, decay_epochs):
-        self.lr_start = lr_start
-        self.lr_peak = lr_peak
-        self.lr_end = lr_end
-        self.warmup_epochs = warmup_epochs
-        self.decay_epochs = decay_epochs
-
-    def on_epoch_begin(self, epoch, logs=None):
-        if epoch < self.warmup_epochs:
-            lr = self.lr_start + (self.lr_peak - self.lr_start) * (epoch / max(1, self.warmup_epochs - 1))
-        elif epoch < self.warmup_epochs + self.decay_epochs:
-            t = (epoch - self.warmup_epochs) / max(1, self.decay_epochs - 1)
-            lr = self.lr_peak + (self.lr_end - self.lr_peak) * t
-        else:
-            lr = self.lr_end
-        tf.keras.backend.set_value(self.model.optimizer.lr, float(lr))
 
 
 class _GradNormObserver:
@@ -197,7 +178,7 @@ class GradNormEMACallback(tf.keras.callbacks.Callback):
             new_lr = current_lr * (1.0 + self.factor * delta)
             new_lr = max(self.min_lr, min(self.max_lr, new_lr))
             self._optimizer.learning_rate.assign(new_lr)
-            print(f"  GradNormEMA batch: ema_norm={ema:.4f}, lr={new_lr:.6f}")
+            #print(f"  GradNormEMA batch: ema_norm={ema:.4f}, lr={new_lr:.6f}")
 
     def on_epoch_end(self, epoch, logs=None):
         # no-op: LR is adjusted per batch in on_train_batch_end

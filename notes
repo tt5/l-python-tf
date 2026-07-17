@@ -48,3 +48,42 @@ Curriculum learning — Start with easy classes, gradually add harder ones 19. C
   Class 0: 100.0% correctly classified (1000/1000)
   Class 1: 92.4% correctly classified (924/1000)
   Class 2: 89.8% correctly classified (898/1000)
+
+---
+
+─── Per-class accuracy ───
+  Class digit_0: 126/126 = 100.0%
+  Class digit_1: 120/126 = 95.2%
+  Class digit_2: 124/126 = 98.4%
+  Class digit_3: 126/126 = 100.0%
+  Class digit_4: 126/126 = 100.0%
+  Class digit_5: 116/126 = 92.1%
+  Class digit_6: 91/119 = 76.5%
+  Class low_conf: 72/125 = 57.6%
+
+Overall accuracy: 901/1000 = 90.1%
+
+─── Generation quality (5000 per class) ───
+  Class digit_0: 100.0% correct (5000/5000), avg confidence: 100.0%
+  Class digit_1: 54.6% correct (2732/5000), avg confidence: 95.4%
+  Class digit_2: 84.7% correct (4233/5000), avg confidence: 99.3%
+  Class digit_3: 100.0% correct (5000/5000), avg confidence: 100.0%
+  Class digit_4: 100.0% correct (5000/5000), avg confidence: 100.0%
+  Class digit_5: 37.4% correct (1869/5000), avg confidence: 91.1%
+  Class digit_6: 30.8% correct (1540/5000), avg confidence: 79.2%
+  Class low_conf: 28.9% correct (1447/5000), avg confidence: 68.6%
+
+1:
+
+  Class 0: 100.0% correctly classified (1000/1000), avg confidence: 99.9%
+  Class 1: 92.1% correctly classified (921/1000), avg confidence: 99.0%
+  Class 2: 91.8% correctly classified (918/1000), avg confidence: 98.8%
+  Class 3: 99.5% correctly classified (995/1000), avg confidence: 100.0%
+  Class 4: 100.0% correctly classified (1000/1000), avg confidence: 100.0%
+  Class 5: 100.0% correctly classified (1000/1000), avg confidence: 100.0%
+
+─── Real data classification (from synthetic project) ───
+  Class 0: 99.4% correctly classified (994/1000)
+  Class 1: 89.0% correctly classified (890/1000)
+  Class 2: 92.3% correctly classified (923/1000)
+  Class 3: 99.9% correctly classified (999/1000)
