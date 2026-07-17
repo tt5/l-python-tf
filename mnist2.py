@@ -47,20 +47,20 @@ IMG_SIZE = 22
 TARGET_SIZE = 28
 LOW_CONF_THRESHOLD = 0.6
 EPOCHS = 180
-SPATIAL_DROPOUT = 0.3
-DENSE_DROPOUT = 0.2
-L2_REG = 0.00005
-BATCH_SIZE = 256
-BASE_LR = 0.0009
-GRAD_NORM_EMA_DECAY = 0.97
+SPATIAL_DROPOUT = 0.4
+DENSE_DROPOUT = 0.4
+L2_REG = 0.00001
+BATCH_SIZE = 128
+BASE_LR = 0.002
+GRAD_NORM_EMA_DECAY = 0.96
 GRAD_NORM_TARGET = 1.0
-GRAD_ADAPTIVE_FACTOR = 0.002
+GRAD_ADAPTIVE_FACTOR = 0.0002
 GRAD_ADAPTIVE_BATCH_INTERVAL = 3
-GRAD_ADAPTIVE_MIN_LR = 0.000005
-GRAD_ADAPTIVE_MAX_LR = 0.02
+GRAD_ADAPTIVE_MIN_LR = 0.00001
+GRAD_ADAPTIVE_MAX_LR = 0.0005
 REDUCE_LR_FACTOR = 0.5
-REDUCE_LR_PATIENCE = 8
-REDUCE_LR_COOLDOWN = 3
+REDUCE_LR_PATIENCE = 2000
+REDUCE_LR_COOLDOWN = 5
 REDUCE_LR_MIN_LR = 0.00003
 AUGMENT = True  # On-the-fly augmentation: random rotate/transpose
 
@@ -378,14 +378,6 @@ def main():
         restore_best_weights=True
     )
     tb_callback = tf.keras.callbacks.TensorBoard(log_dir=str(TB_LOG_DIR), update_freq='epoch')
-    reduce_lr = tf.keras.callbacks.ReduceLROnPlateau(
-        monitor='val_loss',
-        factor=REDUCE_LR_FACTOR,
-        patience=REDUCE_LR_PATIENCE,
-        min_lr=REDUCE_LR_MIN_LR,
-        cooldown=REDUCE_LR_COOLDOWN,
-        verbose=0
-    )
     grad_norm_cb = GradNormEMACallback(
         decay=GRAD_NORM_EMA_DECAY,
         target=GRAD_NORM_TARGET,
@@ -399,11 +391,11 @@ def main():
     if AUGMENT:
         train_gen = AugmentGenerator(x_train, y_train, batch_size=BATCH_SIZE, augment=True)
         history = model.fit(train_gen, epochs=EPOCHS, validation_data=(x_test, y_test),
-                  callbacks=[early_stopping, reduce_lr, grad_norm_cb, tb_callback], verbose=2)
+                  callbacks=[early_stopping, grad_norm_cb, tb_callback], verbose=2)
     else:
         history = model.fit(x_train, y_train, epochs=EPOCHS, batch_size=BATCH_SIZE,
                   validation_data=(x_test, y_test),
-                  callbacks=[early_stopping, reduce_lr, grad_norm_cb, tb_callback])
+                  callbacks=[early_stopping, grad_norm_cb, tb_callback])
 
     stopped_epoch = getattr(early_stopping, 'stopped_epoch', None)
     best_epoch = getattr(early_stopping, 'best_epoch', None)

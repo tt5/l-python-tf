@@ -27,8 +27,8 @@ PBM_DIR = args.data_dir
 
 # ─── Hyperparameters ──────────────────────────────────────────────
 LATENT_DIM = 256
-EPOCHS = 180
-BATCH_SIZE = 64
+EPOCHS = 200
+BATCH_SIZE = 128
 NUM_CLASSES = None  # derived from data + low_conf
 TARGET_SIZE = 28
 LOW_CONF_THRESHOLD = 0.6
@@ -37,14 +37,15 @@ KL_START_WEIGHT = 0.09
 KL_WEIGHT = 0.45
 KL_DECAY_EPOCHS = EPOCHS
 KL_WEIGHT_END = 0.04
-LEARNING_RATE = 0.0021
-LR_WARMUP_EPOCHS = 8
+LEARNING_RATE = 0.001
+LR_WARMUP_EPOCHS = 6
 LR_START = 0.000087
 LR_DECAY_EPOCHS = EPOCHS - LR_WARMUP_EPOCHS
 LR_END = 0.000005
 L2_REG = 0.00001
 KL_FREE_BITS = 0.0
-DROPOUT = 0.37
+SPATIAL_DROPOUT = 0.5
+DENSE_DROPOUT = 0.5
 AUGMENT = True
 RECON_LOSS_WEIGHT = 0.35
 PERCEPTUAL_FINE_WEIGHT = 1.0
@@ -53,7 +54,7 @@ PERCEPTUAL_MULTISCALE = True
 PERCEPTUAL_WEIGHTS = [PERCEPTUAL_FINE_WEIGHT, PERCEPTUAL_COARSE_WEIGHT]
 PERCEPTUAL_WARMUP_EPOCHS = 9
 PERCEPTUAL_START_WEIGHT = 0.006
-PERCEPTUAL_PEAK_WEIGHT = 65
+PERCEPTUAL_PEAK_WEIGHT = 2
 PERCEPTUAL_DECAY_EPOCHS = 60
 PERCEPTUAL_END_WEIGHT = 0
 PERCEPTUAL_EXTRACTOR_PATH = Path(__file__).parent / "mnist2_model"
@@ -62,6 +63,7 @@ TV_START_WEIGHT = 0.07
 TV_PEAK_WEIGHT = 0.17
 TV_DECAY_EPOCHS = 50
 TV_END_WEIGHT = 0.0
+LOG_NAME = "train_cvae1"
 
 def load_pbm(path):
     """Load a P4 PBM file and return a 2D numpy array of 0/1 float32."""
@@ -171,6 +173,7 @@ def label_cross_attention(spatial, label_input, channels, l2_reg):
 
     le = tf.keras.layers.Dense(16, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(l2_reg))(label_input)
     le = tf.keras.layers.Dense(64, activation=None, kernel_regularizer=tf.keras.regularizers.l2(l2_reg))(le)
+    le = tf.keras.layers.Dropout(DENSE_DROPOUT)(le)
 
     q = tf.keras.layers.Dense(channels)(spatial)
     q = tf.reshape(q, [B, flat, channels])
@@ -193,7 +196,7 @@ def build_encoder():
 
     x = tf.keras.layers.Conv2D(32, 3, strides=1, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(image_input)
     x = tf.keras.layers.LayerNormalization()(x)
-    x = tf.keras.layers.SpatialDropout2D(DROPOUT)(x)
+    x = tf.keras.layers.SpatialDropout2D(SPATIAL_DROPOUT)(x)
     x = tf.keras.layers.MaxPooling2D(2)(x)
     x14 = x  # 14x14, 32 channels
 
@@ -205,6 +208,7 @@ def build_encoder():
 
     # Label pathway
     label_emb = tf.keras.layers.Dense(16, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(label_input)
+    label_emb = tf.keras.layers.Dropout(DENSE_DROPOUT)(label_emb)
 
     # Cross-attention at 14x14
     x14 = label_cross_attention(x14, label_input, 32, L2_REG)
@@ -220,7 +224,7 @@ def build_encoder():
 
     x = tf.keras.layers.Conv2D(64, 3, strides=1, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x14)
     x = tf.keras.layers.LayerNormalization()(x)
-    x = tf.keras.layers.SpatialDropout2D(DROPOUT)(x)
+    x = tf.keras.layers.SpatialDropout2D(SPATIAL_DROPOUT)(x)
     x = tf.keras.layers.MaxPooling2D(2)(x)
     # Residual conv block
     x_res = x
@@ -230,13 +234,13 @@ def build_encoder():
     x = tf.keras.layers.LayerNormalization()(x)
     x = tf.keras.layers.Add()([x, x_res])
     x = tf.keras.layers.Activation("relu")(x)
-    x = tf.keras.layers.SpatialDropout2D(DROPOUT)(x)
+    x = tf.keras.layers.SpatialDropout2D(SPATIAL_DROPOUT)(x)
     # SE block
     se = tf.keras.layers.GlobalAveragePooling2D()(x)
     se = tf.keras.layers.Dense(64 // 4, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(se)
     se = tf.keras.layers.Dense(64, activation="sigmoid", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(se)
     x = tf.keras.layers.Multiply()([x, se])
-    x = tf.keras.layers.SpatialDropout2D(DROPOUT)(x)
+    x = tf.keras.layers.SpatialDropout2D(SPATIAL_DROPOUT)(x)
     # Multi-scale kernel block at 7x7
     b1 = tf.keras.layers.Conv2D(32, 1, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     b3 = tf.keras.layers.Conv2D(32, 3, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
@@ -244,16 +248,17 @@ def build_encoder():
     x = tf.keras.layers.Concatenate()([b1, b3, b5])
     x = tf.keras.layers.Conv2D(64, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = tf.keras.layers.LayerNormalization()(x)
-    x = tf.keras.layers.SpatialDropout2D(DROPOUT)(x)
+    x = tf.keras.layers.SpatialDropout2D(SPATIAL_DROPOUT)(x)
     # Label pathway
     label_emb = tf.keras.layers.Dense(16, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(label_input)
+    label_emb = tf.keras.layers.Dropout(DENSE_DROPOUT)(label_emb)
 
     x = label_cross_attention(x, label_input, 64, L2_REG)
     x = tf.keras.layers.Flatten()(x)
     x = tf.keras.layers.Concatenate()([x, label_emb])
     x = tf.keras.layers.Dense(128, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = tf.keras.layers.LayerNormalization()(x)
-    x = tf.keras.layers.Dropout(DROPOUT)(x)
+    x = tf.keras.layers.Dropout(DENSE_DROPOUT)(x)
     x = tf.keras.layers.LayerNormalization()(x)
 
     z_mean = tf.keras.layers.Dense(LATENT_DIM, name="z_mean", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
@@ -270,14 +275,17 @@ def build_generator():
     # Label pathway
     label_emb = tf.keras.layers.Dense(32, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(label_input)
     label_emb = tf.keras.layers.Dense(96, activation=None, kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(label_emb)
+    label_emb = tf.keras.layers.Dropout(DENSE_DROPOUT)(label_emb)
 
     # Concatenate latent and label for initial expansion
     z = tf.keras.layers.Dense(64, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(latent_input)
+    z = tf.keras.layers.Dropout(DENSE_DROPOUT)(z)
     x = tf.keras.layers.Concatenate()([z, label_emb])
     x = tf.keras.layers.Dense(7 * 7 * 96, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
+    x = tf.keras.layers.Dropout(DENSE_DROPOUT)(x)
     x = tf.keras.layers.Reshape((7, 7, 96))(x)
     x = label_cross_attention(x, label_input, 96, L2_REG)
-    x = tf.keras.layers.SpatialDropout2D(DROPOUT)(x)
+    x = tf.keras.layers.SpatialDropout2D(SPATIAL_DROPOUT)(x)
     skip7 = x
 
     # SE block at 7x7
@@ -298,7 +306,7 @@ def build_generator():
     x = tf.keras.layers.Conv2D(48, 3, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = tf.keras.layers.LayerNormalization(center=False, scale=False)(x)
     x = tf.keras.layers.Activation("relu")(x)
-    x = tf.keras.layers.SpatialDropout2D(DROPOUT)(x)
+    x = tf.keras.layers.SpatialDropout2D(SPATIAL_DROPOUT)(x)
     x = tf.keras.layers.Add()([
         x,
         tf.keras.layers.Conv2DTranspose(48, 2, strides=2, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(
@@ -308,6 +316,7 @@ def build_generator():
 
     # 14x14 block
     label_emb_block = tf.keras.layers.Dense(16, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(label_input)
+    label_emb_block = tf.keras.layers.Dropout(DENSE_DROPOUT)(label_emb_block)
     scale = tf.keras.layers.Dense(48, kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(label_emb_block)
     offset = tf.keras.layers.Dense(48, kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(label_emb_block)
     scale = tf.keras.layers.Reshape((1, 1, 48))(scale)
@@ -321,7 +330,7 @@ def build_generator():
     x = tf.keras.layers.Concatenate()([b1, b3, b5])
     x = tf.keras.layers.Conv2D(48, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = tf.keras.layers.LayerNormalization()(x)
-    x = tf.keras.layers.SpatialDropout2D(DROPOUT)(x)
+    x = tf.keras.layers.SpatialDropout2D(SPATIAL_DROPOUT)(x)
 
     skip14 = x
     # SE block at 14x14
@@ -329,12 +338,12 @@ def build_generator():
     se14 = tf.keras.layers.Dense(48 // 4, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(se14)
     se14 = tf.keras.layers.Dense(48, activation='sigmoid', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(se14)
     skip14 = tf.keras.layers.Multiply()([skip14, se14])
-    x = tf.keras.layers.SpatialDropout2D(DROPOUT)(x)
+    x = tf.keras.layers.SpatialDropout2D(SPATIAL_DROPOUT)(x)
     x = tf.keras.layers.Conv2DTranspose(48, 2, strides=2, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = tf.keras.layers.Conv2D(48, 3, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = tf.keras.layers.LayerNormalization(center=False, scale=False)(x)
     x = tf.keras.layers.Activation("relu")(x)
-    x = tf.keras.layers.SpatialDropout2D(DROPOUT/2)(x)
+    x = tf.keras.layers.SpatialDropout2D(SPATIAL_DROPOUT)(x)
     x = label_cross_attention(x, label_input, 48, L2_REG)
     x = tf.keras.layers.Add()([
         x,
@@ -347,7 +356,7 @@ def build_generator():
     # 28x28 block
     x = label_cross_attention(x, label_input, 48, L2_REG)
 
-    x = tf.keras.layers.SpatialDropout2D(DROPOUT)(x)
+    x = tf.keras.layers.SpatialDropout2D(SPATIAL_DROPOUT)(x)
     x = tf.keras.layers.Conv2D(48, 3, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
 
     # SE block at 28x28
@@ -627,7 +636,7 @@ def main():
         restore_best_weights=True
     )
     tensorboard_callback = tf.keras.callbacks.TensorBoard(
-        log_dir=str(Path(__file__).parent / "logs" / "train_cvae1"),
+        log_dir=str(Path(__file__).parent / "logs" / LOG_NAME),
         histogram_freq=1,
         write_graph=True,
         update_freq="epoch",

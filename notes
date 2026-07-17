@@ -38,6 +38,10 @@ Adversarial loss — Add a discriminator for sharper outputs
 
 Curriculum learning — Start with easy classes, gradually add harder ones 19. Class-balanced sampling — Ensure equal representation of all classes per batch
 
+When increasing the batch size one usually reduces the learning rate.
+
+gradient accumulation
+
   Class 0: 100.0% correctly classified (1000/1000), avg confidence: 99.9%
   Class 1: 90.5% correctly classified (905/1000), avg confidence: 99.6%
   Class 2: 95.6% correctly classified (956/1000), avg confidence: 98.9%
@@ -87,3 +91,5 @@ Overall accuracy: 901/1000 = 90.1%
   Class 1: 89.0% correctly classified (890/1000)
   Class 2: 92.3% correctly classified (923/1000)
   Class 3: 99.9% correctly classified (999/1000)
+
+
