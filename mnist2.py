@@ -37,7 +37,7 @@ except Exception:
             return super()._resource_apply_sparse(grad, var, indices, apply_state)
 
 DEFAULT_PBM_DIR = Path(__file__).resolve().parent / "../../telephonegame/data/pbm"
-TB_LOG_DIR = Path(__file__).resolve().parent / "logs" / "mnist2b"
+TB_LOG_DIR = Path(__file__).resolve().parent / "logs" / "mnist2"
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--data-dir", type=Path, default=DEFAULT_PBM_DIR, help="PBM data directory")
@@ -54,7 +54,7 @@ BATCH_SIZE = 256
 BASE_LR = 0.0009
 GRAD_NORM_EMA_DECAY = 0.97
 GRAD_NORM_TARGET = 1.0
-GRAD_ADAPTIVE_FACTOR = 0.0019
+GRAD_ADAPTIVE_FACTOR = 0.002
 GRAD_ADAPTIVE_BATCH_INTERVAL = 3
 GRAD_ADAPTIVE_MIN_LR = 0.000005
 GRAD_ADAPTIVE_MAX_LR = 0.02
