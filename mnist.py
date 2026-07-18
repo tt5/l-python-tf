@@ -97,12 +97,14 @@ def load_synthetic():
         for f in train_files:
             img = np.load(str(f)).astype(np.float32) / 255.0
             img = np.asarray(img).reshape(28, 28, 1)
+            img = (img > 0.5).astype(np.float32)
             train_images.append(img)
             train_labels.append(class_id)
 
         for f in test_files:
             img = np.load(str(f)).astype(np.float32) / 255.0
             img = np.asarray(img).reshape(28, 28, 1)
+            img = (img > 0.5).astype(np.float32)
             test_images.append(img)
             test_labels.append(class_id)
 

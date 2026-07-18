@@ -19,10 +19,10 @@ from tensorflow.keras import layers
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "synthetic" / "data"
 LATENT_DIM = 512
 PHA1_LATENT_DIM = 128
-EPOCHS = 130
+EPOCHS = 90
 BATCH_SIZE = 256
 NUM_CLASSES = 6
-PROGRESSIVE_EPOCHS = 12  # Phase 1: 14x14
+PROGRESSIVE_EPOCHS = 13  # Phase 1: 14x14
 LR = 0.001
 LR_WARMUP_START = 0.000001
 LR_WARMUP_EPOCHS = 1
@@ -34,8 +34,8 @@ GRAD_NOISE_SCALE = 0.00005
 GRAD_NOISE_DECAY_EPOCHS = EPOCHS
 INFO_NCE_WEIGHT = 0.0
 TEMPERATURE = 1.0
-DROPOUT = 0.5
-SPATIAL_DROPOUT = 0.5
+DROPOUT = 0.4
+SPATIAL_DROPOUT = 0.45
 # Phase 2 KL schedule (configurable start)
 PHA2_KL_WARMUP_START = 0.00001
 PHA2_KL_WEIGHT_START = 0.5
@@ -62,13 +62,13 @@ def load_data():
         for f in files[:split]:
             img = np.load(str(f)).astype(np.float32) / 255.0
             img = np.asarray(img).reshape(28, 28, 1)
-            img = img.astype(np.float32)
+            img = (img > 0.5).astype(np.float32)
             x_train.append(img)
             y_train_oh.append(c)
         for f in files[split:]:
             img = np.load(str(f)).astype(np.float32) / 255.0
             img = np.asarray(img).reshape(28, 28, 1)
-            img = img.astype(np.float32)
+            img = (img > 0.5).astype(np.float32)
             x_test.append(img)
             y_test_oh.append(c)
 
@@ -577,10 +577,10 @@ class GeneratorCheckpoint(keras.callbacks.Callback):
             print(f"  Saved best generator (val_loss: {current_loss:.4f})")
 
 callbacks = [
-    keras.callbacks.EarlyStopping(monitor='val_total_loss', patience=9, restore_best_weights=True),
+    keras.callbacks.EarlyStopping(monitor='val_total_loss', patience=90, restore_best_weights=True),
     GeneratorCheckpoint(generator, best_generator_path),
     BestEpochLogger(vae),
-    keras.callbacks.TensorBoard(log_dir='logs/gen1', histogram_freq=1),
+    keras.callbacks.TensorBoard(log_dir='logs/gen1b', histogram_freq=1),
 ]
 
 # ─── Phase 1: Train at 14×14 (progressive growing) ────────────────

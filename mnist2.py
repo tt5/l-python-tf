@@ -37,7 +37,7 @@ except Exception:
             return super()._resource_apply_sparse(grad, var, indices, apply_state)
 
 DEFAULT_PBM_DIR = Path(__file__).resolve().parent / "../../telephonegame/data/pbm"
-TB_LOG_DIR = Path(__file__).resolve().parent / "logs" / "mnist2"
+TB_LOG_DIR = Path(__file__).resolve().parent / "logs" / "mnist2b"
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--data-dir", type=Path, default=DEFAULT_PBM_DIR, help="PBM data directory")
@@ -48,7 +48,7 @@ TARGET_SIZE = 28
 LOW_CONF_THRESHOLD = 0.7
 EPOCHS = 180
 SPATIAL_DROPOUT = 0.3
-DENSE_DROPOUT = 0.3
+DENSE_DROPOUT = 0.2
 L2_REG = 0.00001
 BATCH_SIZE = 128
 BASE_LR = 0.001
@@ -57,6 +57,53 @@ LR_WARMUP_EPOCHS = 10
 LR_END = 0.00001
 LR_DECAY_EPOCHS = 50 - LR_WARMUP_EPOCHS
 AUGMENT = True  # On-the-fly augmentation: random rotate/transpose
+GAUSSIAN_NOISE_STD_START = 0.00001
+GAUSSIAN_NOISE_STD_END = 0.0
+GAUSSIAN_NOISE_DECAY_EPOCHS = 50
+
+
+class GaussianNoiseInput(tf.keras.layers.Layer):
+    def __init__(self, std=0.0, **kwargs):
+        super().__init__(**kwargs)
+        std = float(std) if std is not None else 0.0
+        self.noise_std = tf.Variable(
+            tf.constant(std, dtype=tf.float32), trainable=False
+        )
+
+    def call(self, inputs, training=None):
+        noise = tf.random.normal(tf.shape(inputs), dtype=inputs.dtype)
+        return inputs + noise * tf.cast(self.noise_std, inputs.dtype)
+
+
+class LinearDecayNoise(tf.keras.callbacks.Callback):
+    def __init__(self, layer, std_start, std_end, decay_epochs, log_dir=None):
+        super().__init__()
+        self.layer = layer
+        self.std_start = float(std_start)
+        self.std_end = float(std_end)
+        self.decay_epochs = int(decay_epochs)
+        self.log_dir = str(log_dir) if log_dir else None
+        self._writer = None
+
+    def set_model(self, model):
+        super().set_model(model)
+        if self.log_dir:
+            self._writer = tf.summary.create_file_writer(self.log_dir)
+
+    def on_epoch_begin(self, epoch, logs=None):
+        if self.decay_epochs <= 0:
+            std = self.std_start
+        else:
+            progress = min(1.0, epoch / self.decay_epochs)
+            std = self.std_start + (self.std_end - self.std_start) * progress
+        tf.keras.backend.set_value(self.layer.noise_std, float(std))
+
+    def on_epoch_end(self, epoch, logs=None):
+        std = float(tf.keras.backend.get_value(self.layer.noise_std))
+        print(f"  noise_std={std:.8f}")
+        if self._writer is not None:
+            with self._writer.as_default():
+                tf.summary.scalar('noise_std', std, step=epoch)
 
 
 class AugmentGenerator(tf.keras.utils.Sequence):
@@ -268,6 +315,8 @@ def main():
 
     inputs = L.Input(shape=(TARGET_SIZE, TARGET_SIZE))
     x = L.Reshape((TARGET_SIZE, TARGET_SIZE, 1))(inputs)
+    noise_layer = GaussianNoiseInput(std=GAUSSIAN_NOISE_STD_START)
+    x = noise_layer(x)
 
     # Conv block 0: 28x28 -> 28x28
     c0 = L.SeparableConv2D(64, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
@@ -357,6 +406,13 @@ def main():
         restore_best_weights=True
     )
     tb_callback = tf.keras.callbacks.TensorBoard(log_dir=str(TB_LOG_DIR), update_freq='epoch')
+    noise_decay_cb = LinearDecayNoise(
+        layer=noise_layer,
+        std_start=GAUSSIAN_NOISE_STD_START,
+        std_end=GAUSSIAN_NOISE_STD_END,
+        decay_epochs=GAUSSIAN_NOISE_DECAY_EPOCHS,
+        log_dir=TB_LOG_DIR,
+    )
     lr_cb = LinearWarmupCosineDecay(
         lr_start=LR_START,
         lr_peak=BASE_LR,
@@ -366,14 +422,16 @@ def main():
         log_dir=TB_LOG_DIR,
     )
 
+    callbacks = [early_stopping, noise_decay_cb, lr_cb, tb_callback]
+
     if AUGMENT:
         train_gen = AugmentGenerator(x_train, y_train, batch_size=BATCH_SIZE, augment=True)
         history = model.fit(train_gen, epochs=EPOCHS, validation_data=(x_test, y_test),
-                  callbacks=[early_stopping, lr_cb, tb_callback], verbose=2)
+                  callbacks=callbacks, verbose=2)
     else:
         history = model.fit(x_train, y_train, epochs=EPOCHS, batch_size=BATCH_SIZE,
                   validation_data=(x_test, y_test),
-                  callbacks=[early_stopping, lr_cb, tb_callback])
+                  callbacks=callbacks)
 
     stopped_epoch = getattr(early_stopping, 'stopped_epoch', None)
     best_epoch = getattr(early_stopping, 'best_epoch', None)
