@@ -37,7 +37,7 @@ except Exception:
             return super()._resource_apply_sparse(grad, var, indices, apply_state)
 
 DEFAULT_PBM_DIR = Path(__file__).resolve().parent / "../../telephonegame/data/pbm"
-TB_LOG_DIR = Path(__file__).resolve().parent / "logs" / "mnist2b"
+TB_LOG_DIR = Path(__file__).resolve().parent / "logs" / "mnist2"
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--data-dir", type=Path, default=DEFAULT_PBM_DIR, help="PBM data directory")
@@ -47,15 +47,15 @@ IMG_SIZE = 22
 TARGET_SIZE = 28
 LOW_CONF_THRESHOLD = 0.7
 EPOCHS = 180
-SPATIAL_DROPOUT = 0.4
-DENSE_DROPOUT = 0.4
+SPATIAL_DROPOUT = 0.3
+DENSE_DROPOUT = 0.3
 L2_REG = 0.00001
 BATCH_SIZE = 128
 BASE_LR = 0.002
 LR_START = 0.00003
 LR_WARMUP_EPOCHS = 3
 LR_END = 0.00003
-LR_DECAY_EPOCHS = EPOCHS - LR_WARMUP_EPOCHS
+LR_DECAY_EPOCHS = 100 - LR_WARMUP_EPOCHS
 AUGMENT = True  # On-the-fly augmentation: random rotate/transpose
 
 
