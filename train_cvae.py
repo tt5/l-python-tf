@@ -32,7 +32,7 @@ PIXEL_LOSS_WEIGHT = 0.3
 PERCEPTUAL_LOSS_WEIGHT = 0.7
 INFO_NCE_WEIGHT = 0.00001
 TEMPERATURE = 1.0
-DROPOUT = 0.4
+DROPOUT = 0.45
 SPATIAL_DROPOUT = 0.4
 # Phase 2 KL schedule (configurable start)
 PHA2_KL_WARMUP_START = 0.00001
@@ -47,8 +47,8 @@ PHA1_KL_WARMUP_EPOCHS = 1
 PHA1_KL_WARMUP_START = 0
 PHA1_KL_WEIGHT_START = 0.5
 PHA1_INFO_NCE_WEIGHT = 0.5
-LOG_NAME = 'logs/gen1b'
-LOG_NAME_PHA1 = 'logs/gen1b/phase1'
+LOG_NAME = 'logs/gen1'
+LOG_NAME_PHA1 = 'logs/gen1/phase1'
 
 # ─── Data ──────────────────────────────────────────────────────────
 def load_data():
