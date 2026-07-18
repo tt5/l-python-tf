@@ -37,7 +37,7 @@ except Exception:
             return super()._resource_apply_sparse(grad, var, indices, apply_state)
 
 DEFAULT_PBM_DIR = Path(__file__).resolve().parent / "../../telephonegame/data/pbm"
-TB_LOG_DIR = Path(__file__).resolve().parent / "logs" / "mnist2b"
+TB_LOG_DIR = Path(__file__).resolve().parent / "logs" / "mnist2"
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--data-dir", type=Path, default=DEFAULT_PBM_DIR, help="PBM data directory")
@@ -303,8 +303,26 @@ def main():
     c3 = L.LayerNormalization()(c3)
     c3 = L.Dropout(DENSE_DROPOUT)(c3)
 
-    # Flatten + Dense with 2 residual connections
-    x = L.Flatten()(c3)
+    # Cross-scale residual connections: 7x7 -> 14x14 -> 28x28
+    up14 = L.UpSampling2D(2)(c3)
+    up14 = L.Conv2D(64, 1, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(up14)
+    c1_res = L.Add()([c1, up14])
+    c1_res = L.LayerNormalization()(c1_res)
+    c1_res = L.Dropout(DENSE_DROPOUT)(c1_res)
+
+    up28 = L.UpSampling2D(2)(c1_res)
+    up28 = L.Conv2D(64, 1, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(up28)
+    c0_res = L.Add()([c0, up28])
+    c0_res = L.LayerNormalization()(c0_res)
+    c0_res = L.Dropout(DENSE_DROPOUT)(c0_res)
+
+    # Multi-scale features for classification
+    pool7 = L.GlobalAveragePooling2D()(c3)
+    pool14 = L.GlobalAveragePooling2D()(c1_res)
+    pool28 = L.GlobalAveragePooling2D()(c0_res)
+
+    # Flatten + multi-scale concat
+    x = L.Concatenate()([L.Flatten()(c3), pool7, pool14, pool28])
 
     d1 = L.Dense(512, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     d1 = L.Dropout(DENSE_DROPOUT)(d1)
