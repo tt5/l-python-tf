@@ -27,19 +27,17 @@ print("Loading generator (ONNX)...")
 gen_session = ort.InferenceSession(str(save_dir / "cvae_generator.onnx"))
 gen_input_names = [inp.name for inp in gen_session.get_inputs()]
 gen_output_name = gen_session.get_outputs()[0].name
-input_0_shape = gen_session.get_inputs()[0].shape[1]
-input_1_shape = gen_session.get_inputs()[1].shape[1]
 
-if input_0_shape == NUM_CLASSES:
-    label_input_name = gen_input_names[0]
-    latent_input_name = gen_input_names[1]
-    LATENT_DIM = input_1_shape
-else:
-    latent_input_name = gen_input_names[0]
-    label_input_name = gen_input_names[1]
-    LATENT_DIM = input_0_shape
+label_input_name = next(n for n in gen_input_names if 'label_input' in n)
+latent_input_name = next(n for n in gen_input_names if 'latent_input' in n)
+
+label_input_info = gen_session.get_inputs()[gen_input_names.index(label_input_name)]
+latent_input_info = gen_session.get_inputs()[gen_input_names.index(latent_input_name)]
+NUM_CLASSES = int(label_input_info.shape[1])
+LATENT_DIM = int(latent_input_info.shape[1])
 print(f"  Inputs: {gen_input_names}")
-print(f"  Latent dim: {LATENT_DIM}")
+print(f"  NUM_CLASSES: {NUM_CLASSES}")
+print(f"  LATENT_DIM: {LATENT_DIM}")
 print(f"  Output: {gen_output_name}")
 
 print("Loading mnist classifier (ONNX)...")
@@ -64,6 +62,7 @@ for c in range(NUM_CLASSES):
         label_input_name: label_oh,
     }
     gen_images = gen_session.run([gen_output_name], gen_inputs)[0][:, :, :, 0]
+    gen_images = (gen_images > 0.5).astype(np.float32)
 
     raw = cls_session.run(
         [cls_output_name],

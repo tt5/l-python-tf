@@ -19,23 +19,21 @@ from tensorflow.keras import layers
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "synthetic" / "data"
 LATENT_DIM = 512
 PHA1_LATENT_DIM = 128
-EPOCHS = 90
-BATCH_SIZE = 256
+EPOCHS = 110
+BATCH_SIZE = 128
 NUM_CLASSES = 6
-PROGRESSIVE_EPOCHS = 13  # Phase 1: 14x14
-LR = 0.001
-LR_WARMUP_START = 0.000001
-LR_WARMUP_EPOCHS = 1
+PROGRESSIVE_EPOCHS = 15  # Phase 1: 14x14
+LR = 0.0008
+LR_WARMUP_START = 0.0000005
+LR_WARMUP_EPOCHS = 2
 LR_DECAY_EPOCHS = EPOCHS - LR_WARMUP_EPOCHS
-LR_END = 0.0001
-PIXEL_LOSS_WEIGHT = 0.45
-PERCEPTUAL_LOSS_WEIGHT = 0.55
-GRAD_NOISE_SCALE = 0.00005
-GRAD_NOISE_DECAY_EPOCHS = EPOCHS
-INFO_NCE_WEIGHT = 0.0
+LR_END = 0.00005
+PIXEL_LOSS_WEIGHT = 0.3
+PERCEPTUAL_LOSS_WEIGHT = 0.7
+INFO_NCE_WEIGHT = 0.00001
 TEMPERATURE = 1.0
 DROPOUT = 0.4
-SPATIAL_DROPOUT = 0.45
+SPATIAL_DROPOUT = 0.4
 # Phase 2 KL schedule (configurable start)
 PHA2_KL_WARMUP_START = 0.00001
 PHA2_KL_WEIGHT_START = 0.5
@@ -49,7 +47,8 @@ PHA1_KL_WARMUP_EPOCHS = 1
 PHA1_KL_WARMUP_START = 0
 PHA1_KL_WEIGHT_START = 0.5
 PHA1_INFO_NCE_WEIGHT = 0.5
-
+LOG_NAME = 'logs/gen1b'
+LOG_NAME_PHA1 = 'logs/gen1b/phase1'
 
 # ─── Data ──────────────────────────────────────────────────────────
 def load_data():
@@ -511,10 +510,6 @@ class VAE(keras.Model):
 
         grads = tape.gradient(total_loss, self.trainable_weights)
         grads = [tf.clip_by_value(g, -1.0, 1.0) if g is not None else g for g in grads]
-        # Linear decay of gradient noise
-        noise_scale = GRAD_NOISE_SCALE * (1.0 - tf.cast(self.epoch_tracker, tf.float32) / tf.cast(GRAD_NOISE_DECAY_EPOCHS, tf.float32))
-        noise_scale = tf.maximum(0.0, noise_scale)
-        grads = [g + tf.random.normal(tf.shape(g), stddev=noise_scale) if g is not None else g for g in grads]
         self.optimizer.apply_gradients(zip(grads, self.trainable_weights))
         self.total_loss_tracker.update_state(total_loss)
         self.recon_loss_tracker.update_state(pixel_loss)
@@ -580,7 +575,7 @@ callbacks = [
     keras.callbacks.EarlyStopping(monitor='val_total_loss', patience=90, restore_best_weights=True),
     GeneratorCheckpoint(generator, best_generator_path),
     BestEpochLogger(vae),
-    keras.callbacks.TensorBoard(log_dir='logs/gen1b', histogram_freq=1),
+    keras.callbacks.TensorBoard(log_dir=LOG_NAME, histogram_freq=1),
 ]
 
 # ─── Phase 1: Train at 14×14 (progressive growing) ────────────────
@@ -615,8 +610,6 @@ class VAE14(VAE):
             labels_ce = tf.range(batch_size)
             info_nce_loss = tf.reduce_mean(
                 tf.nn.sparse_softmax_cross_entropy_with_logits(labels=labels_ce, logits=sim_matrix))
-            noise_scale = GRAD_NOISE_SCALE * (1.0 - tf.cast(self.epoch_tracker, tf.float32) / tf.cast(GRAD_NOISE_DECAY_EPOCHS, tf.float32))
-            noise_scale = tf.maximum(0.0, noise_scale)
             # Phase 1 KL with configurable warmup
             epoch = tf.cast(self.epoch_tracker, tf.float32)
             kl_warmup_epochs = tf.cast(PHA1_KL_WARMUP_EPOCHS, tf.float32)
@@ -627,7 +620,6 @@ class VAE14(VAE):
                           PHA1_INFO_NCE_WEIGHT * info_nce_loss)
         grads = tape.gradient(total_loss, self.trainable_weights)
         grads = [tf.clip_by_value(g, -1.0, 1.0) if g is not None else g for g in grads]
-        grads = [g + tf.random.normal(tf.shape(g), stddev=noise_scale) if g is not None else g for g in grads]
         self.optimizer.apply_gradients(zip(grads, self.trainable_weights))
         self.total_loss_tracker.update_state(total_loss)
         self.recon_loss_tracker.update_state(pixel_loss)
@@ -642,7 +634,7 @@ vae_14.train_step = vae_14.train_step_14
 callbacks_14 = [
     keras.callbacks.EarlyStopping(monitor='val_total_loss', patience=10, restore_best_weights=True),
     BestEpochLogger(vae_14),
-    keras.callbacks.TensorBoard(log_dir='logs/gen1/phase1', histogram_freq=1),
+    keras.callbacks.TensorBoard(log_dir=LOG_NAME_PHA1, histogram_freq=1),
 ]
 
 history1 = vae_14.fit(x_train_14, y_train, validation_data=(x_test_14, y_test),
