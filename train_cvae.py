@@ -24,7 +24,7 @@ BATCH_SIZE = 128
 NUM_CLASSES = 6
 PROGRESSIVE_EPOCHS = 15  # Phase 1: 14x14
 LR = 0.0008
-LR_WARMUP_START = 0.0000005
+LR_WARMUP_START = 0.000001
 LR_WARMUP_EPOCHS = 1
 LR_DECAY_EPOCHS = EPOCHS - LR_WARMUP_EPOCHS
 LR_END = 0.00005
@@ -41,6 +41,11 @@ PHA2_KL_WEIGHT_TARGET = 0.4
 PHA2_KL_WARMUP_EPOCHS = 1
 PHA2_KL_DECAY_EPOCHS = EPOCHS
 # Phase 1 (14x14) specific config
+PHA1_LR = 0.0008
+PHA1_LR_WARMUP_START = 0.0000005
+PHA1_LR_WARMUP_EPOCHS = 1
+PHA1_LR_END = 0.0001
+PHA1_LR_DECAY_EPOCHS = PROGRESSIVE_EPOCHS - PHA1_LR_WARMUP_EPOCHS
 PHA1_PIXEL_LOSS_WEIGHT = 1.0
 PHA1_KL_WEIGHT = 0.5
 PHA1_KL_WARMUP_EPOCHS = 1
@@ -593,6 +598,17 @@ generator_14 = build_generator_14()
 
 class VAE14(VAE):
     """VAE for 14x14 phase without perceptual loss."""
+    def get_lr(self):
+        epoch = tf.cast(self.epoch_tracker, tf.float32)
+        warmup_epochs = tf.cast(PHA1_LR_WARMUP_EPOCHS, tf.float32)
+        decay_epochs = tf.cast(PHA1_LR_DECAY_EPOCHS, tf.float32)
+        warmup_progress = epoch / warmup_epochs
+        warmup_lr = PHA1_LR_WARMUP_START + (PHA1_LR - PHA1_LR_WARMUP_START) * tf.minimum(1.0, warmup_progress)
+        decay_epoch = epoch - warmup_epochs
+        decay_progress = tf.minimum(1.0, decay_epoch / tf.maximum(1.0, decay_epochs))
+        decay_lr = PHA1_LR + (PHA1_LR_END - PHA1_LR) * decay_progress
+        return tf.where(epoch < warmup_epochs, warmup_lr, decay_lr)
+
     def train_step_14(self, data):
         images, labels = data
         self.optimizer.learning_rate = self.get_lr()
@@ -627,7 +643,7 @@ class VAE14(VAE):
         return {m.name: m.result() for m in self.metrics}
 
 vae_14 = VAE14(encoder_14, generator_14)
-vae_14.compile(optimizer=keras.optimizers.Adam(LR))
+vae_14.compile(optimizer=keras.optimizers.Adam(PHA1_LR))
 # Use train_step_14 which skips perceptual loss
 vae_14.train_step = vae_14.train_step_14
 
