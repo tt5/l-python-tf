@@ -18,9 +18,9 @@ from tensorflow.keras import layers
 # ─── Config ────────────────────────────────────────────────────────
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "synthetic" / "data"
 LATENT_DIM = 512
-PHA1_LATENT_DIM = 128
+PHA1_LATENT_DIM = 64
 EPOCHS = 110
-BATCH_SIZE = 128
+BATCH_SIZE = 64
 NUM_CLASSES = 6
 PROGRESSIVE_EPOCHS = 15  # Phase 1: 14x14
 LR = 0.0008
