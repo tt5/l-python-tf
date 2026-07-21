@@ -55,15 +55,15 @@ PERCEPTUAL_WEIGHTS = [PERCEPTUAL_FINE_WEIGHT, PERCEPTUAL_COARSE_WEIGHT]
 PERCEPTUAL_WARMUP_EPOCHS = 9
 PERCEPTUAL_START_WEIGHT = 0.006
 PERCEPTUAL_PEAK_WEIGHT = 2
-PERCEPTUAL_DECAY_EPOCHS = 60
-PERCEPTUAL_END_WEIGHT = 0
+PERCEPTUAL_DECAY_EPOCHS = EPOCHS - PERCEPTUAL_WARMUP_EPOCHS
+PERCEPTUAL_END_WEIGHT = 1
 PERCEPTUAL_EXTRACTOR_PATH = Path(__file__).parent / "mnist2_model"
 TV_WARMUP_EPOCHS = 2
 TV_START_WEIGHT = 0.07
 TV_PEAK_WEIGHT = 0.17
 TV_DECAY_EPOCHS = 50
 TV_END_WEIGHT = 0.0
-LOG_NAME = "train_cvae1"
+LOG_NAME = "train_cvae1b"
 
 def load_pbm(path):
     """Load a P4 PBM file and return a 2D numpy array of 0/1 float32."""
@@ -191,6 +191,17 @@ def label_cross_attention(spatial, label_input, channels, l2_reg):
 
     return tf.keras.layers.Add()([spatial, ctx])
 
+def make_film(channels):
+    def film_fn(label):
+        emb = tf.keras.layers.Dense(16, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(label)
+        emb = tf.keras.layers.Dropout(DENSE_DROPOUT)(emb)
+        gamma = tf.keras.layers.Dense(channels, kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(emb)
+        beta = tf.keras.layers.Dense(channels, kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(emb)
+        gamma = tf.keras.layers.Reshape((1, 1, channels))(gamma)
+        beta = tf.keras.layers.Reshape((1, 1, channels))(beta)
+        return gamma, beta
+    return film_fn
+
 def build_encoder():
     image_input = tf.keras.layers.Input(shape=(28, 28, 1), name="image_input")
     label_input = tf.keras.layers.Input(shape=(NUM_CLASSES,), name="label_input")
@@ -213,6 +224,8 @@ def build_encoder():
 
     # Cross-attention at 14x14
     x14 = label_cross_attention(x14, label_input, 32, L2_REG)
+    film_gamma14, film_beta14 = make_film(32)(label_input)
+    x14 = x14 * (1.0 + film_gamma14) + film_beta14
 
     # 14x14 residual block
     x14_res = x14
@@ -255,6 +268,8 @@ def build_encoder():
     label_emb = tf.keras.layers.Dropout(DENSE_DROPOUT)(label_emb)
 
     x = label_cross_attention(x, label_input, 64, L2_REG)
+    film_gamma7, film_beta7 = make_film(64)(label_input)
+    x = x * (1.0 + film_gamma7) + film_beta7
     x = tf.keras.layers.Flatten()(x)
     x = tf.keras.layers.Concatenate()([x, label_emb])
     x = tf.keras.layers.Dense(128, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
