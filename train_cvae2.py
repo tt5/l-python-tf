@@ -316,7 +316,7 @@ def build_generator():
     x = tf.keras.layers.Activation("relu")(x)
     x = tf.keras.layers.Conv2DTranspose(48, 2, strides=2, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = tf.keras.layers.Conv2D(48, 3, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
-    x = tf.keras.layers.LayerNormalization(center=False, scale=False)(x)
+    x = tf.keras.layers.GroupNormalization(groups=8, center=True, scale=True)(x)
     x = tf.keras.layers.Activation("relu")(x)
     x = tf.keras.layers.SpatialDropout2D(SPATIAL_DROPOUT)(x)
     x = tf.keras.layers.Add()([
@@ -345,7 +345,7 @@ def build_generator():
     x = tf.keras.layers.SpatialDropout2D(SPATIAL_DROPOUT)(x)
     x = tf.keras.layers.Conv2DTranspose(48, 2, strides=2, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = tf.keras.layers.Conv2D(48, 3, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
-    x = tf.keras.layers.LayerNormalization(center=False, scale=False)(x)
+    x = tf.keras.layers.GroupNormalization(groups=8, center=True, scale=True)(x)
     x = tf.keras.layers.Activation("relu")(x)
     x = tf.keras.layers.SpatialDropout2D(SPATIAL_DROPOUT)(x)
     x = label_cross_attention(x, label_input, 48, L2_REG)
@@ -355,7 +355,7 @@ def build_generator():
             skip14
         )
     ])
-    x = tf.keras.layers.LayerNormalization()(x)
+    x = tf.keras.layers.GroupNormalization(groups=8, center=True, scale=True)(x)
 
     # 28x28 block
     x = tf.keras.layers.Conv2D(48, 3, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
