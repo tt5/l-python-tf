@@ -31,21 +31,21 @@ EPOCHS = 200
 BATCH_SIZE = 128
 NUM_CLASSES = None  # derived from data + low_conf
 TARGET_SIZE = 28
-LOW_CONF_THRESHOLD = 0.7
+LOW_CONF_THRESHOLD = 0.6
 KL_WARMUP_EPOCHS = 2
 KL_START_WEIGHT = 0.09
 KL_WEIGHT = 0.45
 KL_DECAY_EPOCHS = EPOCHS
 KL_WEIGHT_END = 0.04
-LEARNING_RATE = 0.0009
+LEARNING_RATE = 0.0008
 LR_WARMUP_EPOCHS = 6
 LR_START = 0.000087
 LR_DECAY_EPOCHS = EPOCHS - LR_WARMUP_EPOCHS
 LR_END = 0.000005
 L2_REG = 0.00001
 KL_FREE_BITS = 0.0
-SPATIAL_DROPOUT = 0.55
-DENSE_DROPOUT = 0.55
+SPATIAL_DROPOUT = 0.45
+DENSE_DROPOUT = 0.45
 AUGMENT = True
 RECON_LOSS_WEIGHT = 0.35
 PERCEPTUAL_FINE_WEIGHT = 1.0
@@ -63,7 +63,7 @@ TV_START_WEIGHT = 0.07
 TV_PEAK_WEIGHT = 0.17
 TV_DECAY_EPOCHS = 50
 TV_END_WEIGHT = 0.0
-LOG_NAME = "train_cvae1b"
+LOG_NAME = "train_cvae1"
 
 def load_pbm(path):
     """Load a P4 PBM file and return a 2D numpy array of 0/1 float32."""
@@ -114,7 +114,8 @@ def load_dataset():
 
         img = load_pbm(f)
         img_28 = upscale(img, TARGET_SIZE, TARGET_SIZE)
-        img_28 = img_28.astype(np.float32)
+        # Binarize (should already be binary from upscale, but ensure)
+        img_28 = (img_28 > 0.5).astype(np.float32)
 
         images.append(img_28)
 
