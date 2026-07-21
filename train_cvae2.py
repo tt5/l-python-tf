@@ -284,15 +284,16 @@ def build_generator():
     latent_input = tf.keras.layers.Input(shape=(LATENT_DIM,), name="latent_input")
     label_input = tf.keras.layers.Input(shape=(NUM_CLASSES,), name="label_input")
 
-    # Label pathway
-    label_emb = tf.keras.layers.Dense(32, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(label_input)
-    label_emb = tf.keras.layers.Dense(96, activation=None, kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(label_emb)
-    label_emb = tf.keras.layers.Dropout(DENSE_DROPOUT)(label_emb)
+    # Label pathway (shared)
+    label_shared = tf.keras.layers.Dense(32, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(label_input)
+    label_shared = tf.keras.layers.Dense(96, activation=None, kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(label_shared)
+    label_shared = tf.keras.layers.Dropout(DENSE_DROPOUT)(label_shared)
+    label_shared = tf.keras.layers.Dense(48, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(label_shared)
 
     # Concatenate latent and label for initial expansion
     z = tf.keras.layers.Dense(64, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(latent_input)
     z = tf.keras.layers.Dropout(DENSE_DROPOUT)(z)
-    x = tf.keras.layers.Concatenate()([z, label_emb])
+    x = tf.keras.layers.Concatenate()([z, label_shared])
     x = tf.keras.layers.Dense(7 * 7 * 96, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = tf.keras.layers.Dropout(DENSE_DROPOUT)(x)
     x = tf.keras.layers.Reshape((7, 7, 96))(x)
@@ -325,13 +326,12 @@ def build_generator():
             skip7
         )
     ])
+    x = tf.keras.layers.LayerNormalization(center=True, scale=True)(x)
 
     # 14x14 block
     x = label_cross_attention(x, label_input, 48, L2_REG)
-    label_emb_block = tf.keras.layers.Dense(16, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(label_input)
-    label_emb_block = tf.keras.layers.Dropout(DENSE_DROPOUT)(label_emb_block)
-    scale = tf.keras.layers.Dense(48, kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(label_emb_block)
-    offset = tf.keras.layers.Dense(48, kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(label_emb_block)
+    scale = tf.keras.layers.Dense(48, kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(label_shared)
+    offset = tf.keras.layers.Dense(48, kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(label_shared)
     scale = tf.keras.layers.Reshape((1, 1, 48))(scale)
     offset = tf.keras.layers.Reshape((1, 1, 48))(offset)
     x = x * (1.0 + scale) + offset
@@ -361,8 +361,8 @@ def build_generator():
     x = tf.keras.layers.Conv2D(48, 3, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
 
     x = label_cross_attention(x, label_input, 48, L2_REG)
-    scale = tf.keras.layers.Dense(48, kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(label_input)
-    offset = tf.keras.layers.Dense(48, kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(label_input)
+    scale = tf.keras.layers.Dense(48, kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(label_shared)
+    offset = tf.keras.layers.Dense(48, kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(label_shared)
     scale = tf.keras.layers.Reshape((1, 1, 48))(scale)
     offset = tf.keras.layers.Reshape((1, 1, 48))(offset)
     x = x * (1.0 + scale) + offset
