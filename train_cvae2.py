@@ -32,7 +32,7 @@ BATCH_SIZE = 128
 NUM_CLASSES = None  # derived from data + low_conf
 TARGET_SIZE = 28
 LOW_CONF_THRESHOLD = 0.6
-KL_WARMUP_EPOCHS = 2
+KL_WARMUP_EPOCHS = 3
 KL_START_WEIGHT = 0.09
 KL_WEIGHT = 0.45
 KL_DECAY_EPOCHS = EPOCHS - KL_WARMUP_EPOCHS
@@ -63,7 +63,7 @@ TV_START_WEIGHT = 0.07
 TV_PEAK_WEIGHT = 0.17
 TV_DECAY_EPOCHS = EPOCHS - TV_WARMUP_EPOCHS
 TV_END_WEIGHT = 0.0
-LOG_NAME = "train_cvae1b"
+LOG_NAME = "train_cvae1"
 
 def load_pbm(path):
     """Load a P4 PBM file and return a 2D numpy array of 0/1 float32."""
