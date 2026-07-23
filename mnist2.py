@@ -37,7 +37,7 @@ except Exception:
             return super()._resource_apply_sparse(grad, var, indices, apply_state)
 
 DEFAULT_PBM_DIR = Path(__file__).resolve().parent / "../../telephonegame/data/pbm"
-TB_LOG_DIR = Path(__file__).resolve().parent / "logs" / "mnist2b"
+TB_LOG_DIR = Path(__file__).resolve().parent / "logs" / "mnist2"
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--data-dir", type=Path, default=DEFAULT_PBM_DIR, help="PBM data directory")
@@ -53,7 +53,7 @@ L2_REG = 0.00001
 BATCH_SIZE = 128
 BASE_LR = 0.001
 LR_START = 0.00001
-LR_WARMUP_EPOCHS = 10
+LR_WARMUP_EPOCHS = 1
 LR_END = 0.00001
 LR_DECAY_EPOCHS = 50 - LR_WARMUP_EPOCHS
 AUGMENT = True  # On-the-fly augmentation: random rotate/transpose
@@ -322,6 +322,7 @@ def main():
     c0 = L.SeparableConv2D(64, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     c0 = L.SpatialDropout2D(SPATIAL_DROPOUT)(c0)
     c0 = L.Dropout(DENSE_DROPOUT)(c0)
+    c0 = cbam_block(c0)
 
     # Conv block 1: 28x28 -> 14x14
     c1 = L.SeparableConv2D(64, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(c0)
@@ -343,14 +344,7 @@ def main():
     c3 = L.Dropout(DENSE_DROPOUT)(c3)
     c3 = cbam_block(c3)
 
-    # Multi-scale kernel block at 7x7
-    b1 = L.Conv2D(16, 1, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(c3)
-    b3 = L.Conv2D(16, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(c3)
-    b5 = L.Conv2D(16, 5, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(c3)
-    c3 = L.Concatenate()([b1, b3, b5])
-    c3 = L.Conv2D(128, 1, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(c3)
-    c3 = L.LayerNormalization()(c3)
-    c3 = L.Dropout(DENSE_DROPOUT)(c3)
+
 
     # Cross-scale residual connections: 7x7 -> 14x14 -> 28x28
     up14 = L.UpSampling2D(2)(c3)
