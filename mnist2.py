@@ -49,9 +49,9 @@ LOW_CONF_THRESHOLD = 0.6
 EPOCHS = 180
 SPATIAL_DROPOUT = 0.3
 DENSE_DROPOUT = 0.2
-L2_REG = 0.00001
+L2_REG = 0.00003
 BATCH_SIZE = 128
-BASE_LR = 0.001
+BASE_LR = 0.0009
 LR_START = 0.00001
 LR_WARMUP_EPOCHS = 1
 LR_END = 0.00001
@@ -373,16 +373,10 @@ def main():
     x = L.Add()([d1, p1])
     x = L.Activation('relu')(x)
     # 2nd residual connection
-    d2 = L.Dense(512, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
+    d2 = L.Dense(256, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     d2 = L.Dropout(DENSE_DROPOUT)(d2)
-    p2 = L.Dense(512, kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
+    p2 = L.Dense(256, kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = L.Add()([d2, p2])
-    x = L.Activation('relu')(x)
-    # 3rd residual connection
-    d3 = L.Dense(512, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
-    d3 = L.Dropout(DENSE_DROPOUT)(d3)
-    p3 = L.Dense(512, kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
-    x = L.Add()([d3, p3])
     x = L.Activation('relu')(x)
 
     outputs = L.Dense(NUM_CLASSES)(x)
