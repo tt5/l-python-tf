@@ -332,14 +332,14 @@ def main():
     c1 = cbam_block(c1)
 
     # Conv block 2: 14x14 -> 7x7
-    c2 = L.SeparableConv2D(128, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv14')(c1)
+    c2 = L.SeparableConv2D(64, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv14')(c1)
     c2 = L.MaxPooling2D(2)(c2)
     c2 = L.SpatialDropout2D(SPATIAL_DROPOUT)(c2)
     c2 = L.Dropout(DENSE_DROPOUT)(c2)
     c2 = cbam_block(c2)
 
     # Conv block 3: 7x7 → 7x7 (no pooling)
-    c3 = L.SeparableConv2D(128, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv7_deep2')(c2)
+    c3 = L.SeparableConv2D(64, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv7_deep2')(c2)
     c3 = L.SpatialDropout2D(SPATIAL_DROPOUT)(c3)
     c3 = L.Dropout(DENSE_DROPOUT)(c3)
     c3 = cbam_block(c3)
