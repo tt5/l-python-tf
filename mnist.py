@@ -18,7 +18,7 @@ np.set_printoptions(linewidth=np.inf)
 
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "synthetic" / "data"
 NUM_CLASSES = 6
-EPOCHS = 60
+EPOCHS = 50
 BATCH_SIZE = 128
 BASE_LR = 0.0001
 GRAD_ADAPTIVE_MIN_LR = 0.00001
@@ -36,7 +36,7 @@ EARLY_STOP_PATIENCE = 100
 GAUSSIAN_NOISE = 0.0005
 GAUSSIAN_NOISE_DECAY_EPOCHS = EPOCHS
 GAUSSIAN_NOISE_END = 0.00005
-LOG_DIR = "logs/cls1b"
+LOG_DIR = "logs/cls1"
 
 
 AUGMENT = True  # On-the-fly augmentation: random rotate/transpose
@@ -179,6 +179,12 @@ def cbam_block(x):
     x = channel_attention(x)
     x = spatial_attention(x)
     return x
+
+# Residual Conv2D with label smoothing and LR warmu
+L = tf.keras.layers
+inputs = L.Input(shape=(28, 28, 1))
+x = L.GaussianNoise(GAUSSIAN_NOISE)(inputs)
+x = cbam_block(x)
 
 # Conv block 1: 28x28 → 14x14 with residual skip
 c1 = L.SeparableConv2D(64, 3, strides=2, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_DECAY))(x)
