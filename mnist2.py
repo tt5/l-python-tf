@@ -344,8 +344,6 @@ def main():
     c3 = L.Dropout(DENSE_DROPOUT)(c3)
     c3 = cbam_block(c3)
 
-
-
     # Cross-scale residual connections: 7x7 -> 14x14 -> 28x28
     up14 = L.UpSampling2D(2)(c3)
     up14 = L.Conv2D(64, 1, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(up14)

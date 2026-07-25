@@ -18,7 +18,7 @@ np.set_printoptions(linewidth=np.inf)
 
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "synthetic" / "data"
 NUM_CLASSES = 6
-EPOCHS = 50
+EPOCHS = 40
 BATCH_SIZE = 128
 BASE_LR = 0.0001
 GRAD_ADAPTIVE_MIN_LR = 0.00001
@@ -27,16 +27,16 @@ GRAD_ADAPTIVE_FACTOR = 0.00009
 GRAD_ADAPTIVE_BATCH_INTERVAL = 3
 GRAD_NORM_EMA_DECAY = 0.95
 GRAD_NORM_TARGET = 1.0
-DROPOUT = 0.45
+DROPOUT = 0.4
 SPATIAL_DROPOUT = 0.3
-DENSE_SIZE = 384
+DENSE_SIZE = 256
 L2_DECAY = 0.00005
 GCE_Q = 0.5
 EARLY_STOP_PATIENCE = 100
-GAUSSIAN_NOISE = 0.0005
+GAUSSIAN_NOISE = 0.0001
 GAUSSIAN_NOISE_DECAY_EPOCHS = EPOCHS
-GAUSSIAN_NOISE_END = 0.00005
-LOG_DIR = "logs/cls1"
+GAUSSIAN_NOISE_END = 0.00001
+LOG_DIR = "logs/cls1b"
 
 
 AUGMENT = True  # On-the-fly augmentation: random rotate/transpose
@@ -186,9 +186,14 @@ inputs = L.Input(shape=(28, 28, 1))
 x = L.GaussianNoise(GAUSSIAN_NOISE)(inputs)
 x = cbam_block(x)
 
-# Conv block 1: 28x28 → 14x14 with residual skip
-c1 = L.SeparableConv2D(64, 3, strides=2, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_DECAY))(x)
-skip_28_to_14 = L.Conv2D(64, 1, strides=2, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_DECAY))(x)
+# Conv block 0: 28x28 -> 28x28
+c0 = L.SeparableConv2D(64, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_DECAY))(x)
+c0 = L.Dropout(DROPOUT)(c0)
+c0 = cbam_block(c0)
+
+# Conv block 1: 28x28 -> 14x14 with residual skip
+c1 = L.SeparableConv2D(64, 3, strides=2, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_DECAY))(c0)
+skip_28_to_14 = L.Conv2D(64, 1, strides=2, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_DECAY))(c0)
 c1 = L.Add()([c1, skip_28_to_14])
 c1 = L.Dropout(DROPOUT)(c1)
 c1 = cbam_block(c1)
@@ -206,9 +211,28 @@ c3 = L.SeparableConv2D(128, 3, padding='same', activation='relu', kernel_regular
 c3 = L.Dropout(DROPOUT)(c3)
 c3 = cbam_block(c3)
 
-# Flatten + Dense with 2 residual connections
-x = L.Flatten()(c3)
-x = L.GaussianNoise(GAUSSIAN_NOISE)(x)
+# Cross-scale residual connections: 7x7 -> 14x14 -> 28x28
+up14 = L.UpSampling2D(2)(c3)
+up14 = L.Conv2D(64, 1, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_DECAY))(up14)
+c1_res = L.Add()([c1, up14])
+c1_res = L.LayerNormalization()(c1_res)
+c1_res = L.Dropout(DROPOUT)(c1_res)
+
+up28 = L.UpSampling2D(2)(c1_res)
+up28 = L.Conv2D(64, 1, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_DECAY))(up28)
+c0_res = L.Add()([c0, up28])
+c0_res = L.LayerNormalization()(c0_res)
+c0_res = L.Dropout(DROPOUT)(c0_res)
+
+# Multi-scale features for classification
+pool7 = L.GlobalAveragePooling2D()(c3)
+pool14 = L.GlobalAveragePooling2D()(c1_res)
+pool28 = L.GlobalAveragePooling2D()(c0_res)
+
+# Flatten + multi-scale concat
+x = L.Concatenate()([L.Flatten()(c3), pool7, pool14, pool28])
+
+# Dense with 2 residual connections
 d1 = L.Dense(DENSE_SIZE, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_DECAY))(x)
 d1 = L.Dropout(DROPOUT)(d1)
 p1 = L.Dense(DENSE_SIZE, kernel_regularizer=tf.keras.regularizers.l2(L2_DECAY))(x)
