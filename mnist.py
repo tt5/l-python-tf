@@ -36,7 +36,7 @@ EARLY_STOP_PATIENCE = 100
 GAUSSIAN_NOISE = 0.00002
 GAUSSIAN_NOISE_DECAY_EPOCHS = EPOCHS
 GAUSSIAN_NOISE_END = 0.0
-LOG_DIR = "logs/cls1"
+LOG_DIR = "logs/cls1b"
 
 
 AUGMENT = True  # On-the-fly augmentation: random rotate/transpose
@@ -119,12 +119,19 @@ def load_synthetic():
     # Synthesize black/white classes to match the largest existing per-class counts
     black = np.zeros((28, 28, 1), dtype=np.float32)
     white = np.ones((28, 28, 1), dtype=np.float32)
+    pixel_indices = np.arange(28 * 28)
     for img, label in [(black, NUM_CLASSES - 2), (white, NUM_CLASSES - 1)]:
         for i in range(max_train):
-            train_images.append(img)
+            perturbed = img.copy().reshape(-1)
+            flips = np.random.choice(pixel_indices, size=2, replace=False)
+            perturbed[flips] = 1 - perturbed[flips]
+            train_images.append(perturbed.reshape(28, 28, 1))
             train_labels.append(label)
         for i in range(max_test):
-            test_images.append(img)
+            perturbed = img.copy().reshape(-1)
+            flips = np.random.choice(pixel_indices, size=2, replace=False)
+            perturbed[flips] = 1 - perturbed[flips]
+            test_images.append(perturbed.reshape(28, 28, 1))
             test_labels.append(label)
         print(f"Class {label}: {max_train} train, {max_test} test")
 
