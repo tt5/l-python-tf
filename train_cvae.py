@@ -382,30 +382,25 @@ def build_generator():
 def build_feature_extractor():
     """Use the trained MNIST classifier as multi-layer feature extractor."""
     mnist_path = Path(__file__).resolve().parent / "mnist_model"
-    if mnist_path.exists():
-        cls_model = keras.models.load_model(str(mnist_path), custom_objects={'loss_fn': lambda y_true, y_pred: keras.losses.categorical_crossentropy(y_true, y_pred)})
-        # Extract features from multiple layers (after each conv block)
-        # Use GlobalAvgPool on each spatial layer to get fixed-size vectors
-        feature_layers = []
-        for layer in cls_model.layers:
-            if isinstance(layer, (layers.Conv2D, layers.SeparableConv2D)):
-                feature_layers.append(layer.output)
-        if feature_layers:
-            # Global average pool each feature map
-            pooled = []
-            for f in feature_layers:
-                if len(f.shape) == 4:  # (batch, h, w, c)
-                    pooled.append(layers.GlobalAveragePooling2D()(f))
-                else:
-                    pooled.append(f)
-            feat_model = keras.Model(cls_model.input, pooled, name="feature_extractor")
-            return feat_model
-    # Fallback: simple CNN
-    inp = keras.Input(shape=(28, 28, 1))
-    x = layers.Conv2D(32, 3, strides=2, padding="same", activation="relu")(inp)
-    x = layers.Conv2D(64, 3, strides=2, padding="same", activation="relu")(x)
-    x = layers.Conv2D(128, 3, strides=2, padding="same", activation="relu")(x)
-    return keras.Model(inp, [x], name="feature_extractor")
+    if not mnist_path.exists():
+        raise FileNotFoundError(f"Required perceptual backbone not found: {mnist_path}")
+    cls_model = keras.models.load_model(str(mnist_path), custom_objects={'loss_fn': lambda y_true, y_pred: keras.losses.categorical_crossentropy(y_true, y_pred)})
+    # Extract features from multiple layers (after each conv block)
+    # Use GlobalAvgPool on each spatial layer to get fixed-size vectors
+    feature_layers = []
+    for layer in cls_model.layers:
+        if isinstance(layer, (layers.Conv2D, layers.SeparableConv2D)):
+            feature_layers.append(layer.output)
+    if feature_layers:
+        # Global average pool each feature map
+        pooled = []
+        for f in feature_layers:
+            if len(f.shape) == 4:  # (batch, h, w, c)
+                pooled.append(layers.GlobalAveragePooling2D()(f))
+            else:
+                pooled.append(f)
+        feat_model = keras.Model(cls_model.input, pooled, name="feature_extractor")
+        return feat_model
 
 
 # ─── VAE Model ────────────────────────────────────────────────────
