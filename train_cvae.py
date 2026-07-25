@@ -14,13 +14,17 @@ from pathlib import Path
 import tensorflow as tf
 from tensorflow import keras
 from tensorflow.keras import layers
+import numpy as np
+from pathlib import Path
+
+from utils.mnist_loader import load_data
 
 # ─── Config ────────────────────────────────────────────────────────
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "synthetic" / "data"
 LATENT_DIM = 512
 PHA1_LATENT_DIM = 64
 EPOCHS = 100
-BATCH_SIZE = 64
+BATCH_SIZE = 128
 NUM_CLASSES = 6
 PROGRESSIVE_EPOCHS = 2 # Phase 1: 14x14
 LR = 0.0006
@@ -52,52 +56,18 @@ PHA1_KL_WARMUP_EPOCHS = 1
 PHA1_KL_WARMUP_START = 0
 PHA1_KL_WEIGHT_START = 0.5
 PHA1_INFO_NCE_WEIGHT = 0.5
-LOG_NAME = 'logs/gen1'
-LOG_NAME_PHA1 = 'logs/gen1/phase1'
+LOG_NAME = 'logs/gen1b'
+LOG_NAME_PHA1 = 'logs/gen1/phase1b'
 
 # ─── Data ──────────────────────────────────────────────────────────
-def load_data():
-    x_train, y_train_oh, x_test, y_test_oh = [], [], [], []
-    max_train, max_test = 0, 0
-
-    for c in range(NUM_CLASSES - 2):
-        files = sorted((DATA_DIR / f"class_{c}").glob("*.npy"))
-        split = int(len(files) * 0.5)
-        for f in files[:split]:
-            img = np.load(str(f)).astype(np.float32) / 255.0
-            img = np.asarray(img).reshape(28, 28, 1)
-            img = (img > 0.5).astype(np.float32)
-            x_train.append(img)
-            y_train_oh.append(c)
-        for f in files[split:]:
-            img = np.load(str(f)).astype(np.float32) / 255.0
-            img = np.asarray(img).reshape(28, 28, 1)
-            img = (img > 0.5).astype(np.float32)
-            x_test.append(img)
-            y_test_oh.append(c)
-
-        max_train = max(max_train, len(files[:split]))
-        max_test = max(max_test, len(files[split:]))
-
-    black = np.zeros((28, 28, 1), dtype=np.float32)
-    white = np.ones((28, 28, 1), dtype=np.float32)
-    for img, label in [(black, NUM_CLASSES - 2), (white, NUM_CLASSES - 1)]:
-        for _ in range(max_train):
-            x_train.append(img)
-            y_train_oh.append(label)
-        for _ in range(max_test):
-            x_test.append(img)
-            y_test_oh.append(label)
-
-    x_train = np.array(x_train).reshape(-1, 28, 28, 1)
-    x_test = np.array(x_test).reshape(-1, 28, 28, 1)
-    y_train = keras.utils.to_categorical(y_train_oh, NUM_CLASSES)
-    y_test = keras.utils.to_categorical(y_test_oh, NUM_CLASSES)
+def load_data_cvae():
+    (x_train, y_train), (x_test, y_test) = load_data(DATA_DIR, NUM_CLASSES, flip_pixels=2)
+    y_train = keras.utils.to_categorical(y_train, NUM_CLASSES)
+    y_test = keras.utils.to_categorical(y_test, NUM_CLASSES)
     return x_train, y_train, x_test, y_test
 
 
-x_train, y_train, x_test, y_test = load_data()
-print(f"Train: {len(x_train)}, Test: {len(x_test)}")
+x_train, y_train, x_test, y_test = load_data_cvae()
 
 # ─── Resize helper for progressive growing ─────────────────────────
 def resize_images(images, target_size):

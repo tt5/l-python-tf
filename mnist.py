@@ -13,6 +13,8 @@ import numpy as np
 import sys
 from pathlib import Path
 
+from utils.mnist_loader import load_data
+
 np.set_printoptions(threshold=sys.maxsize)
 np.set_printoptions(linewidth=np.inf)
 
@@ -73,84 +75,10 @@ class AugmentGenerator(tf.keras.utils.Sequence):
         np.random.shuffle(self.indices)
 
 
-def load_synthetic():
-    """Load synthetic classes from disk, then synthesize black/white classes."""
-    train_images, train_labels = [], []
-    test_images, test_labels = [], []
-    max_train, max_test = 0, 0
-    loaded_classes = 0
-
-    for class_id in range(NUM_CLASSES - 2):
-        class_dir = DATA_DIR / f"class_{class_id}"
-        if not class_dir.exists():
-            print(f"ERROR: Directory not found: {class_dir}")
-            sys.exit(1)
-        files = sorted(class_dir.glob("*.npy"))
-        if len(files) == 0:
-            print(f"ERROR: No .npy files in {class_dir}")
-            sys.exit(1)
-
-        split_idx = int(len(files) * 0.8)
-        train_files = files[:split_idx]
-        test_files = files[split_idx:]
-
-        for f in train_files:
-            img = np.load(str(f)).astype(np.float32) / 255.0
-            img = np.asarray(img).reshape(28, 28, 1)
-            img = (img > 0.5).astype(np.float32)
-            train_images.append(img)
-            train_labels.append(class_id)
-
-        for f in test_files:
-            img = np.load(str(f)).astype(np.float32) / 255.0
-            img = np.asarray(img).reshape(28, 28, 1)
-            img = (img > 0.5).astype(np.float32)
-            test_images.append(img)
-            test_labels.append(class_id)
-
-        if len(train_files) > max_train:
-            max_train = len(train_files)
-        if len(test_files) > max_test:
-            max_test = len(test_files)
-
-        loaded_classes += 1
-        print(f"Class {class_id}: {len(train_files)} train, {len(test_files)} test")
-
-    # Synthesize black/white classes to match the largest existing per-class counts
-    black = np.zeros((28, 28, 1), dtype=np.float32)
-    white = np.ones((28, 28, 1), dtype=np.float32)
-    pixel_indices = np.arange(28 * 28)
-    for img, label in [(black, NUM_CLASSES - 2), (white, NUM_CLASSES - 1)]:
-        for i in range(max_train):
-            perturbed = img.copy().reshape(-1)
-            flips = np.random.choice(pixel_indices, size=2, replace=False)
-            perturbed[flips] = 1 - perturbed[flips]
-            train_images.append(perturbed.reshape(28, 28, 1))
-            train_labels.append(label)
-        for i in range(max_test):
-            perturbed = img.copy().reshape(-1)
-            flips = np.random.choice(pixel_indices, size=2, replace=False)
-            perturbed[flips] = 1 - perturbed[flips]
-            test_images.append(perturbed.reshape(28, 28, 1))
-            test_labels.append(label)
-        print(f"Class {label}: {max_train} train, {max_test} test")
-
-    train_x = np.array(train_images).reshape(-1, 28, 28, 1)
-    train_y = np.array(train_labels, dtype=np.int64)
-    test_x = np.array(test_images).reshape(-1, 28, 28, 1)
-    test_y = np.array(test_labels, dtype=np.int64)
-
-    # Shuffle
-    train_perm = np.random.permutation(len(train_x))
-    test_perm = np.random.permutation(len(test_x))
-    train_x, train_y = train_x[train_perm], train_y[train_perm]
-    test_x, test_y = test_x[test_perm], test_y[test_perm]
-
-    return (train_x, train_y), (test_x, test_y)
-
-
 # ─── Load dataset ──────────────────────────────────────────────────
-(x_train, y_train), (x_test, y_test) = load_synthetic()
+from utils.mnist_loader import load_data
+
+(x_train, y_train), (x_test, y_test) = load_data(DATA_DIR, NUM_CLASSES, flip_pixels=2)
 
 print(f"Train: {len(x_train)}, Test: {len(x_test)}")
 
