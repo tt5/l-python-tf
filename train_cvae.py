@@ -23,24 +23,25 @@ from utils.mnist_loader import load_data
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "synthetic" / "data"
 LATENT_DIM = 512
 PHA1_LATENT_DIM = 64
-EPOCHS = 100
+EPOCHS = 90
 BATCH_SIZE = 128
 NUM_CLASSES = 6
-PROGRESSIVE_EPOCHS = 2 # Phase 1: 14x14
-LR = 0.0006
-LR_WARMUP_START = 0.0005
-LR_WARMUP_EPOCHS = 1
+PROGRESSIVE_EPOCHS = 3 # Phase 1: 14x14
+LR = 0.001
+LR_WARMUP_START = 0.00005
+LR_WARMUP_EPOCHS = 3
 LR_DECAY_EPOCHS = EPOCHS - LR_WARMUP_EPOCHS
 LR_END = 0.00003
-PIXEL_LOSS_WEIGHT = 0.5
-PERCEPTUAL_LOSS_WEIGHT = 0.5
+PIXEL_LOSS_WEIGHT = 0.55
+PERCEPTUAL_LOSS_WEIGHT = 0.45
 INFO_NCE_WEIGHT = 0.00001
 TEMPERATURE = 1.0
-DROPOUT = 0.35
-SPATIAL_DROPOUT = 0.35
+DROPOUT = 0.3
+SPATIAL_DROPOUT = 0.3
+L2_REG = 0.000001
 # Phase 2 KL schedule (configurable start)
-PHA2_KL_WARMUP_START = 0.00001
-PHA2_KL_WEIGHT_START = 0.5
+PHA2_KL_WARMUP_START = 0.00003
+PHA2_KL_WEIGHT_START = 0.45
 PHA2_KL_WEIGHT_TARGET = 0.1
 PHA2_KL_WARMUP_EPOCHS = 1
 PHA2_KL_DECAY_EPOCHS = EPOCHS
@@ -89,7 +90,7 @@ def build_encoder():
     lbl = keras.Input(shape=(NUM_CLASSES,), name="label_input")
 
     # Conv block 1: 28x28 → 14x14
-    c1 = layers.Conv2D(64, 3, strides=2, padding="same")(img)
+    c1 = layers.Conv2D(64, 3, strides=2, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(img)
     c1 = layers.Activation("relu")(c1)
     # SE attention 1
     se1 = layers.GlobalAveragePooling2D()(c1)
@@ -100,10 +101,10 @@ def build_encoder():
     c1 = layers.SpatialDropout2D(SPATIAL_DROPOUT)(c1)
 
     # Conv block 2: 14x14 → 7x7
-    c2 = layers.Conv2D(128, 3, strides=2, padding="same")(c1)
+    c2 = layers.Conv2D(128, 3, strides=2, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(c1)
     c2 = layers.Activation("relu")(c2)
     # Residual connection: project c1 (14x14x64) to match c2 (7x7x128)
-    skip = layers.Conv2D(128, 1, strides=2, padding="same")(c1)
+    skip = layers.Conv2D(128, 1, strides=2, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(c1)
     c2 = layers.Add()([c2, skip])
     c2 = layers.Activation("relu")(c2)
     # SE attention 2
@@ -115,10 +116,10 @@ def build_encoder():
     c2 = layers.SpatialDropout2D(SPATIAL_DROPOUT)(c2)
 
     # Conv block 3: 7x7 → 7x7 (stride 1)
-    c3 = layers.Conv2D(256, 3, strides=1, padding="same")(c2)
+    c3 = layers.Conv2D(256, 3, strides=1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(c2)
     c3 = layers.Activation("relu")(c3)
     # Residual connection: project c2 (7x7x128) to match c3 (7x7x256)
-    skip2 = layers.Conv2D(256, 1, padding="same")(c2)
+    skip2 = layers.Conv2D(256, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(c2)
     c3 = layers.Add()([c3, skip2])
     c3 = layers.Activation("relu")(c3)
     # SE attention 3
@@ -132,10 +133,10 @@ def build_encoder():
     # Bottleneck
     x = layers.Flatten()(c3)
     x = layers.Concatenate()([x, lbl])
-    x = layers.Dense(768, activation="relu")(x)
+    x = layers.Dense(768, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = layers.Dropout(DROPOUT)(x)
-    z_mean = layers.Dense(LATENT_DIM, name="z_mean")(x)
-    z_log_var = layers.Dense(LATENT_DIM, name="z_log_var")(x)
+    z_mean = layers.Dense(LATENT_DIM, name="z_mean", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
+    z_log_var = layers.Dense(LATENT_DIM, name="z_log_var", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     z = Sampling()([z_mean, z_log_var])
     return keras.Model([img, lbl], [z_mean, z_log_var, z], name="encoder")
 
@@ -146,7 +147,7 @@ def build_encoder_14():
     lbl = keras.Input(shape=(NUM_CLASSES,), name="label_input")
 
     # Conv block 1: 14x14 → 7x7
-    c1 = layers.Conv2D(64, 3, strides=2, padding="same")(img)
+    c1 = layers.Conv2D(64, 3, strides=2, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(img)
     c1 = layers.Activation("relu")(c1)
     se1 = layers.GlobalAveragePooling2D()(c1)
     se1 = layers.Dense(64 // 4, activation="relu")(se1)
@@ -156,9 +157,9 @@ def build_encoder_14():
     c1 = layers.SpatialDropout2D(SPATIAL_DROPOUT)(c1)
 
     # Conv block 2: 7x7 → 7x7 (stride 1)
-    c2 = layers.Conv2D(128, 3, strides=1, padding="same")(c1)
+    c2 = layers.Conv2D(128, 3, strides=1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(c1)
     c2 = layers.Activation("relu")(c2)
-    skip = layers.Conv2D(128, 1, padding="same")(c1)
+    skip = layers.Conv2D(128, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(c1)
     c2 = layers.Add()([c2, skip])
     c2 = layers.Activation("relu")(c2)
     se2 = layers.GlobalAveragePooling2D()(c2)
@@ -171,10 +172,10 @@ def build_encoder_14():
     # Bottleneck
     x = layers.Flatten()(c2)
     x = layers.Concatenate()([x, lbl])
-    x = layers.Dense(512, activation="relu")(x)
+    x = layers.Dense(512, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = layers.Dropout(DROPOUT)(x)
-    z_mean = layers.Dense(PHA1_LATENT_DIM, name="z_mean")(x)
-    z_log_var = layers.Dense(PHA1_LATENT_DIM, name="z_log_var")(x)
+    z_mean = layers.Dense(PHA1_LATENT_DIM, name="z_mean", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
+    z_log_var = layers.Dense(PHA1_LATENT_DIM, name="z_log_var", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     z = Sampling()([z_mean, z_log_var])
     return keras.Model([img, lbl], [z_mean, z_log_var, z], name="encoder_14")
 
@@ -200,7 +201,7 @@ def build_generator_14():
         return film_fn
 
     # Initial projection to 7x7
-    x = layers.Dense(7 * 7 * 128, activation="relu")(z)
+    x = layers.Dense(7 * 7 * 128, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(z)
     x = layers.Dropout(DROPOUT)(x)
     x = layers.Reshape((7, 7, 128))(x)
     gamma7, beta7 = make_film(128)(lbl)
@@ -211,7 +212,7 @@ def build_generator_14():
     x = layers.Dropout(DROPOUT)(x)
 
     # Conv block: 7x7 (with SE + spatial attention)
-    c1 = layers.Conv2D(64, 3, padding="same", activation="relu")(x)
+    c1 = layers.Conv2D(64, 3, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     c1 = layers.Dropout(DROPOUT)(c1)
     se1 = layers.GlobalAveragePooling2D()(c1)
     se1 = layers.Dense(64 // 4, activation="relu")(se1)
@@ -225,7 +226,7 @@ def build_generator_14():
 
     # 7x7 → 14x14
     x = upsample(c1, [14, 14])
-    x = layers.Conv2D(64, 3, padding="same", activation="relu")(x)
+    x = layers.Conv2D(64, 3, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = layers.Dropout(DROPOUT)(x)
     gamma14, beta14 = make_film(64)(lbl)
     gamma14 = layers.Reshape((1, 1, 64))(gamma14)
@@ -264,7 +265,7 @@ def build_generator():
         return film_fn
 
     # Initial projection
-    x = layers.Dense(7 * 7 * 256, activation="relu")(z)
+    x = layers.Dense(7 * 7 * 256, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(z)
     x = layers.Dropout(DROPOUT)(x)
     x = layers.Reshape((7, 7, 256))(x)
     # FiLM at 7x7
@@ -285,7 +286,7 @@ def build_generator():
     x = layers.SpatialDropout2D(SPATIAL_DROPOUT)(x)
 
     # 7x7 → 14x14
-    x = layers.Conv2D(128, 3, padding="same", activation="relu")(x)
+    x = layers.Conv2D(128, 3, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     # FiLM at 7x7 (after conv)
     gamma7c, beta7c = make_film(128)(lbl)
     gamma7c = layers.Reshape((1, 1, 128))(gamma7c)
@@ -304,7 +305,7 @@ def build_generator():
     x = layers.SpatialDropout2D(SPATIAL_DROPOUT)(x)
     skip_7 = layers.Conv2D(128, 1, padding="same")(x)
     x = upsample(x, [14, 14])
-    x = layers.Conv2D(128, 3, padding="same", activation="relu")(x)
+    x = layers.Conv2D(128, 3, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     # FiLM at 14x14
     gamma14, beta14 = make_film(128)(lbl)
     gamma14 = layers.Reshape((1, 1, 128))(gamma14)
@@ -321,7 +322,7 @@ def build_generator():
     x = layers.SpatialDropout2D(SPATIAL_DROPOUT)(x)
 
     # 14x14 → 28x28
-    x = layers.Conv2D(64, 3, padding="same", activation="relu")(x)
+    x = layers.Conv2D(64, 3, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     # FiLM at 28x28
     gamma28, beta28 = make_film(64)(lbl)
     gamma28 = layers.Reshape((1, 1, 64))(gamma28)
