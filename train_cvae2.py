@@ -63,7 +63,7 @@ TV_START_WEIGHT = 0.07
 TV_PEAK_WEIGHT = 0.17
 TV_DECAY_EPOCHS = EPOCHS - TV_WARMUP_EPOCHS
 TV_END_WEIGHT = 0.0
-LOG_NAME = "train_cvae1"
+LOG_NAME = "train_cvae1b"
 
 def load_pbm(path):
     """Load a P4 PBM file and return a 2D numpy array of 0/1 float32."""
