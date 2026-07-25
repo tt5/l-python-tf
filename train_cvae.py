@@ -19,7 +19,7 @@ from tensorflow.keras import layers
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "synthetic" / "data"
 LATENT_DIM = 512
 PHA1_LATENT_DIM = 64
-EPOCHS = 90
+EPOCHS = 100
 BATCH_SIZE = 64
 NUM_CLASSES = 6
 PROGRESSIVE_EPOCHS = 2 # Phase 1: 14x14
@@ -52,8 +52,8 @@ PHA1_KL_WARMUP_EPOCHS = 1
 PHA1_KL_WARMUP_START = 0
 PHA1_KL_WEIGHT_START = 0.5
 PHA1_INFO_NCE_WEIGHT = 0.5
-LOG_NAME = 'logs/gen1b'
-LOG_NAME_PHA1 = 'logs/gen1/phase1b'
+LOG_NAME = 'logs/gen1'
+LOG_NAME_PHA1 = 'logs/gen1/phase1'
 
 # ─── Data ──────────────────────────────────────────────────────────
 def load_data():

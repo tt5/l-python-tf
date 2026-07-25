@@ -51,6 +51,6 @@ gradient accumulation
 
 ─── Real data classification (from synthetic project) ───
   Class 0: 100.0% correctly classified (1000/1000)
-  Class 1: 70.9% correctly classified (709/1000)
-  Class 2: 88.9% correctly classified (889/1000)
-  Class 3: 99.2% correctly classified (992/1000)
+  Class 1: 78.8% correctly classified (788/1000)
+  Class 2: 88.7% correctly classified (887/1000)
+  Class 3: 99.0% correctly classified (990/1000)
