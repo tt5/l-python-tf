@@ -33,10 +33,10 @@ DENSE_SIZE = 256
 L2_DECAY = 0.00007
 GCE_Q = 0.5
 EARLY_STOP_PATIENCE = 100
-GAUSSIAN_NOISE = 0.00001
+GAUSSIAN_NOISE = 0.0001
 GAUSSIAN_NOISE_DECAY_EPOCHS = EPOCHS
 GAUSSIAN_NOISE_END = 0.000001
-LOG_DIR = "logs/cls1b"
+LOG_DIR = "logs/cls1"
 
 
 AUGMENT = True  # On-the-fly augmentation: random rotate/transpose
@@ -184,7 +184,6 @@ def cbam_block(x):
 L = tf.keras.layers
 inputs = L.Input(shape=(28, 28, 1))
 x = L.GaussianNoise(GAUSSIAN_NOISE)(inputs)
-x = cbam_block(x)
 
 # Conv block 0: 28x28 -> 28x28
 c0 = L.SeparableConv2D(64, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_DECAY))(x)
