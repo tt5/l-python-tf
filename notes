@@ -43,10 +43,10 @@ When increasing the batch size one usually reduces the learning rate.
 gradient accumulation
 
   Class 0: 100.0% correctly classified (1000/1000), avg confidence: 100.0%
-  Class 1: 53.6% correctly classified (536/1000), avg confidence: 92.8%
-  Class 2: 80.5% correctly classified (805/1000), avg confidence: 96.0%
-  Class 3: 99.6% correctly classified (996/1000), avg confidence: 99.9%
-  Class 4: 100.0% correctly classified (1000/1000), avg confidence: 100.0%
+  Class 1: 56.2% correctly classified (562/1000), avg confidence: 93.4%
+  Class 2: 88.3% correctly classified (883/1000), avg confidence: 97.1%
+  Class 3: 99.8% correctly classified (998/1000), avg confidence: 99.8%
+  Class 4: 46.0% correctly classified (460/1000), avg confidence: 97.9%
   Class 5: 100.0% correctly classified (1000/1000), avg confidence: 100.0%
 
 ─── Real data classification (from synthetic project) ───

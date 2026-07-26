@@ -31,7 +31,7 @@ LR = 0.001
 LR_WARMUP_START = 0.00005
 LR_WARMUP_EPOCHS = 3
 LR_DECAY_EPOCHS = EPOCHS - LR_WARMUP_EPOCHS
-LR_END = 0.00003
+LR_END = 0.00002
 PIXEL_LOSS_WEIGHT = 0.55
 PERCEPTUAL_LOSS_WEIGHT = 0.45
 INFO_NCE_WEIGHT = 0.00001
@@ -46,7 +46,7 @@ PHA2_KL_WEIGHT_TARGET = 0.1
 PHA2_KL_WARMUP_EPOCHS = 1
 PHA2_KL_DECAY_EPOCHS = EPOCHS
 # Phase 1 (14x14) specific config
-PHA1_LR = 0.0008
+PHA1_LR = 0.001
 PHA1_LR_WARMUP_START = 0.0000005
 PHA1_LR_WARMUP_EPOCHS = 1
 PHA1_LR_END = 0.0001
@@ -57,8 +57,8 @@ PHA1_KL_WARMUP_EPOCHS = 1
 PHA1_KL_WARMUP_START = 0
 PHA1_KL_WEIGHT_START = 0.5
 PHA1_INFO_NCE_WEIGHT = 0.5
-LOG_NAME = 'logs/gen1b'
-LOG_NAME_PHA1 = 'logs/gen1/phase1b'
+LOG_NAME = 'logs/gen1'
+LOG_NAME_PHA1 = 'logs/gen1/phase1'
 
 # ─── Data ──────────────────────────────────────────────────────────
 def load_data_cvae():
@@ -518,7 +518,7 @@ class BestEpochLogger(keras.callbacks.Callback):
     def on_epoch_begin(self, epoch, logs=None):
         self.vae.epoch_tracker.assign(epoch)
     def on_epoch_end(self, epoch, logs=None):
-        val_loss = logs.get('val_total_loss')
+        val_loss = logs.get('val_recon_loss')
         if val_loss is not None and val_loss < self.best_loss:
             self.best_loss = val_loss
             self.best_epoch = epoch
@@ -529,7 +529,7 @@ class BestEpochLogger(keras.callbacks.Callback):
 best_generator_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "best_generator.h5")
 
 class GeneratorCheckpoint(keras.callbacks.Callback):
-    def __init__(self, generator, filepath, monitor='val_total_loss'):
+    def __init__(self, generator, filepath, monitor='val_recon_loss'):
         super().__init__()
         self.generator = generator
         self.filepath = filepath
@@ -543,7 +543,7 @@ class GeneratorCheckpoint(keras.callbacks.Callback):
             print(f"  Saved best generator (val_loss: {current_loss:.4f})")
 
 callbacks = [
-    keras.callbacks.EarlyStopping(monitor='val_total_loss', patience=90, restore_best_weights=True),
+    keras.callbacks.EarlyStopping(monitor='val_recon_loss', patience=90, restore_best_weights=True),
     GeneratorCheckpoint(generator, best_generator_path),
     BestEpochLogger(vae),
     keras.callbacks.TensorBoard(log_dir=LOG_NAME, histogram_freq=1),
@@ -614,7 +614,7 @@ vae_14.compile(optimizer=keras.optimizers.Adam(PHA1_LR))
 vae_14.train_step = vae_14.train_step_14
 
 callbacks_14 = [
-    keras.callbacks.EarlyStopping(monitor='val_total_loss', patience=10, restore_best_weights=True),
+    keras.callbacks.EarlyStopping(monitor='val_recon_loss', patience=10, restore_best_weights=True),
     BestEpochLogger(vae_14),
     keras.callbacks.TensorBoard(log_dir=LOG_NAME_PHA1, histogram_freq=1),
 ]
