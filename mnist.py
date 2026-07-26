@@ -31,14 +31,14 @@ GRAD_NORM_EMA_DECAY = 0.95
 GRAD_NORM_TARGET = 1.0
 DROPOUT = 0.3
 SPATIAL_DROPOUT = 0.3
-DENSE_SIZE = 256
+DENSE_SIZE = 512
 L2_DECAY = 0.00006
 GCE_Q = 0.5
 EARLY_STOP_PATIENCE = 100
 GAUSSIAN_NOISE = 0.00002
 GAUSSIAN_NOISE_DECAY_EPOCHS = EPOCHS // 2
 GAUSSIAN_NOISE_END = 0.0
-LOG_DIR = "logs/cls1"
+LOG_DIR = "logs/cls1b"
 
 
 AUGMENT = True  # On-the-fly augmentation: random rotate/transpose
@@ -84,6 +84,7 @@ print(f"Train: {len(x_train)}, Test: {len(x_test)}")
 
 # ─── Build & train model ───────────────────────────────────────────
 L = tf.keras.layers
+# Residual Conv2D backbone + multi-scale feedback
 inputs = L.Input(shape=(28, 28, 1))
 x = L.GaussianNoise(GAUSSIAN_NOISE)(inputs)
 
@@ -142,14 +143,16 @@ c3 = cbam_block(c3)
 # Cross-scale residual connections: 7x7 -> 14x14 -> 28x28
 up14 = L.UpSampling2D(2)(c3)
 up14 = L.Conv2D(96, 1, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_DECAY))(up14)
+up14 = L.LayerNormalization()(up14)
+up14 = L.Activation('relu')(up14)
 c1_res = L.Add()([c1, up14])
-c1_res = L.LayerNormalization()(c1_res)
 c1_res = L.Dropout(DROPOUT)(c1_res)
 
 up28 = L.UpSampling2D(2)(c1_res)
 up28 = L.Conv2D(64, 1, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_DECAY))(up28)
+up28 = L.LayerNormalization()(up28)
+up28 = L.Activation('relu')(up28)
 c0_res = L.Add()([c0, up28])
-c0_res = L.LayerNormalization()(c0_res)
 c0_res = L.Dropout(DROPOUT)(c0_res)
 
 # Multi-scale features for classification
