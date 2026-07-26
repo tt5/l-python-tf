@@ -36,9 +36,9 @@ L2_DECAY = 0.00007
 GCE_Q = 0.5
 EARLY_STOP_PATIENCE = 100
 GAUSSIAN_NOISE = 0.00002
-GAUSSIAN_NOISE_DECAY_EPOCHS = EPOCHS
+GAUSSIAN_NOISE_DECAY_EPOCHS = EPOCHS // 2
 GAUSSIAN_NOISE_END = 0.0
-LOG_DIR = "logs/cls1b"
+LOG_DIR = "logs/cls1"
 
 
 AUGMENT = True  # On-the-fly augmentation: random rotate/transpose
@@ -83,7 +83,6 @@ from utils.mnist_loader import load_data
 print(f"Train: {len(x_train)}, Test: {len(x_test)}")
 
 # ─── Build & train model ───────────────────────────────────────────
-# Residual Conv2D with label smoothing and LR warmu
 L = tf.keras.layers
 inputs = L.Input(shape=(28, 28, 1))
 x = L.GaussianNoise(GAUSSIAN_NOISE)(inputs)
@@ -114,11 +113,6 @@ def cbam_block(x):
     x = channel_attention(x)
     x = spatial_attention(x)
     return x
-
-# Residual Conv2D with label smoothing and LR warmu
-L = tf.keras.layers
-inputs = L.Input(shape=(28, 28, 1))
-x = L.GaussianNoise(GAUSSIAN_NOISE)(inputs)
 
 # Conv block 0: 28x28 -> 28x28
 c0 = L.SeparableConv2D(64, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_DECAY))(x)

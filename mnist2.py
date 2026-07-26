@@ -37,7 +37,7 @@ except Exception:
             return super()._resource_apply_sparse(grad, var, indices, apply_state)
 
 DEFAULT_PBM_DIR = Path(__file__).resolve().parent / "../../telephonegame/data/pbm"
-TB_LOG_DIR = Path(__file__).resolve().parent / "logs" / "mnist2b"
+TB_LOG_DIR = Path(__file__).resolve().parent / "logs" / "mnist2"
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--data-dir", type=Path, default=DEFAULT_PBM_DIR, help="PBM data directory")
@@ -57,9 +57,9 @@ LR_WARMUP_EPOCHS = 3
 LR_END = 0.00001
 LR_DECAY_EPOCHS = 60 - LR_WARMUP_EPOCHS
 AUGMENT = True  # On-the-fly augmentation: random rotate/transpose
-GAUSSIAN_NOISE_STD_START = 0.00001
+GAUSSIAN_NOISE_STD_START = 0.00002
 GAUSSIAN_NOISE_STD_END = 0.0
-GAUSSIAN_NOISE_DECAY_EPOCHS = 50
+GAUSSIAN_NOISE_DECAY_EPOCHS = EPOCHS // 2
 
 
 class GaussianNoiseInput(tf.keras.layers.Layer):

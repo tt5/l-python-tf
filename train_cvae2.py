@@ -214,6 +214,7 @@ def build_encoder():
     x28 = label_cross_attention(x28, label_input, 32, L2_REG)
     film_gamma28, film_beta28 = make_film(32)(label_input)
     x28 = x28 * (1.0 + film_gamma28) + film_beta28
+    x28_pool = tf.keras.layers.GlobalAveragePooling2D()(x28)
     x = tf.keras.layers.MaxPooling2D(2)(x28)
     x = tf.keras.layers.Conv2D(64, 3, strides=1, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = tf.keras.layers.LayerNormalization()(x)
@@ -272,7 +273,7 @@ def build_encoder():
     film_gamma7, film_beta7 = make_film(128)(label_input)
     x = x * (1.0 + film_gamma7) + film_beta7
     x = tf.keras.layers.Flatten()(x)
-    x = tf.keras.layers.Concatenate()([x, label_emb])
+    x = tf.keras.layers.Concatenate()([x, x28_pool, label_emb])
     x = tf.keras.layers.Dense(256, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = tf.keras.layers.LayerNormalization()(x)
     x = tf.keras.layers.Dropout(DENSE_DROPOUT)(x)
