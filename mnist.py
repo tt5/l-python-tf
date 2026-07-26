@@ -20,7 +20,7 @@ np.set_printoptions(linewidth=np.inf)
 
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "synthetic" / "data"
 NUM_CLASSES = 6
-EPOCHS = 30
+EPOCHS = 40
 BATCH_SIZE = 128
 BASE_LR = 0.00005
 GRAD_ADAPTIVE_MIN_LR = 0.000004
@@ -29,10 +29,10 @@ GRAD_ADAPTIVE_FACTOR = 0.00001
 GRAD_ADAPTIVE_BATCH_INTERVAL = 3
 GRAD_NORM_EMA_DECAY = 0.95
 GRAD_NORM_TARGET = 1.0
-DROPOUT = 0.2
-SPATIAL_DROPOUT = 0.2
+DROPOUT = 0.3
+SPATIAL_DROPOUT = 0.3
 DENSE_SIZE = 256
-L2_DECAY = 0.00007
+L2_DECAY = 0.00006
 GCE_Q = 0.5
 EARLY_STOP_PATIENCE = 100
 GAUSSIAN_NOISE = 0.00002
@@ -120,28 +120,28 @@ c0 = L.Dropout(DROPOUT)(c0)
 c0 = cbam_block(c0)
 
 # Conv block 1: 28x28 -> 14x14 with residual skip
-c1 = L.SeparableConv2D(64, 3, strides=2, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_DECAY))(c0)
-skip_28_to_14 = L.Conv2D(64, 1, strides=2, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_DECAY))(c0)
+c1 = L.SeparableConv2D(96, 3, strides=2, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_DECAY))(c0)
+skip_28_to_14 = L.Conv2D(96, 1, strides=2, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_DECAY))(c0)
 c1 = L.Add()([c1, skip_28_to_14])
 c1 = L.Dropout(DROPOUT)(c1)
 c1 = cbam_block(c1)
 
 # Conv block 2: 14x14 → 7x7 with residual skip
-c2 = L.SeparableConv2D(64, 3, strides=2, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_DECAY))(c1)
-skip_14_to_7 = L.Conv2D(64, 1, strides=2, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_DECAY))(c1)
+c2 = L.SeparableConv2D(128, 3, strides=2, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_DECAY))(c1)
+skip_14_to_7 = L.Conv2D(128, 1, strides=2, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_DECAY))(c1)
 c2 = L.Add()([c2, skip_14_to_7])
 c2 = L.Dropout(DROPOUT)(c2)
 c2 = cbam_block(c2)
 c2 = L.SpatialDropout2D(SPATIAL_DROPOUT)(c2)
 
 # Conv block 3: 7x7 → 7x7 (no pooling)
-c3 = L.SeparableConv2D(64, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_DECAY))(c2)
+c3 = L.SeparableConv2D(128, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_DECAY))(c2)
 c3 = L.Dropout(DROPOUT)(c3)
 c3 = cbam_block(c3)
 
 # Cross-scale residual connections: 7x7 -> 14x14 -> 28x28
 up14 = L.UpSampling2D(2)(c3)
-up14 = L.Conv2D(64, 1, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_DECAY))(up14)
+up14 = L.Conv2D(96, 1, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_DECAY))(up14)
 c1_res = L.Add()([c1, up14])
 c1_res = L.LayerNormalization()(c1_res)
 c1_res = L.Dropout(DROPOUT)(c1_res)
