@@ -33,7 +33,7 @@ NUM_CLASSES = None  # derived from data + low_conf
 TARGET_SIZE = 28
 LOW_CONF_THRESHOLD = 0.6
 KL_WARMUP_EPOCHS = 7
-KL_START_WEIGHT = 0.01
+KL_START_WEIGHT = 0.011
 KL_WEIGHT = 0.4
 KL_DECAY_EPOCHS = EPOCHS - KL_WARMUP_EPOCHS
 KL_WEIGHT_END = 0.04
@@ -44,7 +44,7 @@ LR_DECAY_EPOCHS = EPOCHS - LR_WARMUP_EPOCHS
 LR_END = 0.000005
 L2_REG = 0.00002
 KL_FREE_BITS = 0.0
-SPATIAL_DROPOUT = 0.35
+SPATIAL_DROPOUT = 0.3
 DENSE_DROPOUT = 0.3
 AUGMENT = True
 RECON_LOSS_WEIGHT = 0.35
@@ -52,10 +52,10 @@ PERCEPTUAL_FINE_WEIGHT = 0.7
 PERCEPTUAL_COARSE_WEIGHT = 0.3
 PERCEPTUAL_MULTISCALE = True
 PERCEPTUAL_WEIGHTS = [PERCEPTUAL_FINE_WEIGHT, PERCEPTUAL_COARSE_WEIGHT]
-PERCEPTUAL_WARMUP_EPOCHS = 9
+PERCEPTUAL_WARMUP_EPOCHS = 10
 PERCEPTUAL_START_WEIGHT = 0.006
 PERCEPTUAL_PEAK_WEIGHT = 20
-PERCEPTUAL_DECAY_EPOCHS = 100 - PERCEPTUAL_WARMUP_EPOCHS
+PERCEPTUAL_DECAY_EPOCHS = EPOCHS - PERCEPTUAL_WARMUP_EPOCHS
 PERCEPTUAL_END_WEIGHT = 0.5
 PERCEPTUAL_EXTRACTOR_PATH = Path(__file__).parent / "mnist2_model"
 TV_WARMUP_EPOCHS = 2
@@ -63,7 +63,7 @@ TV_START_WEIGHT = 0.07
 TV_PEAK_WEIGHT = 0.17
 TV_DECAY_EPOCHS = EPOCHS - TV_WARMUP_EPOCHS
 TV_END_WEIGHT = 0.0
-LOG_NAME = "train_gen2"
+LOG_NAME = "train_gen2b"
 
 def load_pbm(path):
     """Load a P4 PBM file and return a 2D numpy array of 0/1 float32."""
@@ -310,14 +310,14 @@ def build_generator():
     x = tf.keras.layers.LayerNormalization()(x)
     x = tf.keras.layers.Add()([x, x7_res])
     x = tf.keras.layers.Activation("relu")(x)
-    x = tf.keras.layers.Conv2DTranspose(48, 2, strides=2, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
+    x = tf.keras.layers.Conv2DTranspose(48, 4, strides=2, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = tf.keras.layers.Conv2D(48, 3, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = tf.keras.layers.LayerNormalization(center=True, scale=True)(x)
     x = tf.keras.layers.Activation("relu")(x)
     x = tf.keras.layers.SpatialDropout2D(SPATIAL_DROPOUT)(x)
     x = tf.keras.layers.Add()([
         x,
-        tf.keras.layers.Conv2DTranspose(48, 2, strides=2, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(
+        tf.keras.layers.Conv2DTranspose(48, 4, strides=2, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(
             skip7
         )
     ])
@@ -333,7 +333,7 @@ def build_generator():
 
     skip14 = x
     x = tf.keras.layers.SpatialDropout2D(SPATIAL_DROPOUT)(x)
-    x = tf.keras.layers.Conv2DTranspose(48, 2, strides=2, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
+    x = tf.keras.layers.Conv2DTranspose(48, 4, strides=2, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = tf.keras.layers.Conv2D(48, 3, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = tf.keras.layers.LayerNormalization(center=True, scale=True)(x)
     x = tf.keras.layers.Activation("relu")(x)
@@ -341,7 +341,7 @@ def build_generator():
     x = label_cross_attention(x, label_input, 48, L2_REG)
     x = tf.keras.layers.Add()([
         x,
-        tf.keras.layers.Conv2DTranspose(48, 2, strides=2, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(
+        tf.keras.layers.Conv2DTranspose(48, 4, strides=2, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(
             skip14
         )
     ])
