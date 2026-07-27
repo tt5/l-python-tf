@@ -134,7 +134,7 @@ def build_encoder():
     x = layers.Flatten()(c3)
     x = layers.Concatenate()([x, lbl])
     x = layers.LayerNormalization()(x)
-    x = layers.Dense(768, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
+    x = layers.Dense(640, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = layers.Dropout(DROPOUT)(x)
     z_mean = layers.Dense(LATENT_DIM, name="z_mean", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     z_log_var = layers.Dense(LATENT_DIM, name="z_log_var", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
@@ -173,7 +173,7 @@ def build_encoder_14():
     # Bottleneck
     x = layers.Flatten()(c2)
     x = layers.Concatenate()([x, lbl])
-    x = layers.Dense(512, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
+    x = layers.Dense(256, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = layers.Dropout(DROPOUT)(x)
     z_mean = layers.Dense(PHA1_LATENT_DIM, name="z_mean", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     z_log_var = layers.Dense(PHA1_LATENT_DIM, name="z_log_var", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
