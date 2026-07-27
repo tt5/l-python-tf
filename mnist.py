@@ -124,21 +124,21 @@ def cbam_block(x):
 c0 = L.SeparableConv2D(64, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_DECAY))(x)
 c0 = L.Dropout(DROPOUT)(c0)
 c0 = L.SpatialDropout2D(SPATIAL_DROPOUT)(c0)
-c0 = cbam_block(c0)
+c0 = L.Add()([c0, cbam_block(c0)])
 
 # Conv block 1: 28x28 -> 14x14 with residual skip
 c1 = L.SeparableConv2D(96, 3, strides=2, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_DECAY))(c0)
 skip_28_to_14 = L.Conv2D(96, 1, strides=2, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_DECAY))(c0)
 c1 = L.Add()([c1, skip_28_to_14])
 c1 = L.Dropout(DROPOUT)(c1)
-c1 = cbam_block(c1)
+c1 = L.Add()([c1, cbam_block(c1)])
 
 # Conv block 2: 14x14 → 7x7 with residual skip
 c2 = L.SeparableConv2D(128, 3, strides=2, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_DECAY))(c1)
 skip_14_to_7 = L.Conv2D(128, 1, strides=2, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_DECAY))(c1)
 c2 = L.Add()([c2, skip_14_to_7])
 c2 = L.Dropout(DROPOUT)(c2)
-c2 = cbam_block(c2)
+c2 = L.Add()([c2, cbam_block(c2)])
 c2 = L.SpatialDropout2D(SPATIAL_DROPOUT)(c2)
 
 # Conv block 3: 7x7 → 7x7 (no pooling)
