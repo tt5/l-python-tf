@@ -113,6 +113,7 @@ def cbam_block(x):
     """CBAM: Channel attention -> Spatial attention."""
     x = channel_attention(x)
     x = spatial_attention(x)
+    x = L.Dropout(DROPOUT)(x)
     return x
 
 # Conv block 0: 28x28 -> 28x28
