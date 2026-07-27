@@ -118,6 +118,7 @@ def cbam_block(x):
 # Conv block 0: 28x28 -> 28x28
 c0 = L.SeparableConv2D(64, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_DECAY))(x)
 c0 = L.Dropout(DROPOUT)(c0)
+c0 = L.SpatialDropout2D(SPATIAL_DROPOUT)(c0)
 c0 = cbam_block(c0)
 
 # Conv block 1: 28x28 -> 14x14 with residual skip
