@@ -26,7 +26,7 @@ PHA1_LATENT_DIM = 64
 EPOCHS = 90
 BATCH_SIZE = 128
 NUM_CLASSES = 6
-PROGRESSIVE_EPOCHS = 5 # Phase 1: 14x14
+PROGRESSIVE_EPOCHS = 3 # Phase 1: 14x14
 LR = 0.001
 LR_WARMUP_START = 0.00005
 LR_WARMUP_EPOCHS = 1
@@ -36,8 +36,8 @@ PIXEL_LOSS_WEIGHT = 0.55
 PERCEPTUAL_LOSS_WEIGHT = 0.45
 INFO_NCE_WEIGHT = 0.00001
 TEMPERATURE = 1.0
-DROPOUT = 0.3
-SPATIAL_DROPOUT = 0.3
+DROPOUT = 0.4
+SPATIAL_DROPOUT = 0.4
 L2_REG = 0.000001
 # Phase 2 KL schedule (configurable start)
 PHA2_KL_WARMUP_START = 0.00003
@@ -266,20 +266,20 @@ def build_generator():
         return film_fn
 
     # Initial projection
-    x = layers.Dense(7 * 7 * 256, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(z)
+    x = layers.Dense(7 * 7 * 128, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(z)
     x = layers.Dropout(DROPOUT)(x)
-    x = layers.Reshape((7, 7, 256))(x)
+    x = layers.Reshape((7, 7, 128))(x)
     # FiLM at 7x7
-    gamma7, beta7 = make_film(256)(lbl)
-    gamma7 = layers.Reshape((1, 1, 256))(gamma7)
-    beta7 = layers.Reshape((1, 1, 256))(beta7)
+    gamma7, beta7 = make_film(128)(lbl)
+    gamma7 = layers.Reshape((1, 1, 128))(gamma7)
+    beta7 = layers.Reshape((1, 1, 128))(beta7)
     x = layers.Multiply()([x, gamma7])
     x = layers.Add()([x, beta7])
     # SE attention on initial projection
     se_init = layers.GlobalAveragePooling2D()(x)
-    se_init = layers.Dense(256 // 4, activation="relu")(se_init)
-    se_init = layers.Dense(256, activation="sigmoid")(se_init)
-    se_init = layers.Reshape((1, 1, 256))(se_init)
+    se_init = layers.Dense(128 // 4, activation="relu")(se_init)
+    se_init = layers.Dense(128, activation="sigmoid")(se_init)
+    se_init = layers.Reshape((1, 1, 128))(se_init)
     x = layers.Multiply()([x, se_init])
     # Spatial attention before conv
     sa_init = layers.Conv2D(1, 1, activation='sigmoid')(x)
