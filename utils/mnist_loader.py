@@ -76,7 +76,7 @@ def load_data(data_dir, num_classes=6, flip_pixels=2, image_shape=(28, 28, 1), r
             sample = img
             if randomized and flip_pixels > 0:
                 sample = img.copy().reshape(-1)
-                flips = np.random.choice(pixel_indices, size=flip_pixels, replace=False)
+                flips = np.random.choice(pixel_indices, size=np.random.randint(2, flip_pixels), replace=False)
                 sample = sample.copy()
                 sample[flips] = 1 - sample[flips]
                 sample = sample.reshape(image_shape)
@@ -86,7 +86,7 @@ def load_data(data_dir, num_classes=6, flip_pixels=2, image_shape=(28, 28, 1), r
             sample = img
             if randomized and flip_pixels > 0:
                 sample = img.copy().reshape(-1)
-                flips = np.random.choice(pixel_indices, size=flip_pixels, replace=False)
+                flips = np.random.choice(pixel_indices, size=np.random.randint(2, flip_pixels), replace=False)
                 sample = sample.copy()
                 sample[flips] = 1 - sample[flips]
                 sample = sample.reshape(image_shape)

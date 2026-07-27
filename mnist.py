@@ -20,22 +20,24 @@ np.set_printoptions(linewidth=np.inf)
 
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "synthetic" / "data"
 NUM_CLASSES = 6
-EPOCHS = 40
-BATCH_SIZE = 256
+EPOCHS = 35
+BATCH_SIZE = 128
 BASE_LR = 0.00005
-GRAD_ADAPTIVE_MIN_LR = 0.000001
-GRAD_ADAPTIVE_MAX_LR = 0.0001
-GRAD_ADAPTIVE_FACTOR = 0.000005
-GRAD_ADAPTIVE_BATCH_INTERVAL = 4
-GRAD_NORM_EMA_DECAY = 0.94
+GRAD_ADAPTIVE_MIN_LR = 0.0000014
+GRAD_ADAPTIVE_MAX_LR = 0.000086
+GRAD_ADAPTIVE_FACTOR = 0.0000045
+GRAD_ADAPTIVE_BATCH_INTERVAL = 3
+GRAD_NORM_EMA_DECAY = 0.93
 GRAD_NORM_TARGET = 1.0
-DROPOUT = 0.3
-SPATIAL_DROPOUT = 0.3
+DROPOUT_START = 0.3
+DROPOUT_END = 0.2
+DROPOUT = DROPOUT_START
+SPATIAL_DROPOUT = 0.25
 DENSE_SIZE = 640
-L2_DECAY = 0.00004
+L2_DECAY = 0.000004
 GCE_Q = 0.5
 EARLY_STOP_PATIENCE = 100
-GAUSSIAN_NOISE = 0.0001
+GAUSSIAN_NOISE = 0.00002
 GAUSSIAN_NOISE_DECAY_EPOCHS = EPOCHS
 GAUSSIAN_NOISE_END = 0.0000005
 LOG_DIR = "logs/cls1"
@@ -78,7 +80,7 @@ class AugmentGenerator(tf.keras.utils.Sequence):
 # ─── Load dataset ──────────────────────────────────────────────────
 from utils.mnist_loader import load_data
 
-(x_train, y_train), (x_test, y_test) = load_data(DATA_DIR, NUM_CLASSES, flip_pixels=2)
+(x_train, y_train), (x_test, y_test) = load_data(DATA_DIR, NUM_CLASSES, flip_pixels=3*28)
 
 print(f"Train: {len(x_train)}, Test: {len(x_test)}")
 
@@ -288,6 +290,22 @@ class GaussianNoiseDecay(tf.keras.callbacks.Callback):
         noise = max(0.0, noise)
         self.noise_layer.stddev = noise
         print(f"  Gaussian noise: {noise:.6f}")
+
+class DropoutDecay(tf.keras.callbacks.Callback):
+    def __init__(self, start, end, decay_epochs):
+        super().__init__()
+        self.start = start
+        self.end = end
+        self.decay_epochs = decay_epochs
+        self._layers = []
+    def on_train_begin(self, logs=None):
+        self._layers = [layer for layer in self.model.layers if isinstance(layer, L.Dropout)]
+    def on_epoch_begin(self, epoch, logs=None):
+        progress = min(1.0, epoch / self.decay_epochs)
+        rate = self.start + (self.end - self.start) * progress
+        for layer in self._layers:
+            layer.rate = float(rate)
+        print(f"  Dropout rate: {rate:.4f}")
 
 class BestEpochLogger(tf.keras.callbacks.Callback):
     def __init__(self):
