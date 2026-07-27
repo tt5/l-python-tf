@@ -91,7 +91,7 @@ inputs = L.Input(shape=(28, 28, 1))
 x = L.GaussianNoise(GAUSSIAN_NOISE)(inputs)
 
 # CBAM: Convolutional Block Attention Module
-def channel_attention(x, reduction=16):
+def channel_attention(x, reduction=8):
     """Channel Attention (SE) - avg+max pooling."""
     channels = x.shape[-1]
     gap = tf.reduce_mean(x, axis=[1, 2], keepdims=True)
@@ -118,6 +118,7 @@ def cbam_block(x):
     """CBAM: Channel attention -> Spatial attention."""
     x = channel_attention(x)
     x = spatial_attention(x)
+    x = L.LayerNormalization()(x)
     return x
 
 # Conv block 0: 28x28 -> 28x28

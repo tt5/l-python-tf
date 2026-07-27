@@ -26,10 +26,10 @@ PHA1_LATENT_DIM = 64
 EPOCHS = 90
 BATCH_SIZE = 128
 NUM_CLASSES = 6
-PROGRESSIVE_EPOCHS = 4 # Phase 1: 14x14
+PROGRESSIVE_EPOCHS = 5 # Phase 1: 14x14
 LR = 0.001
 LR_WARMUP_START = 0.00005
-LR_WARMUP_EPOCHS = 2
+LR_WARMUP_EPOCHS = 1
 LR_DECAY_EPOCHS = EPOCHS - LR_WARMUP_EPOCHS
 LR_END = 0.00002
 PIXEL_LOSS_WEIGHT = 0.55
@@ -46,8 +46,8 @@ PHA2_KL_WEIGHT_TARGET = 0.1
 PHA2_KL_WARMUP_EPOCHS = 1
 PHA2_KL_DECAY_EPOCHS = EPOCHS
 # Phase 1 (14x14) specific config
-PHA1_LR = 0.001
-PHA1_LR_WARMUP_START = 0.0000005
+PHA1_LR = 0.002
+PHA1_LR_WARMUP_START = 0.000001
 PHA1_LR_WARMUP_EPOCHS = 1
 PHA1_LR_END = 0.0001
 PHA1_LR_DECAY_EPOCHS = PROGRESSIVE_EPOCHS - PHA1_LR_WARMUP_EPOCHS
@@ -133,6 +133,7 @@ def build_encoder():
     # Bottleneck
     x = layers.Flatten()(c3)
     x = layers.Concatenate()([x, lbl])
+    x = layers.LayerNormalization()(x)
     x = layers.Dense(768, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = layers.Dropout(DROPOUT)(x)
     z_mean = layers.Dense(LATENT_DIM, name="z_mean", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
