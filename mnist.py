@@ -40,7 +40,7 @@ EARLY_STOP_PATIENCE = 100
 GAUSSIAN_NOISE = 0.00002
 GAUSSIAN_NOISE_DECAY_EPOCHS = EPOCHS
 GAUSSIAN_NOISE_END = 0.000001
-LOG_DIR = "logs/cls1b"
+LOG_DIR = "logs/cls1"
 
 
 AUGMENT = True  # On-the-fly augmentation: random rotate/transpose
@@ -104,18 +104,20 @@ def channel_attention(x, reduction=16):
     return tf.multiply(x, attn)
 
 def spatial_attention(x):
-    """Spatial Attention - Conv2D 7x7."""
+    """Spatial Attention - scale-aware kernel size."""
+    h = int(x.shape[1])
+    k = 5 if h >= 20 else 3
+
     avg_pool = tf.reduce_mean(x, axis=-1, keepdims=True)
     max_pool = tf.reduce_max(x, axis=-1, keepdims=True)
     concat = tf.concat([avg_pool, max_pool], axis=-1)
-    attn = L.Conv2D(1, 5, padding='same', activation='sigmoid')(concat)
+    attn = L.Conv2D(1, k, padding='same', activation='sigmoid')(concat)
     return tf.multiply(x, attn)
 
 def cbam_block(x):
     """CBAM: Channel attention -> Spatial attention."""
     x = channel_attention(x)
     x = spatial_attention(x)
-    x = L.Dropout(DROPOUT)(x)
     return x
 
 # Conv block 0: 28x28 -> 28x28

@@ -26,10 +26,10 @@ PHA1_LATENT_DIM = 64
 EPOCHS = 90
 BATCH_SIZE = 128
 NUM_CLASSES = 6
-PROGRESSIVE_EPOCHS = 3 # Phase 1: 14x14
+PROGRESSIVE_EPOCHS = 4 # Phase 1: 14x14
 LR = 0.001
 LR_WARMUP_START = 0.00005
-LR_WARMUP_EPOCHS = 3
+LR_WARMUP_EPOCHS = 2
 LR_DECAY_EPOCHS = EPOCHS - LR_WARMUP_EPOCHS
 LR_END = 0.00002
 PIXEL_LOSS_WEIGHT = 0.55
@@ -57,8 +57,8 @@ PHA1_KL_WARMUP_EPOCHS = 1
 PHA1_KL_WARMUP_START = 0
 PHA1_KL_WEIGHT_START = 0.5
 PHA1_INFO_NCE_WEIGHT = 0.5
-LOG_NAME = 'logs/gen1b'
-LOG_NAME_PHA1 = 'logs/gen1b/phase1'
+LOG_NAME = 'logs/gen1'
+LOG_NAME_PHA1 = 'logs/gen1/phase1'
 
 # ─── Data ──────────────────────────────────────────────────────────
 def load_data_cvae():
