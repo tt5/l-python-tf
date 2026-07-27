@@ -40,7 +40,7 @@ EARLY_STOP_PATIENCE = 100
 GAUSSIAN_NOISE = 0.00002
 GAUSSIAN_NOISE_DECAY_EPOCHS = EPOCHS
 GAUSSIAN_NOISE_END = 0.000001
-LOG_DIR = "logs/cls1"
+LOG_DIR = "logs/cls1b"
 
 
 AUGMENT = True  # On-the-fly augmentation: random rotate/transpose
@@ -144,7 +144,6 @@ c2 = L.SpatialDropout2D(SPATIAL_DROPOUT)(c2)
 # Conv block 3: 7x7 → 7x7 (no pooling)
 c3 = L.SeparableConv2D(128, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_DECAY))(c2)
 c3 = L.Dropout(DROPOUT)(c3)
-c3 = cbam_block(c3)
 
 # Cross-scale residual connections: 7x7 -> 14x14 -> 28x28
 up14 = L.UpSampling2D(2)(c3)
