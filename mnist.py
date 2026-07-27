@@ -39,8 +39,8 @@ GCE_Q = 0.5
 EARLY_STOP_PATIENCE = 100
 GAUSSIAN_NOISE = 0.00002
 GAUSSIAN_NOISE_DECAY_EPOCHS = EPOCHS
-GAUSSIAN_NOISE_END = 0.0000005
-LOG_DIR = "logs/cls1"
+GAUSSIAN_NOISE_END = 0.000001
+LOG_DIR = "logs/cls1b"
 
 
 AUGMENT = True  # On-the-fly augmentation: random rotate/transpose
@@ -108,7 +108,7 @@ def spatial_attention(x):
     avg_pool = tf.reduce_mean(x, axis=-1, keepdims=True)
     max_pool = tf.reduce_max(x, axis=-1, keepdims=True)
     concat = tf.concat([avg_pool, max_pool], axis=-1)
-    attn = L.Conv2D(1, 7, padding='same', activation='sigmoid')(concat)
+    attn = L.Conv2D(1, 5, padding='same', activation='sigmoid')(concat)
     return tf.multiply(x, attn)
 
 def cbam_block(x):
