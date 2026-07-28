@@ -27,18 +27,18 @@ EPOCHS = 90
 BATCH_SIZE = 128
 NUM_CLASSES = 6
 PROGRESSIVE_EPOCHS = 3 # Phase 1: 14x14
-LR = 0.001
+LR = 0.0011
 LR_WARMUP_START = 0.00005
 LR_WARMUP_EPOCHS = 1
-LR_DECAY_EPOCHS = EPOCHS - LR_WARMUP_EPOCHS
+LR_DECAY_EPOCHS = (EPOCHS // 2) - LR_WARMUP_EPOCHS
 LR_END = 0.00002
-PIXEL_LOSS_WEIGHT = 0.55
-PERCEPTUAL_LOSS_WEIGHT = 0.45
+PIXEL_LOSS_WEIGHT = 0.5
+PERCEPTUAL_LOSS_WEIGHT = 0.5
 INFO_NCE_WEIGHT = 0.00001
 TEMPERATURE = 1.0
-DROPOUT = 0.4
-SPATIAL_DROPOUT = 0.4
-L2_REG = 0.000001
+DROPOUT = 0.45
+SPATIAL_DROPOUT = 0.45
+L2_REG = 0.000005
 # Phase 2 KL schedule (configurable start)
 PHA2_KL_WARMUP_START = 0.00003
 PHA2_KL_WEIGHT_START = 0.45
@@ -46,16 +46,15 @@ PHA2_KL_WEIGHT_TARGET = 0.1
 PHA2_KL_WARMUP_EPOCHS = 1
 PHA2_KL_DECAY_EPOCHS = EPOCHS
 # Phase 1 (14x14) specific config
-PHA1_LR = 0.002
+PHA1_LR = 0.001
 PHA1_LR_WARMUP_START = 0.000001
 PHA1_LR_WARMUP_EPOCHS = 1
 PHA1_LR_END = 0.0001
 PHA1_LR_DECAY_EPOCHS = PROGRESSIVE_EPOCHS - PHA1_LR_WARMUP_EPOCHS
 PHA1_PIXEL_LOSS_WEIGHT = 1.0
-PHA1_KL_WEIGHT = 0.5
 PHA1_KL_WARMUP_EPOCHS = 1
-PHA1_KL_WARMUP_START = 0
-PHA1_KL_WEIGHT_START = 0.5
+PHA1_KL_WARMUP_START = 0.0000001
+PHA1_KL_WEIGHT_START = 0.6
 PHA1_INFO_NCE_WEIGHT = 0.5
 LOG_NAME = 'logs/gen1'
 LOG_NAME_PHA1 = 'logs/gen1/phase1'
@@ -128,7 +127,7 @@ def build_encoder():
     se3 = layers.Dense(256, activation="sigmoid")(se3)
     se3 = layers.Reshape((1, 1, 256))(se3)
     c3 = layers.Multiply()([c3, se3])
-    c3 = layers.SpatialDropout2D(SPATIAL_DROPOUT)(c3)
+    c3 = layers.Activation("relu")(c3)
 
     # Bottleneck
     x = layers.Flatten()(c3)
@@ -344,6 +343,9 @@ def build_generator():
     x = upsample(x, [28, 28])
     x = layers.Conv2D(64, 3, padding="same", activation="relu")(x)
     x = layers.SpatialDropout2D(SPATIAL_DROPOUT)(x)
+    skip_14_up = upsample(skip_14, [28, 28])
+    x = layers.Add()([x, skip_14_up])
+    x = layers.Activation("relu")(x)
     x = layers.Dropout(DROPOUT)(x)
 
     x = layers.Conv2D(1, 3, padding="same", activation="sigmoid", dtype="float32")(x)
