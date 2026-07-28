@@ -21,7 +21,7 @@ from utils.mnist_loader import load_data
 
 # ─── Config ────────────────────────────────────────────────────────
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "synthetic" / "data"
-LATENT_DIM = 512
+LATENT_DIM = 256
 PHA1_LATENT_DIM = 64
 EPOCHS = 90
 BATCH_SIZE = 128
@@ -29,18 +29,18 @@ NUM_CLASSES = 6
 PROGRESSIVE_EPOCHS = 3 # Phase 1: 14x14
 LR = 0.0011
 LR_WARMUP_START = 0.00005
-LR_WARMUP_EPOCHS = 1
+LR_WARMUP_EPOCHS = 2
 LR_DECAY_EPOCHS = (EPOCHS // 2) - LR_WARMUP_EPOCHS
 LR_END = 0.00002
 PIXEL_LOSS_WEIGHT = 0.5
 PERCEPTUAL_LOSS_WEIGHT = 0.5
 INFO_NCE_WEIGHT = 0.00001
 TEMPERATURE = 1.0
-DROPOUT = 0.45
-SPATIAL_DROPOUT = 0.45
+DROPOUT = 0.3
+SPATIAL_DROPOUT = 0.3
 L2_REG = 0.000005
 # Phase 2 KL schedule (configurable start)
-PHA2_KL_WARMUP_START = 0.00003
+PHA2_KL_WARMUP_START = 0.00002
 PHA2_KL_WEIGHT_START = 0.45
 PHA2_KL_WEIGHT_TARGET = 0.1
 PHA2_KL_WARMUP_EPOCHS = 1
