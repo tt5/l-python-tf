@@ -30,7 +30,7 @@ PROGRESSIVE_EPOCHS = 3 # Phase 1: 14x14
 LR = 0.0011
 LR_WARMUP_START = 0.00005
 LR_WARMUP_EPOCHS = 2
-LR_DECAY_EPOCHS = (EPOCHS // 2) - LR_WARMUP_EPOCHS
+LR_DECAY_EPOCHS = EPOCHS - LR_WARMUP_EPOCHS
 LR_END = 0.00002
 PIXEL_LOSS_WEIGHT = 0.5
 PERCEPTUAL_LOSS_WEIGHT = 0.5
@@ -56,8 +56,8 @@ PHA1_KL_WARMUP_EPOCHS = 1
 PHA1_KL_WARMUP_START = 0.0000001
 PHA1_KL_WEIGHT_START = 0.6
 PHA1_INFO_NCE_WEIGHT = 0.5
-LOG_NAME = 'logs/gen1'
-LOG_NAME_PHA1 = 'logs/gen1/phase1'
+LOG_NAME = 'logs/gen1b'
+LOG_NAME_PHA1 = 'logs/gen1b/phase1'
 
 # ─── Data ──────────────────────────────────────────────────────────
 def load_data_cvae():
@@ -266,7 +266,6 @@ def build_generator():
 
     # Initial projection
     x = layers.Dense(7 * 7 * 128, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(z)
-    x = layers.Dropout(DROPOUT)(x)
     x = layers.Reshape((7, 7, 128))(x)
     # FiLM at 7x7
     gamma7, beta7 = make_film(128)(lbl)
