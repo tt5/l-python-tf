@@ -22,7 +22,7 @@ from utils.mnist_loader import load_data
 # ─── Config ────────────────────────────────────────────────────────
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "synthetic" / "data"
 LATENT_DIM = 256
-PHA1_LATENT_DIM = 64
+PHA1_LATENT_DIM = 32
 EPOCHS = 90
 BATCH_SIZE = 128
 NUM_CLASSES = 6
@@ -56,8 +56,8 @@ PHA1_KL_WARMUP_EPOCHS = 1
 PHA1_KL_WARMUP_START = 0.0000001
 PHA1_KL_WEIGHT_START = 0.6
 PHA1_INFO_NCE_WEIGHT = 0.5
-LOG_NAME = 'logs/gen1b'
-LOG_NAME_PHA1 = 'logs/gen1b/phase1'
+LOG_NAME = 'logs/gen1'
+LOG_NAME_PHA1 = 'logs/gen1/phase1'
 
 # ─── Data ──────────────────────────────────────────────────────────
 def load_data_cvae():
@@ -156,7 +156,7 @@ def build_encoder_14():
     c1 = layers.Multiply()([c1, se1])
     c1 = layers.SpatialDropout2D(SPATIAL_DROPOUT)(c1)
 
-    # Conv block 2: 7x7 → 7x7 (stride 1)
+    # Conv block 2: 7x7 → 7x7 (stride 1), mirrored from 28x28 encoder
     c2 = layers.Conv2D(128, 3, strides=1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(c1)
     c2 = layers.Activation("relu")(c2)
     skip = layers.Conv2D(128, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(c1)
@@ -172,6 +172,7 @@ def build_encoder_14():
     # Bottleneck
     x = layers.Flatten()(c2)
     x = layers.Concatenate()([x, lbl])
+    x = layers.LayerNormalization()(x)
     x = layers.Dense(256, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = layers.Dropout(DROPOUT)(x)
     z_mean = layers.Dense(PHA1_LATENT_DIM, name="z_mean", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
@@ -188,6 +189,7 @@ def upsample(x, target_size):
     x = tf.nn.depth_to_space(x, 2)
     return x
 
+
 # ─── Generator for 14×14 Phase 1 ────────────────────────────────────
 def build_generator_14():
     z = keras.Input(shape=(PHA1_LATENT_DIM,), name="latent_input")
@@ -200,7 +202,7 @@ def build_generator_14():
             return gamma, beta
         return film_fn
 
-    # Initial projection to 7x7
+    # Initial projection to 7x7, mirrored from 28x28 generator
     x = layers.Dense(7 * 7 * 128, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(z)
     x = layers.Dropout(DROPOUT)(x)
     x = layers.Reshape((7, 7, 128))(x)
@@ -209,43 +211,45 @@ def build_generator_14():
     beta7 = layers.Reshape((1, 1, 128))(beta7)
     x = layers.Multiply()([x, gamma7])
     x = layers.Add()([x, beta7])
-    x = layers.Dropout(DROPOUT)(x)
+    se_init = layers.GlobalAveragePooling2D()(x)
+    se_init = layers.Dense(128 // 4, activation="relu")(se_init)
+    se_init = layers.Dense(128, activation="sigmoid")(se_init)
+    se_init = layers.Reshape((1, 1, 128))(se_init)
+    x = layers.Multiply()([x, se_init])
+    sa_init = layers.Conv2D(1, 1, activation='sigmoid')(x)
+    x = layers.Multiply()([x, sa_init])
+    x = layers.SpatialDropout2D(SPATIAL_DROPOUT)(x)
 
-    # Conv block: 7x7 (with SE + spatial attention)
-    c1 = layers.Conv2D(64, 3, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
-    c1 = layers.Dropout(DROPOUT)(c1)
-    se1 = layers.GlobalAveragePooling2D()(c1)
-    se1 = layers.Dense(64 // 4, activation="relu")(se1)
-    se1 = layers.Dense(64, activation="sigmoid")(se1)
-    se1 = layers.Reshape((1, 1, 64))(se1)
-    c1 = layers.Multiply()([c1, se1])
-    sa1 = layers.Conv2D(1, 1, activation='sigmoid')(c1)
-    c1 = layers.Multiply()([c1, sa1])
-    c1 = layers.SpatialDropout2D(SPATIAL_DROPOUT)(c1)
-    c1 = layers.Dropout(DROPOUT)(c1)
+    # 7x7 block with FiLM, mirrored from 28x28 generator
+    x = layers.Conv2D(128, 3, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
+    gamma7c, beta7c = make_film(128)(lbl)
+    gamma7c = layers.Reshape((1, 1, 128))(gamma7c)
+    beta7c = layers.Reshape((1, 1, 128))(beta7c)
+    x = layers.Multiply()([x, gamma7c])
+    x = layers.Add()([x, beta7c])
+    se7 = layers.GlobalAveragePooling2D()(x)
+    se7 = layers.Dense(128 // 4, activation="relu")(se7)
+    se7 = layers.Dense(128, activation="sigmoid")(se7)
+    se7 = layers.Reshape((1, 1, 128))(se7)
+    x = layers.Multiply()([x, se7])
+    sa7 = layers.Conv2D(1, 1, activation='sigmoid')(x)
+    x = layers.Multiply()([x, sa7])
+    x = layers.SpatialDropout2D(SPATIAL_DROPOUT)(x)
+    skip_7 = layers.Conv2D(128, 1, padding="same")(x)
 
-    # 7x7 → 14x14
-    x = upsample(c1, [14, 14])
-    x = layers.Conv2D(64, 3, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
-    x = layers.Dropout(DROPOUT)(x)
-    gamma14, beta14 = make_film(64)(lbl)
-    gamma14 = layers.Reshape((1, 1, 64))(gamma14)
-    beta14 = layers.Reshape((1, 1, 64))(beta14)
+    # 7x7 → 14x14, mirrored from 28x28 generator
+    x = upsample(x, [14, 14])
+    x = layers.Conv2D(128, 3, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
+    gamma14, beta14 = make_film(128)(lbl)
+    gamma14 = layers.Reshape((1, 1, 128))(gamma14)
+    beta14 = layers.Reshape((1, 1, 128))(beta14)
     x = layers.Multiply()([x, gamma14])
     x = layers.Add()([x, beta14])
-    # SE + spatial attention
-    se2 = layers.GlobalAveragePooling2D()(x)
-    se2 = layers.Dense(64 // 4, activation="relu")(se2)
-    se2 = layers.Dense(64, activation="sigmoid")(se2)
-    se2 = layers.Reshape((1, 1, 64))(se2)
-    x = layers.Multiply()([x, se2])
-    sa2 = layers.Conv2D(1, 1, activation='sigmoid')(x)
-    x = layers.Multiply()([x, sa2])
-    # Skip connection from c1 (project to match channels)
-    skip = layers.Conv2D(64, 1, padding="same")(c1)
-    skip_up = upsample(skip, [14, 14])
-    x = layers.Add()([x, skip_up])
-    x = layers.SpatialDropout2D(SPATIAL_DROPOUT)(x)
+    sa14_pre = layers.Conv2D(1, 1, activation='sigmoid')(x)
+    x = layers.Multiply()([x, sa14_pre])
+    skip_7_up = upsample(skip_7, [14, 14])
+    x = layers.Add()([x, skip_7_up])
+    x = layers.Activation("relu")(x)
 
     x = layers.Conv2D(1, 3, padding="same", activation="sigmoid", dtype="float32")(x)
     return keras.Model([z, lbl], x, name="generator_14")
