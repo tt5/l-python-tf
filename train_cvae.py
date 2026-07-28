@@ -22,7 +22,7 @@ from utils.mnist_loader import load_data
 # ─── Config ────────────────────────────────────────────────────────
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "synthetic" / "data"
 LATENT_DIM = 256
-PHA1_LATENT_DIM = 32
+PHA1_LATENT_DIM = 64
 EPOCHS = 90
 BATCH_SIZE = 128
 NUM_CLASSES = 6
@@ -36,9 +36,9 @@ PIXEL_LOSS_WEIGHT = 0.5
 PERCEPTUAL_LOSS_WEIGHT = 0.5
 INFO_NCE_WEIGHT = 0.00001
 TEMPERATURE = 1.0
-DROPOUT = 0.3
-SPATIAL_DROPOUT = 0.3
-L2_REG = 0.000005
+DROPOUT = 0.4
+SPATIAL_DROPOUT = 0.4
+L2_REG = 0.00001
 # Phase 2 KL schedule (configurable start)
 PHA2_KL_WARMUP_START = 0.00002
 PHA2_KL_WEIGHT_START = 0.45
@@ -49,15 +49,15 @@ PHA2_KL_DECAY_EPOCHS = EPOCHS
 PHA1_LR = 0.001
 PHA1_LR_WARMUP_START = 0.000001
 PHA1_LR_WARMUP_EPOCHS = 1
-PHA1_LR_END = 0.0001
+PHA1_LR_END = 0.0005
 PHA1_LR_DECAY_EPOCHS = PROGRESSIVE_EPOCHS - PHA1_LR_WARMUP_EPOCHS
 PHA1_PIXEL_LOSS_WEIGHT = 1.0
 PHA1_KL_WARMUP_EPOCHS = 1
 PHA1_KL_WARMUP_START = 0.0000001
-PHA1_KL_WEIGHT_START = 0.6
+PHA1_KL_WEIGHT_START = 0.1
 PHA1_INFO_NCE_WEIGHT = 0.5
-LOG_NAME = 'logs/gen1'
-LOG_NAME_PHA1 = 'logs/gen1/phase1'
+LOG_NAME = 'logs/gen1b'
+LOG_NAME_PHA1 = 'logs/gen1b/phase1'
 
 # ─── Data ──────────────────────────────────────────────────────────
 def load_data_cvae():
@@ -498,14 +498,32 @@ class VAE(keras.Model):
         images, labels = data
         z_mean, z_log_var, z = self.encoder([images, labels])
         reconstruction = self.generator([z, labels])
+        target = tf.image.resize(images, tf.shape(reconstruction)[1:3])
         pixel_loss = tf.reduce_mean(tf.reduce_sum(
-            keras.losses.binary_crossentropy(images, reconstruction), axis=(1, 2)))
+            keras.losses.binary_crossentropy(target, reconstruction), axis=(1, 2)))
         kl_loss = -0.5 * tf.reduce_mean(tf.reduce_sum(
             1 + z_log_var - tf.square(z_mean) - tf.exp(z_log_var), axis=1))
-        total_loss = pixel_loss + kl_loss
+        kl_weight = self.get_kl_weight()
+        batch_size = tf.shape(z)[0]
+        z_norm = tf.math.l2_normalize(z, axis=1)
+        sim_matrix = tf.matmul(z_norm, z_norm, transpose_b=True) / TEMPERATURE
+        labels_ce = tf.range(batch_size)
+        info_nce_loss = tf.reduce_mean(
+            tf.nn.sparse_softmax_cross_entropy_with_logits(labels=labels_ce, logits=sim_matrix))
+        real_features = self.feature_extractor(images)
+        fake_features = self.feature_extractor(reconstruction)
+        perceptual_loss = 0.0
+        for rf, ff in zip(real_features, fake_features):
+            perceptual_loss += tf.reduce_mean(tf.square(rf - ff))
+        perceptual_loss /= len(real_features)
+        total_loss = (PIXEL_LOSS_WEIGHT * pixel_loss +
+                      PERCEPTUAL_LOSS_WEIGHT * perceptual_loss +
+                      kl_weight * kl_loss +
+                      INFO_NCE_WEIGHT * info_nce_loss)
         self.total_loss_tracker.update_state(total_loss)
         self.recon_loss_tracker.update_state(pixel_loss)
         self.kl_loss_tracker.update_state(kl_loss)
+        self.kl_weight_tracker.update_state(kl_weight)
         return {m.name: m.result() for m in self.metrics}
 
 
@@ -609,6 +627,25 @@ class VAE14(VAE):
         grads = tape.gradient(total_loss, self.trainable_weights)
         grads = [tf.clip_by_value(g, -1.0, 1.0) if g is not None else g for g in grads]
         self.optimizer.apply_gradients(zip(grads, self.trainable_weights))
+        self.total_loss_tracker.update_state(total_loss)
+        self.recon_loss_tracker.update_state(pixel_loss)
+        self.kl_loss_tracker.update_state(kl_loss)
+        return {m.name: m.result() for m in self.metrics}
+
+    def test_step(self, data):
+        images, labels = data
+        z_mean, z_log_var, z = self.encoder([images, labels])
+        reconstruction = self.generator([z, labels])
+        target = tf.image.resize(images, tf.shape(reconstruction)[1:3])
+        pixel_loss = tf.reduce_mean(tf.reduce_sum(
+            keras.losses.binary_crossentropy(target, reconstruction), axis=(1, 2)))
+        kl_loss = -0.5 * tf.reduce_mean(tf.reduce_sum(
+            1 + z_log_var - tf.square(z_mean) - tf.exp(z_log_var), axis=1))
+        epoch = tf.cast(self.epoch_tracker, tf.float32)
+        kl_warmup_epochs = tf.cast(PHA1_KL_WARMUP_EPOCHS, tf.float32)
+        kl_warmup_progress = tf.minimum(1.0, epoch / kl_warmup_epochs)
+        kl_weight = PHA1_KL_WARMUP_START + (PHA1_KL_WEIGHT_START - PHA1_KL_WARMUP_START) * kl_warmup_progress
+        total_loss = PHA1_PIXEL_LOSS_WEIGHT * pixel_loss + kl_weight * kl_loss
         self.total_loss_tracker.update_state(total_loss)
         self.recon_loss_tracker.update_state(pixel_loss)
         self.kl_loss_tracker.update_state(kl_loss)
