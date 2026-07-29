@@ -27,35 +27,35 @@ EPOCHS = 90
 BATCH_SIZE = 128
 NUM_CLASSES = 6
 PROGRESSIVE_EPOCHS = 3 # Phase 1: 14x14
-LR = 0.0011
-LR_WARMUP_START = 0.00005
+LR = 0.0008
+LR_WARMUP_START = 0.000005
 LR_WARMUP_EPOCHS = 2
 LR_DECAY_EPOCHS = EPOCHS - LR_WARMUP_EPOCHS
-LR_END = 0.00002
-PIXEL_LOSS_WEIGHT = 0.5
-PERCEPTUAL_LOSS_WEIGHT = 0.5
-INFO_NCE_WEIGHT = 0.00001
+LR_END = 0.0001
+PIXEL_LOSS_WEIGHT = 0.6
+PERCEPTUAL_LOSS_WEIGHT = 0.4
+INFO_NCE_WEIGHT = 0.0
 TEMPERATURE = 1.0
-DROPOUT = 0.4
-SPATIAL_DROPOUT = 0.4
-L2_REG = 0.00001
+DROPOUT = 0.3
+SPATIAL_DROPOUT = 0.3
+L2_REG = 0.00005
 # Phase 2 KL schedule (configurable start)
-PHA2_KL_WARMUP_START = 0.00002
+PHA2_KL_WARMUP_START = 0.0003
 PHA2_KL_WEIGHT_START = 0.45
-PHA2_KL_WEIGHT_TARGET = 0.1
-PHA2_KL_WARMUP_EPOCHS = 1
+PHA2_KL_WEIGHT_TARGET = 0.2
+PHA2_KL_WARMUP_EPOCHS = 3
 PHA2_KL_DECAY_EPOCHS = EPOCHS
 # Phase 1 (14x14) specific config
-PHA1_LR = 0.001
-PHA1_LR_WARMUP_START = 0.000001
-PHA1_LR_WARMUP_EPOCHS = 1
-PHA1_LR_END = 0.0005
+PHA1_LR = 0.0003
+PHA1_LR_WARMUP_START = 0.0000001
+PHA1_LR_WARMUP_EPOCHS = 2
+PHA1_LR_END = 0.00005
 PHA1_LR_DECAY_EPOCHS = PROGRESSIVE_EPOCHS - PHA1_LR_WARMUP_EPOCHS
 PHA1_PIXEL_LOSS_WEIGHT = 1.0
 PHA1_KL_WARMUP_EPOCHS = 1
 PHA1_KL_WARMUP_START = 0.0000001
-PHA1_KL_WEIGHT_START = 0.1
-PHA1_INFO_NCE_WEIGHT = 0.5
+PHA1_KL_WEIGHT_START = 0.01
+PHA1_INFO_NCE_WEIGHT = 0.0
 LOG_NAME = 'logs/gen1b'
 LOG_NAME_PHA1 = 'logs/gen1b/phase1'
 
@@ -126,8 +126,11 @@ def build_encoder():
     se3 = layers.Dense(256 // 4, activation="relu")(se3)
     se3 = layers.Dense(256, activation="sigmoid")(se3)
     se3 = layers.Reshape((1, 1, 256))(se3)
+    c3_pre = c3
     c3 = layers.Multiply()([c3, se3])
     c3 = layers.Activation("relu")(c3)
+    skip3 = layers.Conv2D(256, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(c3_pre)
+    c3 = layers.Add()([c3, skip3])
 
     # Bottleneck
     x = layers.Flatten()(c3)
@@ -475,9 +478,13 @@ class VAE(keras.Model):
             real_features = self.feature_extractor(images)
             fake_features = self.feature_extractor(reconstruction)
             perceptual_loss = 0.0
+            count = 0
             for rf, ff in zip(real_features, fake_features):
-                perceptual_loss += tf.reduce_mean(tf.square(rf - ff))
-            perceptual_loss /= len(real_features)
+                diff = tf.reduce_mean(tf.square(rf - ff))
+                n = tf.cast(tf.size(rf), tf.float32)
+                perceptual_loss += diff / n
+                count += 1
+            perceptual_loss /= tf.maximum(tf.cast(count, tf.float32), 1.0)
 
             # Combined loss
             total_loss = (PIXEL_LOSS_WEIGHT * pixel_loss +
@@ -513,9 +520,13 @@ class VAE(keras.Model):
         real_features = self.feature_extractor(images)
         fake_features = self.feature_extractor(reconstruction)
         perceptual_loss = 0.0
+        count = 0
         for rf, ff in zip(real_features, fake_features):
-            perceptual_loss += tf.reduce_mean(tf.square(rf - ff))
-        perceptual_loss /= len(real_features)
+            diff = tf.reduce_mean(tf.square(rf - ff))
+            n = tf.cast(tf.size(rf), tf.float32)
+            perceptual_loss += diff / n
+            count += 1
+        perceptual_loss /= tf.maximum(tf.cast(count, tf.float32), 1.0)
         total_loss = (PIXEL_LOSS_WEIGHT * pixel_loss +
                       PERCEPTUAL_LOSS_WEIGHT * perceptual_loss +
                       kl_weight * kl_loss +
