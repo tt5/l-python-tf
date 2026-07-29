@@ -27,7 +27,7 @@ EPOCHS = 90
 BATCH_SIZE = 128
 NUM_CLASSES = 6
 PROGRESSIVE_EPOCHS = 3 # Phase 1: 14x14
-LR = 0.0008
+LR = 0.001
 LR_WARMUP_START = 0.000005
 LR_WARMUP_EPOCHS = 2
 LR_DECAY_EPOCHS = EPOCHS - LR_WARMUP_EPOCHS
@@ -41,7 +41,7 @@ SPATIAL_DROPOUT = 0.3
 L2_REG = 0.00005
 # Phase 2 KL schedule (configurable start)
 PHA2_KL_WARMUP_START = 0.0003
-PHA2_KL_WEIGHT_START = 0.45
+PHA2_KL_WEIGHT_START = 0.5
 PHA2_KL_WEIGHT_TARGET = 0.2
 PHA2_KL_WARMUP_EPOCHS = 3
 PHA2_KL_DECAY_EPOCHS = EPOCHS
@@ -56,8 +56,8 @@ PHA1_KL_WARMUP_EPOCHS = 1
 PHA1_KL_WARMUP_START = 0.0000001
 PHA1_KL_WEIGHT_START = 0.01
 PHA1_INFO_NCE_WEIGHT = 0.0
-LOG_NAME = 'logs/gen1b'
-LOG_NAME_PHA1 = 'logs/gen1b/phase1'
+LOG_NAME = 'logs/gen1'
+LOG_NAME_PHA1 = 'logs/gen1/phase1'
 
 # ─── Data ──────────────────────────────────────────────────────────
 def load_data_cvae():
@@ -113,6 +113,10 @@ def build_encoder():
     se2 = layers.Reshape((1, 1, 128))(se2)
     c2 = layers.Multiply()([c2, se2])
     c2 = layers.SpatialDropout2D(SPATIAL_DROPOUT)(c2)
+
+    # Cross-scale shortcut from c1 into block 3
+    pooled_c1 = layers.AveragePooling2D(2)(c1)
+    c2 = layers.Concatenate()([c2, pooled_c1])
 
     # Conv block 3: 7x7 → 7x7 (stride 1)
     c3 = layers.Conv2D(256, 3, strides=1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(c2)
