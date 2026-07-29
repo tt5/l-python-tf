@@ -45,6 +45,7 @@ PHA2_KL_WEIGHT_START = 0.5
 PHA2_KL_WEIGHT_TARGET = 0.2
 PHA2_KL_WARMUP_EPOCHS = 5
 PHA2_KL_DECAY_EPOCHS = EPOCHS
+PHA2_TRANSFER_FREEZE_EPOCHS = 1
 # Phase 1 (14x14) specific config
 PHA1_LR = 0.0003
 PHA1_LR_WARMUP_START = 0.0000001
@@ -56,8 +57,8 @@ PHA1_KL_WARMUP_EPOCHS = 1
 PHA1_KL_WARMUP_START = 0.0000001
 PHA1_KL_WEIGHT_START = 0.01
 PHA1_INFO_NCE_WEIGHT = 0.0
-LOG_NAME = 'logs/gen1'
-LOG_NAME_PHA1 = 'logs/gen1/phase1'
+LOG_NAME = 'logs/gen1b'
+LOG_NAME_PHA1 = 'logs/gen1b/phase1'
 
 # ─── Data ──────────────────────────────────────────────────────────
 def load_data_cvae():
@@ -581,6 +582,8 @@ class GeneratorCheckpoint(keras.callbacks.Callback):
             self.generator.save_weights(self.filepath)
             print(f"  Saved best generator (val_loss: {current_loss:.4f})")
 
+
+
 callbacks = [
     keras.callbacks.EarlyStopping(monitor='val_recon_loss', patience=90, restore_best_weights=True),
     GeneratorCheckpoint(generator, best_generator_path),
@@ -682,22 +685,62 @@ history1 = vae_14.fit(x_train_14, y_train, validation_data=(x_test_14, y_test),
 
 # Transfer weights from 14×14 model to 28×28 model
 print("\nTransferring weights from 14×14 model to 28×28 model...")
-# Transfer by layer name - conv layers have matching shapes
-encoder_14_weights = {w.name: w for w in encoder_14.weights}
-for w in encoder.weights:
-    if w.name in encoder_14_weights and w.shape == encoder_14_weights[w.name].shape:
-        w.assign(encoder_14_weights[w.name])
-generator_14_weights = {w.name: w for w in generator_14.weights}
-for w in generator.weights:
-    if w.name in generator_14_weights and w.shape == generator_14_weights[w.name].shape:
-        w.assign(generator_14_weights[w.name])
-print("Weight transfer complete.")
+
+def transfer_weights_by_order(src_model, dst_model, name="model"):
+    src_weights = src_model.weights
+    dst_weights = dst_model.weights
+    transferred = []
+    skipped = []
+    for i, (sw, dw) in enumerate(zip(src_weights, dst_weights)):
+        if tuple(sw.shape) == tuple(dw.shape):
+            dw.assign(sw)
+            transferred.append(dw)
+        else:
+            skipped.append((i, sw.name, tuple(sw.shape), dw.name, tuple(dw.shape)))
+    print(f"[{name}] transferred {len(transferred)} weights by order; skipped {len(skipped)} due to shape mismatch")
+    for i, sn, ss, dn, ds in skipped:
+        print(f"  skip {i}: {sn} {ss} -> {dn} {ds}")
+    return transferred
+
+enc_transferred = transfer_weights_by_order(encoder_14, encoder, name="encoder")
+gen_transferred = transfer_weights_by_order(generator_14, generator, name="generator")
+vae.phase1_transferred_weights = enc_transferred + gen_transferred
+print(f"Weight transfer complete. {len(vae.phase1_transferred_weights)} weights transferred.")
 
 # ─── Phase 2: Fine-tune at 28×28 ───────────────────────────────────
 print(f"\n═══ Phase 2: Fine-tuning at 28×28 for {EPOCHS - PROGRESSIVE_EPOCHS} epochs ═══")
-history2 = vae.fit(x_train, y_train, validation_data=(x_test, y_test),
-                   epochs=EPOCHS, batch_size=BATCH_SIZE, callbacks=callbacks, verbose=2,
-                   initial_epoch=PROGRESSIVE_EPOCHS)
+freeze_epochs_end = PROGRESSIVE_EPOCHS + PHA2_TRANSFER_FREEZE_EPOCHS
+
+# Epoch 6..N: transferred weights frozen
+print(f"\nPhase 2a: frozen transferred weights for {PHA2_TRANSFER_FREEZE_EPOCHS} epochs")
+frozen_weights = list(getattr(vae, 'phase1_transferred_weights', []))
+for v in frozen_weights:
+    v._trainable = False
+vae.compile(optimizer=keras.optimizers.Adam(LR))
+history2_frozen = vae.fit(
+    x_train, y_train,
+    validation_data=(x_test, y_test),
+    epochs=min(freeze_epochs_end, EPOCHS),
+    batch_size=BATCH_SIZE,
+    callbacks=callbacks,
+    verbose=2,
+    initial_epoch=PROGRESSIVE_EPOCHS,
+)
+
+# Unfreeze transferred weights and resume
+print("\nUnfreezing transferred weights and resuming Phase 2")
+for v in frozen_weights:
+    v._trainable = True
+vae.compile(optimizer=keras.optimizers.Adam(LR))
+history2 = vae.fit(
+    x_train, y_train,
+    validation_data=(x_test, y_test),
+    epochs=EPOCHS,
+    batch_size=BATCH_SIZE,
+    callbacks=callbacks,
+    verbose=2,
+    initial_epoch=freeze_epochs_end,
+)
 
 # ─── Load best generator weights (in case EarlyStopping didn't trigger) ──
 if os.path.exists(best_generator_path):
