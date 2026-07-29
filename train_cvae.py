@@ -90,7 +90,7 @@ def build_encoder():
     lbl = keras.Input(shape=(NUM_CLASSES,), name="label_input")
 
     # Conv block 1: 28x28 → 14x14
-    c1 = layers.Conv2D(64, 3, strides=2, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(img)
+    c1 = layers.Conv2D(64, 3, strides=2, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv1")(img)
     c1 = layers.Activation("relu")(c1)
     # SE attention 1
     se1 = layers.GlobalAveragePooling2D()(c1)
@@ -101,10 +101,10 @@ def build_encoder():
     c1 = layers.SpatialDropout2D(SPATIAL_DROPOUT)(c1)
 
     # Conv block 2: 14x14 → 7x7
-    c2 = layers.Conv2D(128, 3, strides=2, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(c1)
+    c2 = layers.Conv2D(128, 3, strides=2, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv2")(c1)
     c2 = layers.Activation("relu")(c2)
     # Residual connection: project c1 (14x14x64) to match c2 (7x7x128)
-    skip = layers.Conv2D(128, 1, strides=2, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(c1)
+    skip = layers.Conv2D(128, 1, strides=2, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv2_skip")(c1)
     c2 = layers.Add()([c2, skip])
     c2 = layers.Activation("relu")(c2)
     # SE attention 2
@@ -154,25 +154,25 @@ def build_encoder_14():
     img = keras.Input(shape=(14, 14, 1), name="image_input")
     lbl = keras.Input(shape=(NUM_CLASSES,), name="label_input")
 
-    # Conv block 1: 14x14 → 7x7
-    c1 = layers.Conv2D(64, 3, strides=2, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(img)
+    # Block 1: 14x14 -> 7x7, mirrored from 28x28 encoder
+    c1 = layers.Conv2D(64, 3, strides=2, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv1")(img)
     c1 = layers.Activation("relu")(c1)
     se1 = layers.GlobalAveragePooling2D()(c1)
-    se1 = layers.Dense(64 // 4, activation="relu")(se1)
-    se1 = layers.Dense(64, activation="sigmoid")(se1)
+    se1 = layers.Dense(64 // 4, activation="relu", name="dense")(se1)
+    se1 = layers.Dense(64, activation="sigmoid", name="dense_1")(se1)
     se1 = layers.Reshape((1, 1, 64))(se1)
     c1 = layers.Multiply()([c1, se1])
     c1 = layers.SpatialDropout2D(SPATIAL_DROPOUT)(c1)
 
-    # Conv block 2: 7x7 → 7x7 (stride 1), mirrored from 28x28 encoder
-    c2 = layers.Conv2D(128, 3, strides=1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(c1)
+    # Block 2: 7x7 -> 7x7, mirrored from 14x14 encoder
+    c2 = layers.Conv2D(128, 3, strides=1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv2")(c1)
     c2 = layers.Activation("relu")(c2)
-    skip = layers.Conv2D(128, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(c1)
+    skip = layers.Conv2D(128, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv2_skip")(c1)
     c2 = layers.Add()([c2, skip])
     c2 = layers.Activation("relu")(c2)
     se2 = layers.GlobalAveragePooling2D()(c2)
-    se2 = layers.Dense(128 // 4, activation="relu")(se2)
-    se2 = layers.Dense(128, activation="sigmoid")(se2)
+    se2 = layers.Dense(128 // 4, activation="relu", name="dense_2")(se2)
+    se2 = layers.Dense(128, activation="sigmoid", name="dense_3")(se2)
     se2 = layers.Reshape((1, 1, 128))(se2)
     c2 = layers.Multiply()([c2, se2])
     c2 = layers.SpatialDropout2D(SPATIAL_DROPOUT)(c2)
@@ -181,7 +181,7 @@ def build_encoder_14():
     x = layers.Flatten()(c2)
     x = layers.Concatenate()([x, lbl])
     x = layers.LayerNormalization()(x)
-    x = layers.Dense(256, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
+    x = layers.Dense(256, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="dense_6")(x)
     x = layers.Dropout(DROPOUT)(x)
     z_mean = layers.Dense(PHA1_LATENT_DIM, name="z_mean", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     z_log_var = layers.Dense(PHA1_LATENT_DIM, name="z_log_var", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
@@ -211,55 +211,55 @@ def build_generator_14():
         return film_fn
 
     # Initial projection to 7x7, mirrored from 28x28 generator
-    x = layers.Dense(7 * 7 * 128, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(z)
+    x = layers.Dense(7 * 7 * 128, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="dense_7")(z)
     x = layers.Dropout(DROPOUT)(x)
     x = layers.Reshape((7, 7, 128))(x)
     gamma7, beta7 = make_film(128)(lbl)
-    gamma7 = layers.Reshape((1, 1, 128))(gamma7)
-    beta7 = layers.Reshape((1, 1, 128))(beta7)
+    gamma7 = layers.Reshape((1, 1, 128), name="reshape")(gamma7)
+    beta7 = layers.Reshape((1, 1, 128), name="reshape_1")(beta7)
     x = layers.Multiply()([x, gamma7])
     x = layers.Add()([x, beta7])
     se_init = layers.GlobalAveragePooling2D()(x)
-    se_init = layers.Dense(128 // 4, activation="relu")(se_init)
-    se_init = layers.Dense(128, activation="sigmoid")(se_init)
+    se_init = layers.Dense(128 // 4, activation="relu", name="dense_8")(se_init)
+    se_init = layers.Dense(128, activation="sigmoid", name="dense_9")(se_init)
     se_init = layers.Reshape((1, 1, 128))(se_init)
     x = layers.Multiply()([x, se_init])
-    sa_init = layers.Conv2D(1, 1, activation='sigmoid')(x)
+    sa_init = layers.Conv2D(1, 1, activation='sigmoid', name="conv2d_3")(x)
     x = layers.Multiply()([x, sa_init])
     x = layers.SpatialDropout2D(SPATIAL_DROPOUT)(x)
 
     # 7x7 block with FiLM, mirrored from 28x28 generator
-    x = layers.Conv2D(128, 3, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
+    x = layers.Conv2D(128, 3, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="conv2d_4")(x)
     gamma7c, beta7c = make_film(128)(lbl)
-    gamma7c = layers.Reshape((1, 1, 128))(gamma7c)
-    beta7c = layers.Reshape((1, 1, 128))(beta7c)
+    gamma7c = layers.Reshape((1, 1, 128), name="reshape_2")(gamma7c)
+    beta7c = layers.Reshape((1, 1, 128), name="reshape_3")(beta7c)
     x = layers.Multiply()([x, gamma7c])
     x = layers.Add()([x, beta7c])
     se7 = layers.GlobalAveragePooling2D()(x)
-    se7 = layers.Dense(128 // 4, activation="relu")(se7)
-    se7 = layers.Dense(128, activation="sigmoid")(se7)
+    se7 = layers.Dense(128 // 4, activation="relu", name="dense_10")(se7)
+    se7 = layers.Dense(128, activation="sigmoid", name="dense_11")(se7)
     se7 = layers.Reshape((1, 1, 128))(se7)
     x = layers.Multiply()([x, se7])
-    sa7 = layers.Conv2D(1, 1, activation='sigmoid')(x)
+    sa7 = layers.Conv2D(1, 1, activation='sigmoid', name="conv2d_5")(x)
     x = layers.Multiply()([x, sa7])
     x = layers.SpatialDropout2D(SPATIAL_DROPOUT)(x)
-    skip_7 = layers.Conv2D(128, 1, padding="same")(x)
+    skip_7 = layers.Conv2D(128, 1, padding="same", name="conv2d_6")(x)
 
     # 7x7 → 14x14, mirrored from 28x28 generator
     x = upsample(x, [14, 14])
-    x = layers.Conv2D(128, 3, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
+    x = layers.Conv2D(128, 3, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="conv2d_7")(x)
     gamma14, beta14 = make_film(128)(lbl)
-    gamma14 = layers.Reshape((1, 1, 128))(gamma14)
-    beta14 = layers.Reshape((1, 1, 128))(beta14)
+    gamma14 = layers.Reshape((1, 1, 128), name="reshape_4")(gamma14)
+    beta14 = layers.Reshape((1, 1, 128), name="reshape_5")(beta14)
     x = layers.Multiply()([x, gamma14])
     x = layers.Add()([x, beta14])
-    sa14_pre = layers.Conv2D(1, 1, activation='sigmoid')(x)
+    sa14_pre = layers.Conv2D(1, 1, activation='sigmoid', name="conv2d_8")(x)
     x = layers.Multiply()([x, sa14_pre])
     skip_7_up = upsample(skip_7, [14, 14])
     x = layers.Add()([x, skip_7_up])
     x = layers.Activation("relu")(x)
 
-    x = layers.Conv2D(1, 3, padding="same", activation="sigmoid", dtype="float32")(x)
+    x = layers.Conv2D(1, 3, padding="same", activation="sigmoid", dtype="float32", name="conv2d_9")(x)
     return keras.Model([z, lbl], x, name="generator_14")
 
 
@@ -686,24 +686,38 @@ history1 = vae_14.fit(x_train_14, y_train, validation_data=(x_test_14, y_test),
 # Transfer weights from 14×14 model to 28×28 model
 print("\nTransferring weights from 14×14 model to 28×28 model...")
 
-def transfer_weights_by_order(src_model, dst_model, name="model"):
-    src_weights = src_model.weights
-    dst_weights = dst_model.weights
+def _dump_weights(model, title):
+    print(f"\n=== {title} ===")
+    for i, w in enumerate(model.weights):
+        print(f"{i:03d} {w.name:<60} {tuple(w.shape)}")
+    print("=" * 90)
+
+# one-shot snapshot for exact named mapping later
+_dump_weights(encoder_14, "encoder_14 weights")
+_dump_weights(encoder, " encoder weights")
+_dump_weights(generator_14, "generator_14 weights")
+_dump_weights(generator, " generator weights")
+
+def transfer_weights_by_name(src_model, dst_model, name="model"):
+    src_by_name = {w.name: w for w in src_model.weights}
+    dst_by_name = {w.name: w for w in dst_model.weights}
     transferred = []
     skipped = []
-    for i, (sw, dw) in enumerate(zip(src_weights, dst_weights)):
-        if tuple(sw.shape) == tuple(dw.shape):
-            dw.assign(sw)
-            transferred.append(dw)
-        else:
-            skipped.append((i, sw.name, tuple(sw.shape), dw.name, tuple(dw.shape)))
-    print(f"[{name}] transferred {len(transferred)} weights by order; skipped {len(skipped)} due to shape mismatch")
-    for i, sn, ss, dn, ds in skipped:
-        print(f"  skip {i}: {sn} {ss} -> {dn} {ds}")
+    for w_name, src_w in src_by_name.items():
+        if w_name in dst_by_name:
+            dst_w = dst_by_name[w_name]
+            if tuple(src_w.shape) == tuple(dst_w.shape):
+                dst_w.assign(src_w)
+                transferred.append(dst_w)
+            else:
+                skipped.append((w_name, tuple(src_w.shape), tuple(dst_w.shape)))
+    print(f"[{name}] transferred {len(transferred)} weights by name; skipped {len(skipped)} due to shape mismatch")
+    for w_name, s_shape, d_shape in skipped:
+        print(f"  skip {w_name}: {s_shape} -> {d_shape}")
     return transferred
 
-enc_transferred = transfer_weights_by_order(encoder_14, encoder, name="encoder")
-gen_transferred = transfer_weights_by_order(generator_14, generator, name="generator")
+enc_transferred = transfer_weights_by_name(encoder_14, encoder, name="encoder")
+gen_transferred = transfer_weights_by_name(generator_14, generator, name="generator")
 vae.phase1_transferred_weights = enc_transferred + gen_transferred
 print(f"Weight transfer complete. {len(vae.phase1_transferred_weights)} weights transferred.")
 
