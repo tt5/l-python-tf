@@ -40,7 +40,7 @@ EARLY_STOP_PATIENCE = 100
 GAUSSIAN_NOISE = 0.00002
 GAUSSIAN_NOISE_DECAY_EPOCHS = EPOCHS
 GAUSSIAN_NOISE_END = 0.000001
-LOG_DIR = "logs/cls1b"
+LOG_DIR = "logs/cls1"
 
 
 AUGMENT = True  # On-the-fly augmentation: random rotate/transpose
@@ -80,7 +80,7 @@ class AugmentGenerator(tf.keras.utils.Sequence):
 # ─── Load dataset ──────────────────────────────────────────────────
 from utils.mnist_loader import load_data
 
-(x_train, y_train), (x_test, y_test) = load_data(DATA_DIR, NUM_CLASSES, flip_pixels=3*28)
+(x_train, y_train), (x_test, y_test) = load_data(DATA_DIR, NUM_CLASSES, flip_pixels=4*28)
 
 print(f"Train: {len(x_train)}, Test: {len(x_test)}")
 

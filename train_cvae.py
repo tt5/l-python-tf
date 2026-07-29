@@ -32,8 +32,8 @@ LR_WARMUP_START = 0.000005
 LR_WARMUP_EPOCHS = 2
 LR_DECAY_EPOCHS = EPOCHS - LR_WARMUP_EPOCHS
 LR_END = 0.0001
-PIXEL_LOSS_WEIGHT = 0.6
-PERCEPTUAL_LOSS_WEIGHT = 0.4
+PIXEL_LOSS_WEIGHT = 0.7
+PERCEPTUAL_LOSS_WEIGHT = 0.3
 INFO_NCE_WEIGHT = 0.0
 TEMPERATURE = 1.0
 DROPOUT = 0.35
@@ -57,8 +57,8 @@ PHA1_KL_WARMUP_EPOCHS = 1
 PHA1_KL_WARMUP_START = 0.0000001
 PHA1_KL_WEIGHT_START = 0.01
 PHA1_INFO_NCE_WEIGHT = 0.0
-LOG_NAME = 'logs/gen1b'
-LOG_NAME_PHA1 = 'logs/gen1b/phase1'
+LOG_NAME = 'logs/gen1'
+LOG_NAME_PHA1 = 'logs/gen1/phase1'
 
 # ─── Data ──────────────────────────────────────────────────────────
 def load_data_cvae():
@@ -524,14 +524,10 @@ class VAE(keras.Model):
             tf.nn.sparse_softmax_cross_entropy_with_logits(labels=labels_ce, logits=sim_matrix))
         real_features = self.feature_extractor(images)
         fake_features = self.feature_extractor(reconstruction)
-        perceptual_loss = 0.0
-        count = 0
-        for rf, ff in zip(real_features, fake_features):
-            diff = tf.reduce_mean(tf.square(rf - ff))
-            n = tf.cast(tf.size(rf), tf.float32)
-            perceptual_loss += diff / n
-            count += 1
-        perceptual_loss /= tf.maximum(tf.cast(count, tf.float32), 1.0)
+        perceptual_loss = tf.reduce_mean([
+            tf.reduce_mean(tf.square(rf - ff))
+            for rf, ff in zip(real_features, fake_features)
+        ])
         total_loss = (PIXEL_LOSS_WEIGHT * pixel_loss +
                       PERCEPTUAL_LOSS_WEIGHT * perceptual_loss +
                       kl_weight * kl_loss +
