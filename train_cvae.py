@@ -32,8 +32,8 @@ LR_WARMUP_START = 0.000005
 LR_WARMUP_EPOCHS = 2
 LR_DECAY_EPOCHS = EPOCHS - LR_WARMUP_EPOCHS
 LR_END = 0.0001
-PIXEL_LOSS_WEIGHT = 0.7
-PERCEPTUAL_LOSS_WEIGHT = 0.3
+PIXEL_LOSS_WEIGHT = 0.8
+PERCEPTUAL_LOSS_WEIGHT = 0.2
 INFO_NCE_WEIGHT = 0.0
 TEMPERATURE = 1.0
 DROPOUT = 0.35
@@ -57,8 +57,8 @@ PHA1_KL_WARMUP_EPOCHS = 1
 PHA1_KL_WARMUP_START = 0.0000001
 PHA1_KL_WEIGHT_START = 0.01
 PHA1_INFO_NCE_WEIGHT = 0.0
-LOG_NAME = 'logs/gen1'
-LOG_NAME_PHA1 = 'logs/gen1/phase1'
+LOG_NAME = 'logs/gen1b'
+LOG_NAME_PHA1 = 'logs/gen1b/phase1'
 
 # ─── Data ──────────────────────────────────────────────────────────
 def load_data_cvae():
@@ -365,27 +365,42 @@ def build_generator():
 
 # ─── Perceptual Loss Feature Extractor (Multi-layer) ───────────────
 def build_feature_extractor():
-    """Use the trained MNIST classifier as multi-layer feature extractor."""
+    """Use the trained MNIST classifier as fixed semantic multi-layer feature extractor."""
     mnist_path = Path(__file__).resolve().parent / "mnist_model"
     if not mnist_path.exists():
         raise FileNotFoundError(f"Required perceptual backbone not found: {mnist_path}")
-    cls_model = keras.models.load_model(str(mnist_path), custom_objects={'loss_fn': lambda y_true, y_pred: keras.losses.categorical_crossentropy(y_true, y_pred)})
-    # Extract features from multiple layers (after each conv block)
-    # Use GlobalAvgPool on each spatial layer to get fixed-size vectors
+    custom_objects={'loss_fn': lambda y_true, y_pred: keras.losses.categorical_crossentropy(y_true, y_pred)}
+    cls_model = keras.models.load_model(str(mnist_path), custom_objects=custom_objects)
+    # Fixed semantic points: 28x28, 14x14, 7x7, and dense-style pool features
+    layer_names = [
+        'percept_c0',
+        'percept_c1',
+        'percept_c2',
+        'percept_c3',
+        'pool7',
+        'pool14',
+        'pool28',
+    ]
     feature_layers = []
-    for layer in cls_model.layers:
-        if isinstance(layer, (layers.Conv2D, layers.SeparableConv2D)):
+    for name in layer_names:
+        try:
+            layer = cls_model.get_layer(name)
             feature_layers.append(layer.output)
-    if feature_layers:
-        # Global average pool each feature map
-        pooled = []
-        for f in feature_layers:
-            if len(f.shape) == 4:  # (batch, h, w, c)
-                pooled.append(layers.GlobalAveragePooling2D()(f))
-            else:
-                pooled.append(f)
-        feat_model = keras.Model(cls_model.input, pooled, name="feature_extractor")
-        return feat_model
+        except ValueError:
+            pass
+    if not feature_layers:
+        # Fallback: use multi-layer conv extraction if custom named layers are unavailable
+        for layer in cls_model.layers:
+            if isinstance(layer, (layers.Conv2D, layers.SeparableConv2D)):
+                feature_layers.append(layer.output)
+    pooled = []
+    for f in feature_layers:
+        if len(f.shape) == 4:
+            pooled.append(layers.GlobalAveragePooling2D()(f))
+        else:
+            pooled.append(f)
+    feat_model = keras.Model(cls_model.input, pooled, name="feature_extractor")
+    return feat_model
 
 
 # ─── VAE Model ────────────────────────────────────────────────────
