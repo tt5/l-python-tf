@@ -218,6 +218,12 @@ def build_encoder():
     x = tf.keras.layers.MaxPooling2D(2)(x28)
     x = tf.keras.layers.Conv2D(64, 3, strides=1, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = tf.keras.layers.LayerNormalization()(x)
+    x = tf.keras.layers.Add()([
+        x,
+        tf.keras.layers.Conv2D(64, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(
+            tf.keras.layers.MaxPooling2D(2)(x28)
+        ),
+    ])
     x14 = x  # 14x14, 64 channels
 
     # SE block at 14x14
@@ -252,6 +258,12 @@ def build_encoder():
     x = tf.keras.layers.Conv2D(128, 3, strides=1, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = tf.keras.layers.LayerNormalization()(x)
     x = tf.keras.layers.MaxPooling2D(2)(x)
+    x = tf.keras.layers.Add()([
+        x,
+        tf.keras.layers.Conv2D(128, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(
+            tf.keras.layers.MaxPooling2D(2)(tf.keras.layers.Activation("relu")(x14))
+        ),
+    ])
     # Residual conv block
     x_res = x
     x = tf.keras.layers.Conv2D(128, 3, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
@@ -333,8 +345,8 @@ def build_generator():
     x = tf.keras.layers.LayerNormalization(center=True, scale=True)(x)
 
     # 14x14 block
-    x = label_cross_attention(x, label_input, 64, L2_REG)
-    channels14 = int(x.shape[-1])
+    channels14 = int(x.shape[-1] or 64)
+    x = label_cross_attention(x, label_input, channels14, L2_REG)
     scale = tf.keras.layers.Dense(channels14, kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(label_shared)
     offset = tf.keras.layers.Dense(channels14, kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(label_shared)
     scale = tf.keras.layers.Reshape((1, 1, channels14))(scale)
@@ -364,8 +376,8 @@ def build_generator():
     skip7_up28 = tf.keras.layers.LayerNormalization(center=True, scale=True)(skip7_up28)
     x = tf.keras.layers.Add()([x, skip7_up28])
 
-    x = label_cross_attention(x, label_input, 64, L2_REG)
-    channels28 = int(x.shape[-1])
+    channels28 = int(x.shape[-1] or 64)
+    x = label_cross_attention(x, label_input, channels28, L2_REG)
     scale = tf.keras.layers.Dense(channels28, kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(label_shared)
     offset = tf.keras.layers.Dense(channels28, kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(label_shared)
     scale = tf.keras.layers.Reshape((1, 1, channels28))(scale)
