@@ -263,9 +263,6 @@ def build_encoder():
     label_emb = tf.keras.layers.Dense(16, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(label_input)
     label_emb = tf.keras.layers.Dropout(DENSE_DROPOUT)(label_emb)
 
-    x = label_cross_attention(x, label_input, 128, L2_REG)
-    film_gamma7, film_beta7 = make_film(128)(label_input)
-    x = x * (1.0 + film_gamma7) + film_beta7
     # SE block
     se = tf.keras.layers.GlobalAveragePooling2D()(x)
     se = tf.keras.layers.Dense(128 // 4, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(se)
