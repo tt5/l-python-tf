@@ -63,7 +63,7 @@ TV_START_WEIGHT = 0.07
 TV_PEAK_WEIGHT = 0.17
 TV_DECAY_EPOCHS = EPOCHS - TV_WARMUP_EPOCHS
 TV_END_WEIGHT = 0.0
-LOG_NAME = "train_gen2b"
+LOG_NAME = "train_gen2"
 
 def load_pbm(path):
     """Load a P4 PBM file and return a 2D numpy array of 0/1 float32."""
@@ -359,6 +359,10 @@ def build_generator():
 
     # 28x28 block
     x = tf.keras.layers.Conv2D(64, 3, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
+
+    skip7_up28 = tf.keras.layers.Conv2DTranspose(64, 4, strides=4, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(skip7)
+    skip7_up28 = tf.keras.layers.LayerNormalization(center=True, scale=True)(skip7_up28)
+    x = tf.keras.layers.Add()([x, skip7_up28])
 
     x = label_cross_attention(x, label_input, 64, L2_REG)
     channels28 = int(x.shape[-1])
