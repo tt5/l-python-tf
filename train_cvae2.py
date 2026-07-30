@@ -63,7 +63,7 @@ TV_START_WEIGHT = 0.07
 TV_PEAK_WEIGHT = 0.17
 TV_DECAY_EPOCHS = EPOCHS - TV_WARMUP_EPOCHS
 TV_END_WEIGHT = 0.0
-LOG_NAME = "train_gen2"
+LOG_NAME = "train_gen2b"
 
 def load_pbm(path):
     """Load a P4 PBM file and return a 2D numpy array of 0/1 float32."""
@@ -259,12 +259,6 @@ def build_encoder():
     x = tf.keras.layers.Add()([x, x_res])
     x = tf.keras.layers.Activation("relu")(x)
     x = tf.keras.layers.SpatialDropout2D(SPATIAL_DROPOUT)(x)
-    # SE block
-    se = tf.keras.layers.GlobalAveragePooling2D()(x)
-    se = tf.keras.layers.Dense(128 // 4, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(se)
-    se = tf.keras.layers.Dense(128, activation="sigmoid", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(se)
-    x = tf.keras.layers.Multiply()([x, se])
-    x = tf.keras.layers.SpatialDropout2D(SPATIAL_DROPOUT)(x)
     # Label pathway
     label_emb = tf.keras.layers.Dense(16, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(label_input)
     label_emb = tf.keras.layers.Dropout(DENSE_DROPOUT)(label_emb)
@@ -272,6 +266,12 @@ def build_encoder():
     x = label_cross_attention(x, label_input, 128, L2_REG)
     film_gamma7, film_beta7 = make_film(128)(label_input)
     x = x * (1.0 + film_gamma7) + film_beta7
+    # SE block
+    se = tf.keras.layers.GlobalAveragePooling2D()(x)
+    se = tf.keras.layers.Dense(128 // 4, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(se)
+    se = tf.keras.layers.Dense(128, activation="sigmoid", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(se)
+    x = tf.keras.layers.Multiply()([x, se])
+    x = tf.keras.layers.SpatialDropout2D(SPATIAL_DROPOUT)(x)
     x = tf.keras.layers.Flatten()(x)
     x = tf.keras.layers.Concatenate()([x, x28_pool, label_emb])
     x = tf.keras.layers.Dense(256, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
@@ -304,9 +304,9 @@ def build_generator():
     z = tf.keras.layers.Dropout(DENSE_DROPOUT)(z)
     x = tf.keras.layers.Concatenate()([z, label_shared])
     x = tf.keras.layers.Dense(7 * 7 * 64, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
+    x = tf.keras.layers.LayerNormalization()(x)
     x = tf.keras.layers.Dropout(DENSE_DROPOUT)(x)
     x = tf.keras.layers.Reshape((7, 7, 64))(x)
-    x = label_cross_attention(x, label_input, 64, L2_REG)
     x = tf.keras.layers.SpatialDropout2D(SPATIAL_DROPOUT)(x)
     skip7 = x
 
@@ -334,10 +334,11 @@ def build_generator():
 
     # 14x14 block
     x = label_cross_attention(x, label_input, 64, L2_REG)
-    scale = tf.keras.layers.Dense(64, kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(label_shared)
-    offset = tf.keras.layers.Dense(64, kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(label_shared)
-    scale = tf.keras.layers.Reshape((1, 1, 64))(scale)
-    offset = tf.keras.layers.Reshape((1, 1, 64))(offset)
+    channels14 = int(x.shape[-1])
+    scale = tf.keras.layers.Dense(channels14, kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(label_shared)
+    offset = tf.keras.layers.Dense(channels14, kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(label_shared)
+    scale = tf.keras.layers.Reshape((1, 1, channels14))(scale)
+    offset = tf.keras.layers.Reshape((1, 1, channels14))(offset)
     x = x * (1.0 + scale) + offset
 
     skip14 = x
@@ -360,10 +361,11 @@ def build_generator():
     x = tf.keras.layers.Conv2D(64, 3, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
 
     x = label_cross_attention(x, label_input, 64, L2_REG)
-    scale = tf.keras.layers.Dense(64, kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(label_shared)
-    offset = tf.keras.layers.Dense(64, kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(label_shared)
-    scale = tf.keras.layers.Reshape((1, 1, 64))(scale)
-    offset = tf.keras.layers.Reshape((1, 1, 64))(offset)
+    channels28 = int(x.shape[-1])
+    scale = tf.keras.layers.Dense(channels28, kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(label_shared)
+    offset = tf.keras.layers.Dense(channels28, kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(label_shared)
+    scale = tf.keras.layers.Reshape((1, 1, channels28))(scale)
+    offset = tf.keras.layers.Reshape((1, 1, channels28))(offset)
     x = x * (1.0 + scale) + offset
 
     x = tf.keras.layers.SpatialDropout2D(SPATIAL_DROPOUT)(x)
