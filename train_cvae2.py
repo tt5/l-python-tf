@@ -244,6 +244,8 @@ def build_encoder():
     x14 = tf.keras.layers.Add()([x14, x14_res])
     x14 = tf.keras.layers.Activation("relu")(x14)
 
+    x14_pool = tf.keras.layers.GlobalAveragePooling2D()(x14)
+
     x = tf.keras.layers.Conv2D(64, 3, strides=1, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x14)
     x = tf.keras.layers.LayerNormalization()(x)
     x = tf.keras.layers.SpatialDropout2D(SPATIAL_DROPOUT)(x)
@@ -269,9 +271,10 @@ def build_encoder():
     se = tf.keras.layers.Dense(128, activation="sigmoid", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(se)
     x = tf.keras.layers.Multiply()([x, se])
     x = tf.keras.layers.SpatialDropout2D(SPATIAL_DROPOUT)(x)
+    x7_pool = tf.keras.layers.GlobalAveragePooling2D()(x)
     x = tf.keras.layers.Flatten()(x)
-    x = tf.keras.layers.Concatenate()([x, x28_pool, label_emb])
-    x = tf.keras.layers.Dense(256, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
+    x = tf.keras.layers.Concatenate()([x, x28_pool, x14_pool, x7_pool, label_emb])
+    x = tf.keras.layers.Dense(512, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = tf.keras.layers.LayerNormalization()(x)
     x = tf.keras.layers.Dropout(DENSE_DROPOUT)(x)
     x = tf.keras.layers.LayerNormalization()(x)
