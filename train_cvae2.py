@@ -27,7 +27,7 @@ PBM_DIR = args.data_dir
 
 # ─── Hyperparameters ──────────────────────────────────────────────
 LATENT_DIM = 256
-EPOCHS = 120
+EPOCHS = 130
 BATCH_SIZE = 128
 NUM_CLASSES = None  # derived from data + low_conf
 TARGET_SIZE = 28
@@ -42,7 +42,7 @@ LR_WARMUP_EPOCHS = 10
 LR_START = 0.00005
 LR_DECAY_EPOCHS = EPOCHS - LR_WARMUP_EPOCHS
 LR_END = 0.000005
-L2_REG = 0.00003
+L2_REG = 0.00001
 KL_FREE_BITS = 0.0
 SPATIAL_DROPOUT = 0.3
 DENSE_DROPOUT = 0.25
@@ -209,11 +209,11 @@ def build_encoder():
 
     x = tf.keras.layers.Conv2D(32, 3, strides=1, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(image_input)
     x = tf.keras.layers.LayerNormalization()(x)
-    x = tf.keras.layers.SpatialDropout2D(SPATIAL_DROPOUT)(x)
     x28 = x  # 28x28, 32 channels
     x28 = label_cross_attention(x28, label_input, 32, L2_REG)
     film_gamma28, film_beta28 = make_film(32)(label_input)
     x28 = x28 * (1.0 + film_gamma28) + film_beta28
+    x28 = tf.keras.layers.SpatialDropout2D(SPATIAL_DROPOUT)(x28)
     x28_pool = tf.keras.layers.GlobalAveragePooling2D()(x28)
     x = tf.keras.layers.MaxPooling2D(2)(x28)
     x = tf.keras.layers.Conv2D(64, 3, strides=1, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
