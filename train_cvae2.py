@@ -27,7 +27,7 @@ PBM_DIR = args.data_dir
 
 # ─── Hyperparameters ──────────────────────────────────────────────
 LATENT_DIM = 256
-EPOCHS = 130
+EPOCHS = 140
 BATCH_SIZE = 128
 NUM_CLASSES = None  # derived from data + low_conf
 TARGET_SIZE = 28
@@ -37,11 +37,11 @@ KL_START_WEIGHT = 0.012
 KL_WEIGHT = 0.4
 KL_DECAY_EPOCHS = EPOCHS - KL_WARMUP_EPOCHS
 KL_WEIGHT_END = 0.04
-LEARNING_RATE = 0.0001
-LR_WARMUP_EPOCHS = 10
+LEARNING_RATE = 0.0002
+LR_WARMUP_EPOCHS = 11
 LR_START = 0.00005
 LR_DECAY_EPOCHS = EPOCHS - LR_WARMUP_EPOCHS
-LR_END = 0.000005
+LR_END = 0.000001
 L2_REG = 0.00001
 KL_FREE_BITS = 0.0
 SPATIAL_DROPOUT = 0.3
@@ -63,7 +63,7 @@ TV_START_WEIGHT = 0.07
 TV_PEAK_WEIGHT = 0.17
 TV_DECAY_EPOCHS = EPOCHS - TV_WARMUP_EPOCHS
 TV_END_WEIGHT = 0.0
-LOG_NAME = "train_gen2"
+LOG_NAME = "train_gen2b"
 
 def load_pbm(path):
     """Load a P4 PBM file and return a 2D numpy array of 0/1 float32."""
