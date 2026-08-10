@@ -392,12 +392,11 @@ def build_generator():
 
 # ─── CVAE ────────────────────────────────────────────────────────
 class CVAE(tf.keras.Model):
-    def __init__(self, encoder, generator, perceptual_extractor=None, perceptual_coarse_extractor=None, **kwargs):
+    def __init__(self, encoder, generator, perceptual_extractor=None, **kwargs):
         super().__init__(**kwargs)
         self.encoder = encoder
         self.generator = generator
         self.perceptual_extractor = perceptual_extractor
-        self.perceptual_coarse_extractor = perceptual_coarse_extractor
         self.total_loss_tracker = tf.keras.metrics.Mean(name="total_loss")
         self.recon_loss_tracker = tf.keras.metrics.Mean(name="recon_loss")
         self.kl_loss_tracker = tf.keras.metrics.Mean(name="kl_loss")
@@ -445,19 +444,13 @@ class CVAE(tf.keras.Model):
             kl_loss = tf.reduce_mean(tf.reduce_sum(kl_per_dim, axis=1))
 
             perceptual_loss_fine = 0.0
+            perceptual_loss_coarse = 0.0
             if self.perceptual_extractor is not None:
                 real_input = tf.squeeze(images, -1)
                 fake_input = tf.squeeze(reconstruction, -1)
-                real_feats = self.perceptual_extractor(real_input, training=False)
-                fake_feats = self.perceptual_extractor(fake_input, training=False)
+                real_feats, real_coarse = self.perceptual_extractor(real_input, training=False)
+                fake_feats, fake_coarse = self.perceptual_extractor(fake_input, training=False)
                 perceptual_loss_fine = tf.reduce_mean(tf.reduce_sum(tf.square(real_feats - fake_feats), axis=-1))
-
-            perceptual_loss_coarse = 0.0
-            if self.perceptual_coarse_extractor is not None:
-                real_input = tf.squeeze(images, -1)
-                fake_input = tf.squeeze(reconstruction, -1)
-                real_coarse = self.perceptual_coarse_extractor(real_input, training=False)
-                fake_coarse = self.perceptual_coarse_extractor(fake_input, training=False)
                 perceptual_loss_coarse = tf.reduce_mean(tf.reduce_sum(tf.square(real_coarse - fake_coarse), axis=-1))
 
             if PERCEPTUAL_MULTISCALE:
@@ -542,7 +535,7 @@ class CVAE(tf.keras.Model):
 
 
 def build_perceptual_extractor():
-    """Load frozen mnist2 classifier and build explicit fine/coarse conv sub-models by name."""
+    """Load frozen mnist2 classifier and build a single multi-scale feature extractor."""
     base = tf.keras.models.load_model(str(PERCEPTUAL_EXTRACTOR_PATH), compile=False)
     base.trainable = False
 
@@ -552,9 +545,8 @@ def build_perceptual_extractor():
     gap_fine = tf.keras.layers.GlobalAveragePooling2D()(fine_layer)
     gap_coarse = tf.keras.layers.GlobalAveragePooling2D()(coarse_layer)
 
-    fine_extractor = tf.keras.Model(inputs=base.input, outputs=gap_fine, name='perceptual_extractor_14x14')
-    coarse_extractor = tf.keras.Model(inputs=base.input, outputs=gap_coarse, name='perceptual_extractor_7x7')
-    return fine_extractor, coarse_extractor
+    extractor = tf.keras.Model(inputs=base.input, outputs=[gap_fine, gap_coarse], name='perceptual_extractor')
+    return extractor
 
 
 class KLWarmup(tf.keras.callbacks.Callback):
@@ -642,8 +634,8 @@ def main():
 
     encoder = build_encoder()
     generator = build_generator()
-    perceptual_extractor, perceptual_coarse_extractor = build_perceptual_extractor()
-    cvae = CVAE(encoder, generator, perceptual_extractor=perceptual_extractor, perceptual_coarse_extractor=perceptual_coarse_extractor)
+    perceptual_extractor = build_perceptual_extractor()
+    cvae = CVAE(encoder, generator, perceptual_extractor=perceptual_extractor)
     cvae.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=LEARNING_RATE, clipnorm=1.0))
 
     print("Encoder summary:")
