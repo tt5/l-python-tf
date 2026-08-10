@@ -126,6 +126,7 @@ c0 = L.SeparableConv2D(64, 3, padding='same', activation='relu', kernel_regulari
 c0 = L.Dropout(DROPOUT)(c0)
 c0 = L.SpatialDropout2D(SPATIAL_DROPOUT)(c0)
 c0 = L.Add()([c0, cbam_block(c0)])
+c0 = L.LayerNormalization()(c0)
 
 # Conv block 1: 28x28 -> 14x14 with residual skip
 c1 = L.SeparableConv2D(96, 3, strides=2, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_DECAY), name='percept_c1')(c0)
@@ -133,6 +134,7 @@ skip_28_to_14 = L.Conv2D(96, 1, strides=2, padding='same', kernel_regularizer=tf
 c1 = L.Add()([c1, skip_28_to_14])
 c1 = L.Dropout(DROPOUT)(c1)
 c1 = L.Add()([c1, cbam_block(c1)])
+c1 = L.LayerNormalization()(c1)
 
 # Conv block 2: 14x14 → 7x7 with residual skip
 c2 = L.SeparableConv2D(128, 3, strides=2, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_DECAY), name='percept_c2')(c1)
@@ -141,10 +143,12 @@ c2 = L.Add()([c2, skip_14_to_7])
 c2 = L.Dropout(DROPOUT)(c2)
 c2 = L.Add()([c2, cbam_block(c2)])
 c2 = L.SpatialDropout2D(SPATIAL_DROPOUT)(c2)
+c2 = L.LayerNormalization()(c2)
 
 # Conv block 3: 7x7 → 7x7 (no pooling)
 c3 = L.SeparableConv2D(128, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_DECAY), name='percept_c3')(c2)
 c3 = L.Dropout(DROPOUT)(c3)
+c3 = L.LayerNormalization()(c3)
 
 # Cross-scale residual connections: 7x7 -> 14x14 -> 28x28
 up14 = L.UpSampling2D(2)(c3)
@@ -153,6 +157,7 @@ up14 = L.LayerNormalization()(up14)
 up14 = L.Activation('relu')(up14)
 c1_res = L.Add()([c1, up14])
 c1_res = L.Dropout(DROPOUT)(c1_res)
+c1_res = L.LayerNormalization()(c1_res)
 
 up28 = L.UpSampling2D(2)(c1_res)
 up28 = L.Conv2D(64, 1, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_DECAY))(up28)
@@ -160,6 +165,7 @@ up28 = L.LayerNormalization()(up28)
 up28 = L.Activation('relu')(up28)
 c0_res = L.Add()([c0, up28])
 c0_res = L.Dropout(DROPOUT)(c0_res)
+c0_res = L.LayerNormalization()(c0_res)
 
 # Multi-scale features for classification
 pool7 = L.GlobalAveragePooling2D()(c3)
@@ -199,7 +205,7 @@ def gce_loss(q=0.5):
     return loss_fn
 
 loss_fn = gce_loss(q=GCE_Q)
-model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=BASE_LR, clipvalue=1.0),
+model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=BASE_LR, clipnorm=1.0),
               loss=loss_fn, metrics=['accuracy'])
 
 class _GradNormObserver:
