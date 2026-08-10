@@ -495,19 +495,12 @@ class CVAE(tf.keras.Model):
         if self.perceptual_extractor is not None:
             real_input = tf.squeeze(images, -1)
             fake_input = tf.squeeze(reconstruction, -1)
-            real_feats = self.perceptual_extractor(real_input, training=False)
-            fake_feats = self.perceptual_extractor(fake_input, training=False)
+            real_feats, real_coarse = self.perceptual_extractor(real_input, training=False)
+            fake_feats, fake_coarse = self.perceptual_extractor(fake_input, training=False)
             perceptual_loss_fine = tf.reduce_mean(tf.reduce_sum(tf.square(real_feats - fake_feats), axis=-1))
-        else:
-            perceptual_loss_fine = tf.constant(0.0)
-
-        if self.perceptual_coarse_extractor is not None:
-            real_input = tf.squeeze(images, -1)
-            fake_input = tf.squeeze(reconstruction, -1)
-            real_coarse = self.perceptual_coarse_extractor(real_input, training=False)
-            fake_coarse = self.perceptual_coarse_extractor(fake_input, training=False)
             perceptual_loss_coarse = tf.reduce_mean(tf.reduce_sum(tf.square(real_coarse - fake_coarse), axis=-1))
         else:
+            perceptual_loss_fine = tf.constant(0.0)
             perceptual_loss_coarse = tf.constant(0.0)
 
         if PERCEPTUAL_MULTISCALE:
