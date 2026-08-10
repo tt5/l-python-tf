@@ -11,15 +11,15 @@ import tensorflow.keras as keras
 
 
 def load_data(data_dir, num_classes=6, flip_pixels=2, image_shape=(28, 28, 1), randomized=True, split_ratio=0.8):
-    """Load class 0..num_classes-3 from ``data_dir`` and synthesize two extra classes.
+    """Load class 0..num_classes-2 from ``data_dir`` and synthesize one extra class.
 
     Parameters
     ----------
     data_dir : pathlib.Path
         Directory that contains ``class_<c>/`` folders with ``*.npy`` samples.
     num_classes : int
-        Total number of classes. The last two classes are synthesized as
-        all-black and all-white.
+        Total number of classes. The last class is synthesized as
+        all-black.
     flip_pixels : int
         Number of distinct pixel positions flipped in each synthesized image.
         0 disables the flip behavior.
@@ -42,7 +42,7 @@ def load_data(data_dir, num_classes=6, flip_pixels=2, image_shape=(28, 28, 1), r
     x_train, y_train, x_test, y_test = [], [], [], []
     max_train, max_test = 0, 0
 
-    for c in range(num_classes - 2):
+    for c in range(num_classes - 1):
         files = sorted(data_dir.glob(f"class_{c}/*.npy"))
         if not files:
             raise ValueError(f"No .npy files in {data_dir / f'class_{c}'}")
@@ -67,31 +67,30 @@ def load_data(data_dir, num_classes=6, flip_pixels=2, image_shape=(28, 28, 1), r
         max_test = max(max_test, len(test_files))
         print(f"Class {c}: {len(train_files)} train, {len(test_files)} test")
 
-    black = np.zeros(image_shape, dtype=np.float32)
-    white = np.ones(image_shape, dtype=np.float32)
     pixel_indices = np.arange(h * w)
 
-    for img, label in [(black, num_classes - 2), (white, num_classes - 1)]:
-        for _ in range(max_train):
-            sample = img
-            if randomized and flip_pixels > 0:
-                sample = img.copy().reshape(-1)
-                flips = np.random.choice(pixel_indices, size=np.random.randint(3, flip_pixels), replace=False)
-                sample = sample.copy()
-                sample[flips] = 1 - sample[flips]
-                sample = sample.reshape(image_shape)
-            x_train.append(sample)
-            y_train.append(label)
-        for _ in range(max_test):
-            sample = img
-            if randomized and flip_pixels > 0:
-                sample = img.copy().reshape(-1)
-                flips = np.random.choice(pixel_indices, size=np.random.randint(3, flip_pixels), replace=False)
-                sample = sample.copy()
-                sample[flips] = 1 - sample[flips]
-                sample = sample.reshape(image_shape)
-            x_test.append(sample)
-            y_test.append(label)
+    black = np.zeros(image_shape, dtype=np.float32)
+    label = num_classes - 1
+    for _ in range(max_train):
+        sample = black
+        if randomized and flip_pixels > 0:
+            sample = black.copy().reshape(-1)
+            flips = np.random.choice(pixel_indices, size=np.random.randint(3, flip_pixels), replace=False)
+            sample = sample.copy()
+            sample[flips] = 1 - sample[flips]
+            sample = sample.reshape(image_shape)
+        x_train.append(sample)
+        y_train.append(label)
+    for _ in range(max_test):
+        sample = black
+        if randomized and flip_pixels > 0:
+            sample = black.copy().reshape(-1)
+            flips = np.random.choice(pixel_indices, size=np.random.randint(3, flip_pixels), replace=False)
+            sample = sample.copy()
+            sample[flips] = 1 - sample[flips]
+            sample = sample.reshape(image_shape)
+        x_test.append(sample)
+        y_test.append(label)
 
     x_train = np.array(x_train, dtype=np.float32).reshape(-1, *image_shape)
     x_test = np.array(x_test, dtype=np.float32).reshape(-1, *image_shape)
