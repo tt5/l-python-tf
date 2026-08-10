@@ -9,7 +9,7 @@ Labels 0-9: predicted digit from filename
 Label 10: low confidence (confidence < 0.6)
 
 Usage:
-    /home/n/miniconda3/envs/tf/bin/python mnist2.py
+    /home/n/miniconda3/envs/tf/bin/python mnist2b.py
 """
 
 import argparse
@@ -37,7 +37,7 @@ except Exception:
             return super()._resource_apply_sparse(grad, var, indices, apply_state)
 
 DEFAULT_PBM_DIR = Path(__file__).resolve().parent / "../../telephonegame/data/pbm"
-TB_LOG_DIR = Path(__file__).resolve().parent / "logs" / "mnist2b"
+TB_LOG_DIR = Path(__file__).resolve().parent / "logs" / "mnist2"
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--data-dir", type=Path, default=DEFAULT_PBM_DIR, help="PBM data directory")
@@ -46,20 +46,21 @@ PBM_DIR = args.data_dir
 IMG_SIZE = 22
 TARGET_SIZE = 28
 LOW_CONF_THRESHOLD = 0.6
-EPOCHS = 50
-SPATIAL_DROPOUT = 0.4
-DENSE_DROPOUT = 0.2
-L2_REG = 0.00001
+EPOCHS = 150
+SPATIAL_DROPOUT = 0.35
+DENSE_DROPOUT = 0.45
+CONV_DROPOUT = 0.35  # dropout on intermediate conv feature maps (c0, c1, c2)
+L2_REG = 0.000005
 BATCH_SIZE = 128
-BASE_LR = 0.001
-LR_START = 0.00001
-LR_WARMUP_EPOCHS = 3
-LR_END = 0.00001
-LR_DECAY_EPOCHS = 60 - LR_WARMUP_EPOCHS
+BASE_LR = 0.0009
+LR_START = 0.00002
+LR_WARMUP_EPOCHS = 12
+LR_END = 0.00005
+LR_DECAY_EPOCHS = EPOCHS - LR_WARMUP_EPOCHS
 AUGMENT = True  # On-the-fly augmentation: random rotate/transpose
 GAUSSIAN_NOISE_STD_START = 0.00002
 GAUSSIAN_NOISE_STD_END = 0.0
-GAUSSIAN_NOISE_DECAY_EPOCHS = EPOCHS // 2
+GAUSSIAN_NOISE_DECAY_EPOCHS = EPOCHS // 4
 
 
 class GaussianNoiseInput(tf.keras.layers.Layer):
@@ -300,11 +301,12 @@ def main():
         return tf.multiply(x, attn)
 
     def spatial_attention(x):
-        """Spatial Attention - Conv2D 7x7."""
+        """Spatial Attention - small CNN."""
         avg_pool = tf.reduce_mean(x, axis=-1, keepdims=True)
         max_pool = tf.reduce_max(x, axis=-1, keepdims=True)
         concat = tf.concat([avg_pool, max_pool], axis=-1)
-        attn = L.Conv2D(1, 7, padding='same', activation='sigmoid')(concat)
+        attn = L.Conv2D(16, 3, padding='same', activation='relu')(concat)
+        attn = L.Conv2D(1, 3, padding='same', activation='sigmoid')(attn)
         return tf.multiply(x, attn)
 
     def cbam_block(x):
@@ -319,62 +321,83 @@ def main():
     x = noise_layer(x)
 
     # Conv block 0: 28x28 -> 28x28
-    c0 = L.SeparableConv2D(64, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
+    c0 = L.SeparableConv2D(32, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
+    c0_res = c0
+    c0 = L.SeparableConv2D(32, 3, padding='same', activation=None, kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(c0)
+    c0 = L.Add()([c0, c0_res])
+    c0 = L.Activation('relu')(c0)
     c0 = L.SpatialDropout2D(SPATIAL_DROPOUT)(c0)
-    c0 = L.Dropout(DENSE_DROPOUT)(c0)
+    c0 = L.Dropout(CONV_DROPOUT)(c0)
+    c0 = L.LayerNormalization()(c0)
     c0 = cbam_block(c0)
+    c0 = L.LayerNormalization(name='conv28')(c0)
 
     # Conv block 1: 28x28 -> 14x14
     c1 = L.SeparableConv2D(64, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(c0)
     c1 = L.MaxPooling2D(2)(c1)
+    c1_res = c1
+    c1 = L.SeparableConv2D(64, 3, padding='same', activation=None, kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(c1)
+    c1 = L.Add()([c1, c1_res])
+    c1 = L.Activation('relu')(c1)
     c1 = L.SpatialDropout2D(SPATIAL_DROPOUT)(c1)
-    c1 = L.Dropout(DENSE_DROPOUT)(c1)
+    c1 = L.Dropout(CONV_DROPOUT)(c1)
+    c1 = L.LayerNormalization()(c1)
     c1 = cbam_block(c1)
+    c1 = L.LayerNormalization(name='conv14_mid')(c1)
 
     # Conv block 2: 14x14 -> 7x7
-    c2 = L.SeparableConv2D(64, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv14')(c1)
+    c2 = L.SeparableConv2D(128, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv14')(c1)
     c2 = L.MaxPooling2D(2)(c2)
     c2 = L.SpatialDropout2D(SPATIAL_DROPOUT)(c2)
-    c2 = L.Dropout(DENSE_DROPOUT)(c2)
+    c2 = L.Dropout(CONV_DROPOUT)(c2)
+    c2 = L.LayerNormalization()(c2)
     c2 = cbam_block(c2)
 
     # Conv block 3: 7x7 → 7x7 (no pooling)
-    c3 = L.SeparableConv2D(64, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv7_deep2')(c2)
+    c3 = L.SeparableConv2D(128, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv7_deep2')(c2)
     c3 = L.SpatialDropout2D(SPATIAL_DROPOUT)(c3)
     c3 = L.Dropout(DENSE_DROPOUT)(c3)
-    c3 = cbam_block(c3)
+    c3 = L.LayerNormalization()(c3)
+    c3_res = c3
+    c3 = L.SeparableConv2D(128, 3, padding='same', activation=None, kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(c3)
+    c3 = L.Add()([c3, c3_res])
+    c3 = L.Activation('relu')(c3)
 
-    # Cross-scale residual connections: 7x7 -> 14x14 -> 28x28
-    up14 = L.UpSampling2D(2)(c3)
-    up14 = L.Conv2D(64, 1, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(up14)
-    c1_res = L.Add()([c1, up14])
-    c1_res = L.LayerNormalization()(c1_res)
-    c1_res = L.Dropout(DENSE_DROPOUT)(c1_res)
+    # Progressive pyramid fusion: c3 -> c2 -> c1 -> c0
+    # Step 1: fuse c3 + c2 (both 7x7, 128ch)
+    fused = L.Add()([c3, c2])
+    fused = L.Conv2D(128, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(fused)
+    fused = L.LayerNormalization()(fused)
 
-    up28 = L.UpSampling2D(2)(c1_res)
-    up28 = L.Conv2D(64, 1, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(up28)
-    c0_res = L.Add()([c0, up28])
-    c0_res = L.LayerNormalization()(c0_res)
-    c0_res = L.Dropout(DENSE_DROPOUT)(c0_res)
+    # Step 2: upsample to 14x14, project c1 to 128ch, fuse
+    fused = L.UpSampling2D(2)(fused)  # 14x14x128
+    c1_proj = L.Conv2D(128, 1, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(c1)
+    fused = L.Add()([fused, c1_proj])
+    fused = L.Conv2D(128, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(fused)
+    fused = L.LayerNormalization()(fused)
 
-    # Multi-scale features for classification
-    pool7 = L.GlobalAveragePooling2D()(c3)
-    pool14 = L.GlobalAveragePooling2D()(c1_res)
-    pool28 = L.GlobalAveragePooling2D()(c0_res)
+    # Step 3: upsample to 28x28, project c0 to 128ch, fuse
+    fused = L.UpSampling2D(2)(fused)  # 28x28x128
+    c0_proj = L.Conv2D(128, 1, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(c0)
+    fused = L.Add()([fused, c0_proj])
+    fused = L.Conv2D(128, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(fused)
+    fused = L.LayerNormalization()(fused)
 
-    # Flatten + multi-scale concat
-    x = L.Concatenate()([L.Flatten()(c3), pool7, pool14, pool28])
+    # Single pooled feature vector
+    x = L.GlobalAveragePooling2D()(fused)
 
-    d1 = L.Dense(512, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
+    d1 = L.Dense(256, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     d1 = L.Dropout(DENSE_DROPOUT)(d1)
-    p1 = L.Dense(512, kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
+    p1 = L.Dense(256, kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = L.Add()([d1, p1])
+    x = L.LayerNormalization()(x)
     x = L.Activation('relu')(x)
     # 2nd residual connection
-    d2 = L.Dense(256, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
+    d2 = L.Dense(128, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     d2 = L.Dropout(DENSE_DROPOUT)(d2)
-    p2 = L.Dense(256, kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
+    p2 = L.Dense(128, kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = L.Add()([d2, p2])
+    x = L.LayerNormalization()(x)
     x = L.Activation('relu')(x)
 
     outputs = L.Dense(NUM_CLASSES)(x)
