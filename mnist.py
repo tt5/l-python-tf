@@ -20,7 +20,7 @@ np.set_printoptions(linewidth=np.inf)
 
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "synthetic" / "data"
 NUM_CLASSES = 5
-EPOCHS = 70
+EPOCHS = 50
 BATCH_SIZE = 128
 BASE_LR = 0.00005
 GRAD_ADAPTIVE_MIN_LR = 0.0000014
@@ -29,18 +29,18 @@ GRAD_ADAPTIVE_FACTOR = 0.0000045
 GRAD_ADAPTIVE_BATCH_INTERVAL = 3
 GRAD_NORM_EMA_DECAY = 0.93
 GRAD_NORM_TARGET = 1.0
-DROPOUT_START = 0.3
+DROPOUT_START = 0.5
 DROPOUT_END = 0.2
 DROPOUT = DROPOUT_START
-SPATIAL_DROPOUT = 0.25
-DENSE_SIZE = 640
-L2_DECAY = 0.000004
-GCE_Q = 0.1
+SPATIAL_DROPOUT = 0.3
+DENSE_SIZE = 512
+L2_DECAY = 0.00001
+GCE_Q = 0.2
 EARLY_STOP_PATIENCE = 100
 GAUSSIAN_NOISE = 0.00002
 GAUSSIAN_NOISE_DECAY_EPOCHS = EPOCHS
 GAUSSIAN_NOISE_END = 0.000001
-LOG_DIR = "logs/cls1"
+LOG_DIR = "logs/cls1b"
 
 
 AUGMENT = True  # On-the-fly augmentation: random rotate/transpose
@@ -106,7 +106,7 @@ def channel_attention(x, reduction=8):
 def spatial_attention(x):
     """Spatial Attention - scale-aware kernel size."""
     h = int(x.shape[1])
-    k = 5 if h >= 20 else 3
+    k = 5 if h >= 28 else 3
 
     avg_pool = tf.reduce_mean(x, axis=-1, keepdims=True)
     max_pool = tf.reduce_max(x, axis=-1, keepdims=True)
