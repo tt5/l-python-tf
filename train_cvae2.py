@@ -490,6 +490,9 @@ class CVAE(tf.keras.Model):
                 axis=(1, 2)
             )
         )
+        tv_loss = tf.reduce_mean(
+            tf.image.total_variation(reconstruction)
+        )
         kl_per_dim = -0.5 * (1 + z_log_var - tf.square(z_mean) - tf.exp(z_log_var))
         kl_per_dim = tf.maximum(kl_per_dim, KL_FREE_BITS)
         kl_loss = tf.reduce_mean(tf.reduce_sum(kl_per_dim, axis=1))
@@ -519,7 +522,7 @@ class CVAE(tf.keras.Model):
         else:
             perceptual_loss = perceptual_loss_fine + perceptual_loss_coarse
 
-        total_loss = (RECON_LOSS_WEIGHT * recon_loss) + (float(self.perceptual_weight) * perceptual_loss) + (float(self.kl_weight) * kl_loss)
+        total_loss = (RECON_LOSS_WEIGHT * recon_loss) + (float(self.perceptual_weight) * perceptual_loss) + (float(self.kl_weight) * kl_loss) + float(self.tv_weight) * tv_loss
 
         self.total_loss_tracker.update_state(total_loss)
         self.recon_loss_tracker.update_state(recon_loss)
