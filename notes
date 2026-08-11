@@ -57,18 +57,16 @@ gradient accumulation
 
 2:
 
-  Class 0: 229/242 = 94.6%
-  Class 1: 257/292 = 88.0%
-  Class 2: 278/292 = 95.2%
-  Class 3: 287/292 = 98.3%
-  Class 4: 285/292 = 97.6%
-  Class 5: 292/292 = 100.0%
-  Class low_conf: 170/286 = 59.4%
+  Class 0: 83.1% correctly classified (831/1000), avg confidence: 99.7%
+  Class 1: 24.3% correctly classified (243/1000), avg confidence: 83.0%
+  Class 2: 10.0% correctly classified (100/1000), avg confidence: 93.5%
+  Class 3: 79.9% correctly classified (799/1000), avg confidence: 97.4%
+  Class 4: 88.8% correctly classified (888/1000), avg confidence: 96.2%
+  Class 5: 70.9% correctly classified (709/1000), avg confidence: 89.8%
 
-  Class 0: 99.0% correctly classified (990/1000), avg confidence: 99.2%
-  Class 1: 2.5% correctly classified (25/1000), avg confidence: 74.3%
-  Class 2: 18.4% correctly classified (184/1000), avg confidence: 82.2%
-  Class 3: 40.2% correctly classified (402/1000), avg confidence: 85.6%
-  Class 4: 15.2% correctly classified (152/1000), avg confidence: 77.7%
-  Class 5: 100.0% correctly classified (1000/1000), avg confidence: 100.0%
-  Class 6: 52.6% correctly classified (526/1000), avg confidence: 75.6%
+  Class 0: 86.6% correctly classified (866/1000), avg confidence: 99.8%
+  Class 1: 15.1% correctly classified (151/1000), avg confidence: 82.0%
+  Class 2: 17.1% correctly classified (171/1000), avg confidence: 93.2%
+  Class 3: 93.6% correctly classified (936/1000), avg confidence: 98.9%
+  Class 4: 95.8% correctly classified (958/1000), avg confidence: 97.8%
+  Class 5: 79.1% correctly classified (791/1000), avg confidence: 93.4%

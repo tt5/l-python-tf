@@ -63,7 +63,7 @@ TV_START_WEIGHT = 0.07
 TV_PEAK_WEIGHT = 0.17
 TV_DECAY_EPOCHS = EPOCHS - TV_WARMUP_EPOCHS
 TV_END_WEIGHT = 0.0
-LOG_NAME = "train_gen2b"
+LOG_NAME = "train_gen2"
 
 def load_pbm(path):
     """Load a P4 PBM file and return a 2D numpy array of 0/1 float32."""
@@ -173,8 +173,7 @@ def label_cross_attention(spatial, label_input, channels, l2_reg):
     flat = H * W
 
     le = tf.keras.layers.Dense(16, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(l2_reg))(label_input)
-    le = tf.keras.layers.Dense(64, activation=None, kernel_regularizer=tf.keras.regularizers.l2(l2_reg))(le)
-    le = tf.keras.layers.Dropout(DENSE_DROPOUT)(le)
+    le = tf.keras.layers.Dense(64, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(l2_reg))(le)
 
     q = tf.keras.layers.Dense(channels)(spatial)
     q = tf.reshape(q, [B, flat, channels])
