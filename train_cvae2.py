@@ -34,10 +34,10 @@ TARGET_SIZE = 28
 LOW_CONF_THRESHOLD = 0.6
 KL_WARMUP_EPOCHS = 8
 KL_START_WEIGHT = 0.012
-KL_WEIGHT = 0.4
+KL_WEIGHT = 0.45
 KL_DECAY_EPOCHS = EPOCHS - KL_WARMUP_EPOCHS
-KL_WEIGHT_END = 0.04
-LEARNING_RATE = 0.0002
+KL_WEIGHT_END = 0.1
+LEARNING_RATE = 0.0003
 LR_WARMUP_EPOCHS = 11
 LR_START = 0.00005
 LR_DECAY_EPOCHS = EPOCHS - LR_WARMUP_EPOCHS
@@ -47,14 +47,14 @@ KL_FREE_BITS = 0.0
 SPATIAL_DROPOUT = 0.3
 DENSE_DROPOUT = 0.25
 AUGMENT = True
-RECON_LOSS_WEIGHT = 0.35
+RECON_LOSS_WEIGHT = 0.5
 PERCEPTUAL_FINE_WEIGHT = 0.2
 PERCEPTUAL_COARSE_WEIGHT = 0.8
 PERCEPTUAL_MULTISCALE = True
 PERCEPTUAL_WEIGHTS = [PERCEPTUAL_FINE_WEIGHT, PERCEPTUAL_COARSE_WEIGHT]
 PERCEPTUAL_WARMUP_EPOCHS = 10
 PERCEPTUAL_START_WEIGHT = 0.001
-PERCEPTUAL_PEAK_WEIGHT = 20
+PERCEPTUAL_PEAK_WEIGHT = 2
 PERCEPTUAL_DECAY_EPOCHS = EPOCHS - PERCEPTUAL_WARMUP_EPOCHS
 PERCEPTUAL_END_WEIGHT = 0.5
 PERCEPTUAL_EXTRACTOR_PATH = Path(__file__).parent / "mnist2_model"
@@ -208,13 +208,20 @@ def build_encoder():
 
     x = tf.keras.layers.Conv2D(32, 3, strides=1, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(image_input)
     x = tf.keras.layers.LayerNormalization()(x)
-    x28 = x  # 28x28, 32 channels
-    x28 = label_cross_attention(x28, label_input, 32, L2_REG)
+    x28_pre = x  # 28x28, 32 channels before attention/FiLM
+
+    x28 = label_cross_attention(x28_pre, label_input, 32, L2_REG)
     film_gamma28, film_beta28 = make_film(32)(label_input)
     x28 = x28 * (1.0 + film_gamma28) + film_beta28
     x28 = tf.keras.layers.SpatialDropout2D(SPATIAL_DROPOUT)(x28)
 
-    # residual conv block after FiLM
+    # Skip from pre-FiLM path so the model can weight raw conv features
+    x28 = tf.keras.layers.Add()([
+        x28,
+        tf.keras.layers.Conv2D(32, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x28_pre),
+    ])
+
+    # residual conv block after FiLM + raw skip
     x28_res = x28
     x28 = tf.keras.layers.Conv2D(32, 3, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x28)
     x28 = tf.keras.layers.LayerNormalization()(x28)
