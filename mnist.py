@@ -29,13 +29,13 @@ GRAD_ADAPTIVE_FACTOR = 0.0000045
 GRAD_ADAPTIVE_BATCH_INTERVAL = 3
 GRAD_NORM_EMA_DECAY = 0.93
 GRAD_NORM_TARGET = 1.0
-DROPOUT_START = 0.5
-DROPOUT_END = 0.2
+DROPOUT_START = 0.45
+DROPOUT_END = 0.25
 DROPOUT = DROPOUT_START
 SPATIAL_DROPOUT = 0.3
-DENSE_SIZE = 512
+DENSE_SIZE = 640
 L2_DECAY = 0.00001
-GCE_Q = 0.2
+GCE_Q = 0.3
 EARLY_STOP_PATIENCE = 100
 GAUSSIAN_NOISE = 0.00002
 GAUSSIAN_NOISE_DECAY_EPOCHS = EPOCHS
@@ -122,31 +122,46 @@ def cbam_block(x):
     return x
 
 # Conv block 0: 28x28 -> 28x28
+c0_res = x
 c0 = L.SeparableConv2D(64, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_DECAY), name='percept_c0')(x)
+c0 = L.SeparableConv2D(64, 3, padding='same', activation=None, kernel_regularizer=tf.keras.regularizers.l2(L2_DECAY))(c0)
+c0 = L.LayerNormalization()(c0)
+c0 = L.Add()([c0, c0_res])
+c0 = L.Activation('relu')(c0)
 c0 = L.Dropout(DROPOUT)(c0)
 c0 = L.SpatialDropout2D(SPATIAL_DROPOUT)(c0)
 c0 = L.Add()([c0, cbam_block(c0)])
 c0 = L.LayerNormalization()(c0)
 
 # Conv block 1: 28x28 -> 14x14 with residual skip
-c1 = L.SeparableConv2D(96, 3, strides=2, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_DECAY), name='percept_c1')(c0)
+c1_res = L.SeparableConv2D(96, 3, strides=2, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_DECAY), name='percept_c1')(c0)
+c1 = L.SeparableConv2D(96, 3, padding='same', activation=None, kernel_regularizer=tf.keras.regularizers.l2(L2_DECAY))(c1_res)
+c1 = L.LayerNormalization()(c1)
 skip_28_to_14 = L.Conv2D(96, 1, strides=2, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_DECAY))(c0)
 c1 = L.Add()([c1, skip_28_to_14])
+c1 = L.Activation('relu')(c1)
 c1 = L.Dropout(DROPOUT)(c1)
 c1 = L.Add()([c1, cbam_block(c1)])
 c1 = L.LayerNormalization()(c1)
 
 # Conv block 2: 14x14 → 7x7 with residual skip
-c2 = L.SeparableConv2D(128, 3, strides=2, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_DECAY), name='percept_c2')(c1)
+c2_res = L.SeparableConv2D(128, 3, strides=2, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_DECAY), name='percept_c2')(c1)
+c2 = L.SeparableConv2D(128, 3, padding='same', activation=None, kernel_regularizer=tf.keras.regularizers.l2(L2_DECAY))(c2_res)
+c2 = L.LayerNormalization()(c2)
 skip_14_to_7 = L.Conv2D(128, 1, strides=2, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_DECAY))(c1)
 c2 = L.Add()([c2, skip_14_to_7])
+c2 = L.Activation('relu')(c2)
 c2 = L.Dropout(DROPOUT)(c2)
 c2 = L.Add()([c2, cbam_block(c2)])
 c2 = L.SpatialDropout2D(SPATIAL_DROPOUT)(c2)
 c2 = L.LayerNormalization()(c2)
 
 # Conv block 3: 7x7 → 7x7 (no pooling)
-c3 = L.SeparableConv2D(128, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_DECAY), name='percept_c3')(c2)
+c3_res = L.SeparableConv2D(128, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_DECAY), name='percept_c3')(c2)
+c3 = L.SeparableConv2D(128, 3, padding='same', activation=None, kernel_regularizer=tf.keras.regularizers.l2(L2_DECAY))(c3_res)
+c3 = L.LayerNormalization()(c3)
+c3 = L.Add()([c3, c3_res])
+c3 = L.Activation('relu')(c3)
 c3 = L.Dropout(DROPOUT)(c3)
 c3 = L.LayerNormalization()(c3)
 
@@ -172,23 +187,30 @@ pool7 = L.GlobalAveragePooling2D()(c3)
 pool14 = L.GlobalAveragePooling2D()(c1_res)
 pool28 = L.GlobalAveragePooling2D()(c0_res)
 
-# Flatten + multi-scale concat
-x = L.Concatenate()([L.Flatten()(c3), pool7, pool14, pool28])
+# Branch A: fine-scale path from Flatten(c3)
+branch_a = L.Flatten()(c3)
+branch_a = L.Dense(DENSE_SIZE, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_DECAY))(branch_a)
+branch_a = L.Dropout(DROPOUT)(branch_a)
+p_a = L.Dense(DENSE_SIZE, kernel_regularizer=tf.keras.regularizers.l2(L2_DECAY))(branch_a)
+branch_a = L.Add()([branch_a, p_a])
+branch_a = L.Activation('relu')(branch_a)
+branch_a = L.Dense(DENSE_SIZE, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_DECAY))(branch_a)
+branch_a = L.Dropout(DROPOUT)(branch_a)
+p_a = L.Dense(DENSE_SIZE, kernel_regularizer=tf.keras.regularizers.l2(L2_DECAY))(branch_a)
+branch_a = L.Add()([branch_a, p_a])
+branch_a = L.Activation('relu')(branch_a)
+logits_a = L.Dense(NUM_CLASSES)(branch_a)
 
-# Dense with 2 residual connections
-d1 = L.Dense(DENSE_SIZE, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_DECAY))(x)
-d1 = L.Dropout(DROPOUT)(d1)
-p1 = L.Dense(DENSE_SIZE, kernel_regularizer=tf.keras.regularizers.l2(L2_DECAY))(x)
-x = L.Add()([d1, p1])
-x = L.Activation('relu')(x)
-# 2nd residual connection
-d2 = L.Dense(DENSE_SIZE, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_DECAY))(x)
-d2 = L.Dropout(DROPOUT)(d2)
-p2 = L.Dense(DENSE_SIZE, kernel_regularizer=tf.keras.regularizers.l2(L2_DECAY))(x)
-x = L.Add()([d2, p2])
-x = L.Activation('relu')(x)
+# Branch B: cross-scale path from pool7 + pool14 + pool28
+branch_b = L.Concatenate()([pool7, pool14, pool28])
+branch_b = L.Dense(128, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_DECAY))(branch_b)
+branch_b = L.Dropout(DROPOUT)(branch_b)
+branch_b = L.Dense(128, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_DECAY))(branch_b)
+branch_b = L.Dropout(DROPOUT)(branch_b)
+logits_b = L.Dense(NUM_CLASSES)(branch_b)
 
-outputs = L.Dense(NUM_CLASSES)(x)
+# Final logits with learned weighting via additive merge
+outputs = L.Add()([logits_a, logits_b])
 model = tf.keras.Model(inputs=inputs, outputs=outputs)
 
 # ─── GCE Loss ────────────────────────────────────────────────────────
