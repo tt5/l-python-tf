@@ -313,6 +313,7 @@ def main():
         """CBAM: Channel attention -> Spatial attention."""
         x = channel_attention(x)
         x = spatial_attention(x)
+        x = L.LayerNormalization()(x)
         return x
 
     inputs = L.Input(shape=(TARGET_SIZE, TARGET_SIZE))
@@ -328,9 +329,7 @@ def main():
     c0 = L.Activation('relu')(c0)
     c0 = L.SpatialDropout2D(SPATIAL_DROPOUT)(c0)
     c0 = L.Dropout(CONV_DROPOUT)(c0)
-    c0 = L.LayerNormalization()(c0)
-    c0 = cbam_block(c0)
-    c0 = L.LayerNormalization(name='conv28')(c0)
+    c0 = L.Add()([c0, cbam_block(c0)])
 
     # Conv block 1: 28x28 -> 14x14
     c1 = L.SeparableConv2D(64, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(c0)
@@ -341,17 +340,14 @@ def main():
     c1 = L.Activation('relu')(c1)
     c1 = L.SpatialDropout2D(SPATIAL_DROPOUT)(c1)
     c1 = L.Dropout(CONV_DROPOUT)(c1)
-    c1 = L.LayerNormalization()(c1)
-    c1 = cbam_block(c1)
-    c1 = L.LayerNormalization(name='conv14_mid')(c1)
+    c1 = L.Add()([c1, cbam_block(c1)])
 
     # Conv block 2: 14x14 -> 7x7
     c2 = L.SeparableConv2D(128, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv14')(c1)
     c2 = L.MaxPooling2D(2)(c2)
     c2 = L.SpatialDropout2D(SPATIAL_DROPOUT)(c2)
     c2 = L.Dropout(CONV_DROPOUT)(c2)
-    c2 = L.LayerNormalization()(c2)
-    c2 = cbam_block(c2)
+    c2 = L.Add()([c2, cbam_block(c2)])
 
     # Conv block 3: 7x7 → 7x7 (no pooling)
     c3 = L.SeparableConv2D(128, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv7_deep2')(c2)
