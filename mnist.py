@@ -140,6 +140,7 @@ skip_28_to_14 = L.Conv2D(96, 1, strides=2, padding='same', kernel_regularizer=tf
 c1 = L.Add()([c1, skip_28_to_14])
 c1 = L.Activation('relu')(c1)
 c1 = L.Dropout(DROPOUT)(c1)
+c1 = L.SpatialDropout2D(SPATIAL_DROPOUT)(c1)
 c1 = L.Add()([c1, cbam_block(c1)])
 
 # Conv block 2: 14x14 → 7x7 with residual skip
@@ -150,8 +151,8 @@ skip_14_to_7 = L.Conv2D(128, 1, strides=2, padding='same', kernel_regularizer=tf
 c2 = L.Add()([c2, skip_14_to_7])
 c2 = L.Activation('relu')(c2)
 c2 = L.Dropout(DROPOUT)(c2)
-c2 = L.Add()([c2, cbam_block(c2)])
 c2 = L.SpatialDropout2D(SPATIAL_DROPOUT)(c2)
+c2 = L.Add()([c2, cbam_block(c2)])
 
 # Conv block 3: 7x7 → 7x7 (no pooling)
 c3_res = L.SeparableConv2D(128, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_DECAY), name='percept_c3')(c2)
@@ -160,6 +161,7 @@ c3 = L.LayerNormalization()(c3)
 c3 = L.Add()([c3, c3_res])
 c3 = L.Activation('relu')(c3)
 c3 = L.Dropout(DROPOUT)(c3)
+c3 = L.SpatialDropout2D(SPATIAL_DROPOUT)(c3)
 c3 = L.LayerNormalization()(c3)
 
 # Cross-scale residual connections: 7x7 -> 14x14 -> 28x28

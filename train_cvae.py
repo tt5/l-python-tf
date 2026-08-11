@@ -25,7 +25,7 @@ LATENT_DIM = 256
 PHA1_LATENT_DIM = 64
 EPOCHS = 90
 BATCH_SIZE = 128
-NUM_CLASSES = 6
+NUM_CLASSES = 5
 PROGRESSIVE_EPOCHS = 3 # Phase 1: 14x14
 LR = 0.001
 LR_WARMUP_START = 0.000005
@@ -62,7 +62,7 @@ LOG_NAME_PHA1 = 'logs/gen1b/phase1'
 
 # ─── Data ──────────────────────────────────────────────────────────
 def load_data_cvae():
-    (x_train, y_train), (x_test, y_test) = load_data(DATA_DIR, NUM_CLASSES, flip_pixels=3*28)
+    (x_train, y_train), (x_test, y_test) = load_data(DATA_DIR, NUM_CLASSES, flip_pixels=7*28)
     y_train = keras.utils.to_categorical(y_train, NUM_CLASSES)
     y_test = keras.utils.to_categorical(y_test, NUM_CLASSES)
     return x_train, y_train, x_test, y_test
