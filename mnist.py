@@ -20,7 +20,7 @@ np.set_printoptions(linewidth=np.inf)
 
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "synthetic" / "data"
 NUM_CLASSES = 5
-EPOCHS = 50
+EPOCHS = 20
 BATCH_SIZE = 128
 BASE_LR = 0.00005
 GRAD_ADAPTIVE_MIN_LR = 0.0000014
@@ -131,7 +131,6 @@ c0 = L.Activation('relu')(c0)
 c0 = L.Dropout(DROPOUT)(c0)
 c0 = L.SpatialDropout2D(SPATIAL_DROPOUT)(c0)
 c0 = L.Add()([c0, cbam_block(c0)])
-c0 = L.LayerNormalization()(c0)
 
 # Conv block 1: 28x28 -> 14x14 with residual skip
 c1_res = L.SeparableConv2D(96, 3, strides=2, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_DECAY), name='percept_c1')(c0)
@@ -142,7 +141,6 @@ c1 = L.Add()([c1, skip_28_to_14])
 c1 = L.Activation('relu')(c1)
 c1 = L.Dropout(DROPOUT)(c1)
 c1 = L.Add()([c1, cbam_block(c1)])
-c1 = L.LayerNormalization()(c1)
 
 # Conv block 2: 14x14 → 7x7 with residual skip
 c2_res = L.SeparableConv2D(128, 3, strides=2, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_DECAY), name='percept_c2')(c1)
@@ -154,7 +152,6 @@ c2 = L.Activation('relu')(c2)
 c2 = L.Dropout(DROPOUT)(c2)
 c2 = L.Add()([c2, cbam_block(c2)])
 c2 = L.SpatialDropout2D(SPATIAL_DROPOUT)(c2)
-c2 = L.LayerNormalization()(c2)
 
 # Conv block 3: 7x7 → 7x7 (no pooling)
 c3_res = L.SeparableConv2D(128, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_DECAY), name='percept_c3')(c2)
