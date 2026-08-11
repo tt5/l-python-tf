@@ -213,6 +213,16 @@ def build_encoder():
     film_gamma28, film_beta28 = make_film(32)(label_input)
     x28 = x28 * (1.0 + film_gamma28) + film_beta28
     x28 = tf.keras.layers.SpatialDropout2D(SPATIAL_DROPOUT)(x28)
+
+    # residual conv block after FiLM
+    x28_res = x28
+    x28 = tf.keras.layers.Conv2D(32, 3, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x28)
+    x28 = tf.keras.layers.LayerNormalization()(x28)
+    x28 = tf.keras.layers.Conv2D(32, 3, padding="same", activation=None, kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x28)
+    x28 = tf.keras.layers.LayerNormalization()(x28)
+    x28 = tf.keras.layers.Add()([x28, x28_res])
+    x28 = tf.keras.layers.Activation("relu")(x28)
+
     x28_pool = tf.keras.layers.GlobalAveragePooling2D()(x28)
     x = tf.keras.layers.MaxPooling2D(2)(x28)
     x = tf.keras.layers.Conv2D(64, 3, strides=1, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
