@@ -604,9 +604,13 @@ def copy_mnist2_weights_to_encoder(encoder):
     base = tf.keras.models.load_model(str(PERCEPTUAL_EXTRACTOR_PATH), compile=False)
     base.trainable = False
 
+    allowed_names = {'conv28', 'conv14', 'conv7_deep2'}
     copied = []
     skipped = []
+
     for layer in encoder.layers:
+        if layer.name not in allowed_names:
+            continue
         if layer.name not in [l.name for l in base.layers]:
             skipped.append((layer.name, 'missing in mnist2_model'))
             continue

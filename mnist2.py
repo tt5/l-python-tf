@@ -322,7 +322,7 @@ def main():
     x = noise_layer(x)
 
     # Conv block 0: 28x28 -> 28x28
-    c0 = L.SeparableConv2D(32, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
+    c0 = L.SeparableConv2D(32, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv28')(x)
     c0_res = c0
     c0 = L.SeparableConv2D(32, 3, padding='same', activation=None, kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(c0)
     c0 = L.Add()([c0, c0_res])
