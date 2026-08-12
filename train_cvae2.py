@@ -238,26 +238,27 @@ def build_encoder():
     # ── 28x28 block ──────────────────────────────────────────────
     x = tf.keras.layers.SeparableConv2D(32, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv28')(image_input)
     x = tf.keras.layers.LayerNormalization(name='enc_ln28')(x)
-    x28_pre = x
-    x = tf.keras.layers.Add()([x, cbam_block(x)])
-    x = tf.keras.layers.Dropout(DENSE_DROPOUT)(x)
-    x = tf.keras.layers.SpatialDropout2D(SPATIAL_DROPOUT)(x)
 
+    # Residual conv block matching mnist2.py c0 block
+    x28_res = x
+    x = tf.keras.layers.SeparableConv2D(32, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_res28_1')(x)
+    x = tf.keras.layers.LayerNormalization(name='enc_ln28_2')(x)
+    x = tf.keras.layers.SeparableConv2D(32, 3, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_res28_2')(x)
+    x = tf.keras.layers.LayerNormalization(name='enc_ln28_3')(x)
+    x = tf.keras.layers.Add()([x, x28_res])
+    x = tf.keras.layers.Activation('relu', name='enc_act28')(x)
+
+    # Dropout stack matching mnist2.py ordering
+    x = tf.keras.layers.SpatialDropout2D(SPATIAL_DROPOUT)(x)
+    x = tf.keras.layers.Dropout(DENSE_DROPOUT)(x)
+
+    # CBAM residual add
+    x = tf.keras.layers.Add()([x, cbam_block(x)])
+
+    # Label-conditioned branches after CBAM
     x28 = label_cross_attention(x, label_input, 32, L2_REG)
     film_gamma28, film_beta28 = make_film(32)(label_input)
     x28 = x28 * (1.0 + film_gamma28) + film_beta28
-    x28 = tf.keras.layers.Add()([
-        x28,
-        tf.keras.layers.SeparableConv2D(32, 1, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_skip28_1x1')(x28_pre),
-    ])
-
-    x28_res = x28
-    x28 = tf.keras.layers.SeparableConv2D(32, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_res28_1')(x28)
-    x28 = tf.keras.layers.LayerNormalization(name='enc_ln28_2')(x28)
-    x28 = tf.keras.layers.SeparableConv2D(32, 3, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_res28_2')(x28)
-    x28 = tf.keras.layers.LayerNormalization(name='enc_ln28_3')(x28)
-    x28 = tf.keras.layers.Add()([x28, x28_res])
-    x28 = tf.keras.layers.Activation('relu', name='enc_act28')(x28)
 
     # ── 14x14 block ──────────────────────────────────────────────
     x = tf.keras.layers.SeparableConv2D(64, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_conv14_pre')(x28)
