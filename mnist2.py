@@ -288,32 +288,32 @@ def main():
     L = tf.keras.layers
     
     # CBAM: Convolutional Block Attention Module
-    def channel_attention(x, reduction=16):
+    def channel_attention(x, reduction=16, name_prefix='cbam'):
         """Channel Attention (SE) - avg+max pooling."""
         channels = x.shape[-1]
         gap = tf.reduce_mean(x, axis=[1, 2], keepdims=True)
         gmp = tf.reduce_max(x, axis=[1, 2], keepdims=True)
         mlp = tf.keras.Sequential([
-            L.Dense(channels // reduction, activation='relu'),
-            L.Dense(channels, activation='sigmoid')
+            L.Dense(channels // reduction, activation='relu', name=f'{name_prefix}_ca_dense1'),
+            L.Dense(channels, activation='sigmoid', name=f'{name_prefix}_ca_dense2')
         ])
         attn = tf.add(mlp(gap), mlp(gmp))
         return tf.multiply(x, attn)
 
-    def spatial_attention(x):
+    def spatial_attention(x, name_prefix='cbam'):
         """Spatial Attention - small CNN."""
         avg_pool = tf.reduce_mean(x, axis=-1, keepdims=True)
         max_pool = tf.reduce_max(x, axis=-1, keepdims=True)
         concat = tf.concat([avg_pool, max_pool], axis=-1)
-        attn = L.Conv2D(16, 3, padding='same', activation='relu')(concat)
-        attn = L.Conv2D(1, 3, padding='same', activation='sigmoid')(attn)
+        attn = L.Conv2D(16, 3, padding='same', activation='relu', name=f'{name_prefix}_sa_conv1')(concat)
+        attn = L.Conv2D(1, 3, padding='same', activation='sigmoid', name=f'{name_prefix}_sa_conv2')(attn)
         return tf.multiply(x, attn)
 
-    def cbam_block(x):
+    def cbam_block(x, name_prefix='cbam'):
         """CBAM: Channel attention -> Spatial attention."""
-        x = channel_attention(x)
-        x = spatial_attention(x)
-        x = L.LayerNormalization()(x)
+        x = channel_attention(x, name_prefix=name_prefix)
+        x = spatial_attention(x, name_prefix=name_prefix)
+        x = L.LayerNormalization(name=f'{name_prefix}_ln')(x)
         return x
 
     inputs = L.Input(shape=(TARGET_SIZE, TARGET_SIZE))
@@ -329,7 +329,7 @@ def main():
     c0 = L.Activation('relu')(c0)
     c0 = L.SpatialDropout2D(SPATIAL_DROPOUT)(c0)
     c0 = L.Dropout(CONV_DROPOUT)(c0)
-    c0 = L.Add()([c0, cbam_block(c0)])
+    c0 = L.Add()([c0, cbam_block(c0, name_prefix='cbam28')])
 
     # Conv block 1: 28x28 -> 14x14
     c1 = L.SeparableConv2D(64, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(c0)
@@ -345,14 +345,14 @@ def main():
     c1 = L.Activation('relu')(c1)
     c1 = L.SpatialDropout2D(SPATIAL_DROPOUT)(c1)
     c1 = L.Dropout(CONV_DROPOUT)(c1)
-    c1 = L.Add()([c1, cbam_block(c1)])
+    c1 = L.Add()([c1, cbam_block(c1, name_prefix='cbam14')])
 
     # Conv block 2: 14x14 -> 7x7
     c2 = L.SeparableConv2D(128, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv14')(c1)
     c2 = L.MaxPooling2D(2)(c2)
     c2 = L.SpatialDropout2D(SPATIAL_DROPOUT)(c2)
     c2 = L.Dropout(CONV_DROPOUT)(c2)
-    c2 = L.Add()([c2, cbam_block(c2)])
+    c2 = L.Add()([c2, cbam_block(c2, name_prefix='cbam7')])
 
     # Conv block 3: 7x7 → 7x7 (no pooling)
     c3 = L.SeparableConv2D(128, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv7_deep2')(c2)

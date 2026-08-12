@@ -203,31 +203,31 @@ def make_film(channels):
     return film_fn
 
 
-def channel_attention(x, reduction=16):
+def channel_attention(x, reduction=16, name_prefix='cbam'):
     channels = x.shape[-1]
     gap = tf.reduce_mean(x, axis=[1, 2], keepdims=True)
     gmp = tf.reduce_max(x, axis=[1, 2], keepdims=True)
     mlp = tf.keras.Sequential([
-        tf.keras.layers.Dense(channels // reduction, activation='relu'),
-        tf.keras.layers.Dense(channels, activation='sigmoid')
+        tf.keras.layers.Dense(channels // reduction, activation='relu', name=f'{name_prefix}_ca_dense1'),
+        tf.keras.layers.Dense(channels, activation='sigmoid', name=f'{name_prefix}_ca_dense2')
     ])
     attn = tf.add(mlp(gap), mlp(gmp))
     return tf.multiply(x, attn)
 
 
-def spatial_attention(x):
+def spatial_attention(x, name_prefix='cbam'):
     avg_pool = tf.reduce_mean(x, axis=-1, keepdims=True)
     max_pool = tf.reduce_max(x, axis=-1, keepdims=True)
     concat = tf.concat([avg_pool, max_pool], axis=-1)
-    attn = tf.keras.layers.Conv2D(16, 3, padding='same', activation='relu')(concat)
-    attn = tf.keras.layers.Conv2D(1, 3, padding='same', activation='sigmoid')(attn)
+    attn = tf.keras.layers.Conv2D(16, 3, padding='same', activation='relu', name=f'{name_prefix}_sa_conv1')(concat)
+    attn = tf.keras.layers.Conv2D(1, 3, padding='same', activation='sigmoid', name=f'{name_prefix}_sa_conv2')(attn)
     return tf.multiply(x, attn)
 
 
-def cbam_block(x):
-    x = channel_attention(x)
-    x = spatial_attention(x)
-    x = tf.keras.layers.LayerNormalization()(x)
+def cbam_block(x, name_prefix='cbam'):
+    x = channel_attention(x, name_prefix=name_prefix)
+    x = spatial_attention(x, name_prefix=name_prefix)
+    x = tf.keras.layers.LayerNormalization(name=f'{name_prefix}_ln')(x)
     return x
 
 
@@ -253,7 +253,7 @@ def build_encoder():
     x = tf.keras.layers.Dropout(DENSE_DROPOUT)(x)
 
     # CBAM residual add
-    x = tf.keras.layers.Add()([x, cbam_block(x)])
+    x = tf.keras.layers.Add()([x, cbam_block(x, name_prefix='cbam28')])
 
     # Label-conditioned branches after CBAM
     x28 = label_cross_attention(x, label_input, 32, L2_REG)
@@ -274,7 +274,7 @@ def build_encoder():
     x = tf.keras.layers.Activation('relu')(x)
     x = tf.keras.layers.SpatialDropout2D(SPATIAL_DROPOUT)(x)
     x = tf.keras.layers.Dropout(DENSE_DROPOUT)(x)
-    x = tf.keras.layers.Add()([x, cbam_block(x)])
+    x = tf.keras.layers.Add()([x, cbam_block(x, name_prefix='cbam14')])
     x14 = x
 
     x14_pre = x14
@@ -299,7 +299,7 @@ def build_encoder():
     x = tf.keras.layers.MaxPooling2D(2)(x)
     x = tf.keras.layers.SpatialDropout2D(SPATIAL_DROPOUT)(x)
     x = tf.keras.layers.Dropout(DENSE_DROPOUT)(x)
-    x = tf.keras.layers.Add()([x, cbam_block(x)])
+    x = tf.keras.layers.Add()([x, cbam_block(x, name_prefix='cbam7')])
 
     x = tf.keras.layers.SeparableConv2D(128, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv7_deep2')(x)
     x = tf.keras.layers.SpatialDropout2D(SPATIAL_DROPOUT)(x)
@@ -605,13 +605,9 @@ def copy_mnist2_weights_to_encoder(encoder):
     base = tf.keras.models.load_model(str(PERCEPTUAL_EXTRACTOR_PATH), compile=False)
     base.trainable = False
 
-    allowed_names = {'conv28', 'conv14', 'conv7_deep2'}
     copied = []
     skipped = []
-
     for layer in encoder.layers:
-        if layer.name not in allowed_names:
-            continue
         if layer.name not in [l.name for l in base.layers]:
             skipped.append((layer.name, 'missing in mnist2_model'))
             continue
