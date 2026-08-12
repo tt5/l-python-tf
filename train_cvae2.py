@@ -48,10 +48,8 @@ SPATIAL_DROPOUT = 0.3
 DENSE_DROPOUT = 0.25
 AUGMENT = True
 RECON_LOSS_WEIGHT = 0.5
-PERCEPTUAL_FINE_WEIGHT = 0.2
-PERCEPTUAL_COARSE_WEIGHT = 0.8
+PERCEPTUAL_WEIGHTS = [0.1, 0.2, 0.7]
 PERCEPTUAL_MULTISCALE = True
-PERCEPTUAL_WEIGHTS = [PERCEPTUAL_FINE_WEIGHT, PERCEPTUAL_COARSE_WEIGHT]
 PERCEPTUAL_WARMUP_EPOCHS = 10
 PERCEPTUAL_START_WEIGHT = 0.001
 PERCEPTUAL_PEAK_WEIGHT = 2
@@ -459,16 +457,24 @@ class CVAE(tf.keras.Model):
         self.recon_loss_tracker = tf.keras.metrics.Mean(name="recon_loss")
         self.kl_loss_tracker = tf.keras.metrics.Mean(name="kl_loss")
         self.perceptual_loss_tracker = tf.keras.metrics.Mean(name="perceptual_loss")
-        self.perceptual_fine_loss_tracker = tf.keras.metrics.Mean(name="perceptual_fine_loss")
-        self.perceptual_coarse_loss_tracker = tf.keras.metrics.Mean(name="perceptual_coarse_loss")
+        self.perceptual_conv28_loss_tracker = tf.keras.metrics.Mean(name="perceptual_conv28_loss")
+        self.perceptual_conv14_loss_tracker = tf.keras.metrics.Mean(name="perceptual_conv14_loss")
+        self.perceptual_conv7_loss_tracker = tf.keras.metrics.Mean(name="perceptual_conv7_loss")
         self.kl_weight = 0.0
         self.perceptual_weight = float(PERCEPTUAL_PEAK_WEIGHT)
-        self.perceptual_coarse_weight = float(PERCEPTUAL_COARSE_WEIGHT)
         self.tv_weight = float(TV_PEAK_WEIGHT)
 
     @property
     def metrics(self):
-        return [self.total_loss_tracker, self.recon_loss_tracker, self.kl_loss_tracker, self.perceptual_loss_tracker, self.perceptual_fine_loss_tracker, self.perceptual_coarse_loss_tracker]
+        return [
+            self.total_loss_tracker,
+            self.recon_loss_tracker,
+            self.kl_loss_tracker,
+            self.perceptual_loss_tracker,
+            self.perceptual_conv28_loss_tracker,
+            self.perceptual_conv14_loss_tracker,
+            self.perceptual_conv7_loss_tracker,
+        ]
 
     def train_step(self, data):
         images, labels = data
@@ -501,20 +507,26 @@ class CVAE(tf.keras.Model):
             kl_per_dim = tf.maximum(kl_per_dim, KL_FREE_BITS)
             kl_loss = tf.reduce_mean(tf.reduce_sum(kl_per_dim, axis=1))
 
-            perceptual_loss_fine = 0.0
-            perceptual_loss_coarse = 0.0
+            perceptual_loss_conv28 = 0.0
+            perceptual_loss_conv14 = 0.0
+            perceptual_loss_conv7 = 0.0
             if self.perceptual_extractor is not None:
                 real_input = tf.squeeze(images, -1)
                 fake_input = tf.squeeze(reconstruction, -1)
-                real_feats, real_coarse = self.perceptual_extractor(real_input, training=False)
-                fake_feats, fake_coarse = self.perceptual_extractor(fake_input, training=False)
-                perceptual_loss_fine = tf.reduce_mean(tf.reduce_sum(tf.square(real_feats - fake_feats), axis=-1))
-                perceptual_loss_coarse = tf.reduce_mean(tf.reduce_sum(tf.square(real_coarse - fake_coarse), axis=-1))
+                real_feats = self.perceptual_extractor(real_input, training=False)
+                fake_feats = self.perceptual_extractor(fake_input, training=False)
+                perceptual_loss_conv28 = tf.reduce_mean(tf.reduce_sum(tf.square(real_feats[0] - fake_feats[0]), axis=-1))
+                perceptual_loss_conv14 = tf.reduce_mean(tf.reduce_sum(tf.square(real_feats[1] - fake_feats[1]), axis=-1))
+                perceptual_loss_conv7 = tf.reduce_mean(tf.reduce_sum(tf.square(real_feats[2] - fake_feats[2]), axis=-1))
 
             if PERCEPTUAL_MULTISCALE:
-                perceptual_loss = PERCEPTUAL_WEIGHTS[0] * perceptual_loss_fine + PERCEPTUAL_WEIGHTS[1] * perceptual_loss_coarse
+                perceptual_loss = (
+                    PERCEPTUAL_WEIGHTS[0] * perceptual_loss_conv28 +
+                    PERCEPTUAL_WEIGHTS[1] * perceptual_loss_conv14 +
+                    PERCEPTUAL_WEIGHTS[2] * perceptual_loss_conv7
+                )
             else:
-                perceptual_loss = perceptual_loss_fine + perceptual_loss_coarse
+                perceptual_loss = perceptual_loss_conv28 + perceptual_loss_conv14 + perceptual_loss_conv7
 
             total_loss = (RECON_LOSS_WEIGHT * recon_loss) + (float(self.perceptual_weight) * perceptual_loss) + (float(self.kl_weight) * kl_loss) + float(self.tv_weight) * tv_loss
 
@@ -525,8 +537,9 @@ class CVAE(tf.keras.Model):
         self.recon_loss_tracker.update_state(recon_loss)
         self.kl_loss_tracker.update_state(kl_loss)
         self.perceptual_loss_tracker.update_state(perceptual_loss)
-        self.perceptual_fine_loss_tracker.update_state(perceptual_loss_fine)
-        self.perceptual_coarse_loss_tracker.update_state(perceptual_loss_coarse)
+        self.perceptual_conv28_loss_tracker.update_state(perceptual_loss_conv28)
+        self.perceptual_conv14_loss_tracker.update_state(perceptual_loss_conv14)
+        self.perceptual_conv7_loss_tracker.update_state(perceptual_loss_conv7)
 
         return {m.name: m.result() for m in self.metrics}
 
@@ -548,23 +561,30 @@ class CVAE(tf.keras.Model):
         kl_per_dim = tf.maximum(kl_per_dim, KL_FREE_BITS)
         kl_loss = tf.reduce_mean(tf.reduce_sum(kl_per_dim, axis=1))
 
-        perceptual_loss = 0.0
-        perceptual_coarse_loss = 0.0
+        perceptual_loss_conv28 = 0.0
+        perceptual_loss_conv14 = 0.0
+        perceptual_loss_conv7 = 0.0
         if self.perceptual_extractor is not None:
             real_input = tf.squeeze(images, -1)
             fake_input = tf.squeeze(reconstruction, -1)
-            real_feats, real_coarse = self.perceptual_extractor(real_input, training=False)
-            fake_feats, fake_coarse = self.perceptual_extractor(fake_input, training=False)
-            perceptual_loss_fine = tf.reduce_mean(tf.reduce_sum(tf.square(real_feats - fake_feats), axis=-1))
-            perceptual_loss_coarse = tf.reduce_mean(tf.reduce_sum(tf.square(real_coarse - fake_coarse), axis=-1))
+            real_feats = self.perceptual_extractor(real_input, training=False)
+            fake_feats = self.perceptual_extractor(fake_input, training=False)
+            perceptual_loss_conv28 = tf.reduce_mean(tf.reduce_sum(tf.square(real_feats[0] - fake_feats[0]), axis=-1))
+            perceptual_loss_conv14 = tf.reduce_mean(tf.reduce_sum(tf.square(real_feats[1] - fake_feats[1]), axis=-1))
+            perceptual_loss_conv7 = tf.reduce_mean(tf.reduce_sum(tf.square(real_feats[2] - fake_feats[2]), axis=-1))
         else:
-            perceptual_loss_fine = tf.constant(0.0)
-            perceptual_loss_coarse = tf.constant(0.0)
+            perceptual_loss_conv28 = tf.constant(0.0)
+            perceptual_loss_conv14 = tf.constant(0.0)
+            perceptual_loss_conv7 = tf.constant(0.0)
 
         if PERCEPTUAL_MULTISCALE:
-            perceptual_loss = PERCEPTUAL_WEIGHTS[0] * perceptual_loss_fine + PERCEPTUAL_WEIGHTS[1] * perceptual_loss_coarse
+            perceptual_loss = (
+                PERCEPTUAL_WEIGHTS[0] * perceptual_loss_conv28 +
+                PERCEPTUAL_WEIGHTS[1] * perceptual_loss_conv14 +
+                PERCEPTUAL_WEIGHTS[2] * perceptual_loss_conv7
+            )
         else:
-            perceptual_loss = perceptual_loss_fine + perceptual_loss_coarse
+            perceptual_loss = perceptual_loss_conv28 + perceptual_loss_conv14 + perceptual_loss_conv7
 
         total_loss = (RECON_LOSS_WEIGHT * recon_loss) + (float(self.perceptual_weight) * perceptual_loss) + (float(self.kl_weight) * kl_loss) + float(self.tv_weight) * tv_loss
 
@@ -572,8 +592,9 @@ class CVAE(tf.keras.Model):
         self.recon_loss_tracker.update_state(recon_loss)
         self.kl_loss_tracker.update_state(kl_loss)
         self.perceptual_loss_tracker.update_state(perceptual_loss)
-        self.perceptual_fine_loss_tracker.update_state(perceptual_loss_fine)
-        self.perceptual_coarse_loss_tracker.update_state(perceptual_loss_coarse)
+        self.perceptual_conv28_loss_tracker.update_state(perceptual_loss_conv28)
+        self.perceptual_conv14_loss_tracker.update_state(perceptual_loss_conv14)
+        self.perceptual_conv7_loss_tracker.update_state(perceptual_loss_conv7)
 
         return {m.name: m.result() for m in self.metrics}
 
@@ -586,17 +607,19 @@ class CVAE(tf.keras.Model):
 
 
 def build_perceptual_extractor():
-    """Load frozen mnist2 classifier and build a single multi-scale feature extractor."""
+    """Load frozen mnist2 classifier and build a multi-scale feature extractor."""
     base = tf.keras.models.load_model(str(PERCEPTUAL_EXTRACTOR_PATH), compile=False)
     base.trainable = False
 
+    conv28_layer = base.get_layer(name='conv28').output
     fine_layer = base.get_layer(name='conv14').output
     coarse_layer = base.get_layer(name='conv7_deep2').output
 
-    gap_fine = tf.keras.layers.GlobalAveragePooling2D()(fine_layer)
-    gap_coarse = tf.keras.layers.GlobalAveragePooling2D()(coarse_layer)
+    gap_conv28 = tf.keras.layers.GlobalAveragePooling2D(name='perceptual_gap_conv28')(conv28_layer)
+    gap_fine = tf.keras.layers.GlobalAveragePooling2D(name='perceptual_gap_conv14')(fine_layer)
+    gap_coarse = tf.keras.layers.GlobalAveragePooling2D(name='perceptual_gap_conv7')(coarse_layer)
 
-    extractor = tf.keras.Model(inputs=base.input, outputs=[gap_fine, gap_coarse], name='perceptual_extractor')
+    extractor = tf.keras.Model(inputs=base.input, outputs=[gap_conv28, gap_fine, gap_coarse], name='perceptual_extractor')
     return extractor
 
 
