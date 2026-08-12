@@ -343,8 +343,8 @@ def main():
 
     print(f"\nTraining cls2enc for {EPOCHS} epochs...")
     model.fit(
-        x_train, y_train,
-        validation_data=(x_test, y_test),
+        [x_train, y_train], y_train,
+        validation_data=([x_test, y_test], y_test),
         epochs=EPOCHS,
         batch_size=BATCH_SIZE,
         callbacks=[early_stopping, lr_cb, tb_callback],
@@ -352,7 +352,7 @@ def main():
     )
 
     print("\nFinal evaluation:")
-    model.evaluate(x_test, y_test, verbose=2)
+    model.evaluate([x_test, y_test], y_test, verbose=2)
 
     save_path = Path(__file__).parent / "cls2enc_model"
     model.save(str(save_path))
