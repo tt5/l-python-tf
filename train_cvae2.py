@@ -355,6 +355,7 @@ def build_generator():
 
     # 14x14 block
     channels14 = int(x.shape[-1] or 64)
+    x14_pre = x
     x = label_cross_attention(x, label_input, channels14, L2_REG)
     scale = tf.keras.layers.Dense(channels14, kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(label_shared)
     offset = tf.keras.layers.Dense(channels14, kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(label_shared)
@@ -366,6 +367,12 @@ def build_generator():
     x = tf.keras.layers.Conv2D(64, 3, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = tf.keras.layers.LayerNormalization(center=True, scale=True)(x)
 
+    # Skip from pre-Film path so the model can weight raw features
+    x = tf.keras.layers.Add()([
+        x,
+        tf.keras.layers.Conv2D(64, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x14_pre),
+    ])
+
     skip14 = x
     x = tf.keras.layers.SpatialDropout2D(SPATIAL_DROPOUT)(x)
     x = tf.keras.layers.Conv2DTranspose(64, 4, strides=2, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
@@ -373,7 +380,6 @@ def build_generator():
     x = tf.keras.layers.LayerNormalization(center=True, scale=True)(x)
     x = tf.keras.layers.Activation("relu")(x)
     x = tf.keras.layers.SpatialDropout2D(SPATIAL_DROPOUT)(x)
-    x = label_cross_attention(x, label_input, 64, L2_REG)
     x = tf.keras.layers.Add()([
         x,
         tf.keras.layers.Conv2DTranspose(64, 4, strides=2, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(
@@ -390,7 +396,8 @@ def build_generator():
     x = tf.keras.layers.Add()([x, skip7_up28])
 
     channels28 = int(x.shape[-1] or 64)
-    x = label_cross_attention(x, label_input, channels28, L2_REG)
+    x28_pre = x
+    x = label_cross_attention(x28_pre, label_input, channels28, L2_REG)
     scale = tf.keras.layers.Dense(channels28, kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(label_shared)
     offset = tf.keras.layers.Dense(channels28, kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(label_shared)
     scale = tf.keras.layers.Reshape((1, 1, channels28))(scale)
@@ -400,6 +407,12 @@ def build_generator():
     # Conv after FiLM
     x = tf.keras.layers.Conv2D(64, 3, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = tf.keras.layers.LayerNormalization(center=True, scale=True)(x)
+
+    # Skip from pre-Film path so the model can weight raw features
+    x = tf.keras.layers.Add()([
+        x,
+        tf.keras.layers.Conv2D(64, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x28_pre),
+    ])
     x = tf.keras.layers.SpatialDropout2D(SPATIAL_DROPOUT)(x)
 
     x = tf.keras.layers.Conv2D(1, 1, padding="same", activation="sigmoid")(x)
