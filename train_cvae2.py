@@ -241,10 +241,16 @@ def build_encoder():
     ])
     x14 = x  # 14x14, 64 channels
 
-    # Cross-attention at 14x14
+    x14_pre = x14
     x14 = label_cross_attention(x14, label_input, 64, L2_REG)
     film_gamma14, film_beta14 = make_film(64)(label_input)
     x14 = x14 * (1.0 + film_gamma14) + film_beta14
+
+    # Skip from pre-Film path so the model can weight raw conv features
+    x14 = tf.keras.layers.Add()([
+        x14,
+        tf.keras.layers.Conv2D(64, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x14_pre),
+    ])
 
     # 14x14 residual block
     x14_res = x14
