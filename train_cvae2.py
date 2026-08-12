@@ -230,7 +230,6 @@ def build_encoder():
     x28 = tf.keras.layers.Add()([x28, x28_res])
     x28 = tf.keras.layers.Activation("relu")(x28)
 
-    x28_pool = tf.keras.layers.GlobalAveragePooling2D()(x28)
     x = tf.keras.layers.MaxPooling2D(2)(x28)
     x = tf.keras.layers.Conv2D(64, 3, strides=1, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = tf.keras.layers.LayerNormalization()(x)
@@ -262,8 +261,6 @@ def build_encoder():
     x14 = tf.keras.layers.Add()([x14, x14_res])
     x14 = tf.keras.layers.Activation("relu")(x14)
 
-    x14_pool = tf.keras.layers.GlobalAveragePooling2D()(x14)
-
     x = tf.keras.layers.Conv2D(64, 3, strides=1, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x14)
     x = tf.keras.layers.LayerNormalization()(x)
     x = tf.keras.layers.SpatialDropout2D(SPATIAL_DROPOUT)(x)
@@ -292,22 +289,12 @@ def build_encoder():
     se = tf.keras.layers.Dense(128, activation='sigmoid', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(se)
     x = tf.keras.layers.Multiply()([x, se])
     x = tf.keras.layers.SpatialDropout2D(SPATIAL_DROPOUT)(x)
-    x7_pool = tf.keras.layers.GlobalAveragePooling2D()(x)
     x = tf.keras.layers.Flatten()(x)
 
-    # Wider label pathway with learned per-scale weighting
     label_proj = tf.keras.layers.Dense(128, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(label_input)
     label_proj = tf.keras.layers.Dropout(DENSE_DROPOUT)(label_proj)
 
-    w28 = tf.keras.layers.Dense(32, activation="sigmoid", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(label_proj)
-    w14 = tf.keras.layers.Dense(64, activation="sigmoid", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(label_proj)
-    w7 = tf.keras.layers.Dense(128, activation="sigmoid", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(label_proj)
-
-    x28_w = tf.keras.layers.Multiply()([x28_pool, w28])
-    x14_w = tf.keras.layers.Multiply()([x14_pool, w14])
-    x7_w = tf.keras.layers.Multiply()([x7_pool, w7])
-
-    x = tf.keras.layers.Concatenate()([x, x28_w, x14_w, x7_w, label_proj])
+    x = tf.keras.layers.Concatenate()([x, label_proj])
     x = tf.keras.layers.Dense(512, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = tf.keras.layers.LayerNormalization()(x)
     x = tf.keras.layers.Dropout(DENSE_DROPOUT)(x)
