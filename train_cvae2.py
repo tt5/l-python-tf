@@ -41,7 +41,7 @@ LEARNING_RATE = 0.0003
 LR_WARMUP_EPOCHS = 11
 LR_START = 0.00005
 LR_DECAY_EPOCHS = EPOCHS - LR_WARMUP_EPOCHS
-LR_END = 0.000001
+LR_END = 0.000002
 L2_REG = 0.00001
 KL_FREE_BITS = 0.0
 SPATIAL_DROPOUT = 0.3
@@ -63,7 +63,7 @@ TV_START_WEIGHT = 0.07
 TV_PEAK_WEIGHT = 0.17
 TV_DECAY_EPOCHS = EPOCHS - TV_WARMUP_EPOCHS
 TV_END_WEIGHT = 0.0
-LOG_NAME = "train_gen2"
+LOG_NAME = "train_gen2b"
 
 def load_pbm(path):
     """Load a P4 PBM file and return a 2D numpy array of 0/1 float32."""
@@ -247,10 +247,6 @@ def build_encoder():
     se14_enc = tf.keras.layers.Dense(64 // 4, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(se14_enc)
     se14_enc = tf.keras.layers.Dense(64, activation='sigmoid', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(se14_enc)
     x14 = tf.keras.layers.Multiply()([x14, se14_enc])
-
-    # Label pathway
-    label_emb = tf.keras.layers.Dense(16, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(label_input)
-    label_emb = tf.keras.layers.Dropout(DENSE_DROPOUT)(label_emb)
 
     # Cross-attention at 14x14
     x14 = label_cross_attention(x14, label_input, 64, L2_REG)
