@@ -643,8 +643,6 @@ class FreezeTransferredLayers(tf.keras.callbacks.Callback):
             if layer.name in self.copied_layer_names and layer.get_weights():
                 layer.trainable = False
                 self._frozen.append(layer.name)
-        if self.model is not None:
-            self.model.compile(optimizer=self.model.optimizer)
 
     def on_epoch_begin(self, epoch, logs=None):
         if epoch == self.freeze_epochs and self._frozen:
@@ -653,8 +651,6 @@ class FreezeTransferredLayers(tf.keras.callbacks.Callback):
                 if layer.name in self._frozen:
                     layer.trainable = True
             self._frozen = []
-            if self.model is not None:
-                self.model.compile(optimizer=self.model.optimizer)
 
 
 class KLWarmup(tf.keras.callbacks.Callback):
@@ -742,6 +738,8 @@ def main():
 
     encoder = build_encoder()
     copied_layer_names = copy_mnist2_weights_to_encoder(encoder)
+    for name in copied_layer_names:
+        encoder.get_layer(name=name).trainable = False
     freeze_cb = FreezeTransferredLayers(encoder, copied_layer_names=copied_layer_names, freeze_epochs=5)
     generator = build_generator()
     perceptual_extractor = build_perceptual_extractor()
