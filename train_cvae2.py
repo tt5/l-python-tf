@@ -627,6 +627,34 @@ def copy_mnist2_weights_to_encoder(encoder):
         print(f"  skipped: {len(skipped)} layers")
         for name, reason in skipped:
             print(f"    {name}: {reason}")
+    return copied
+
+
+class FreezeTransferredLayers(tf.keras.callbacks.Callback):
+    def __init__(self, encoder, copied_layer_names, freeze_epochs=5):
+        super().__init__()
+        self.encoder = encoder
+        self.copied_layer_names = set(copied_layer_names)
+        self.freeze_epochs = freeze_epochs
+        self._frozen = []
+
+    def on_train_begin(self, logs=None):
+        for layer in self.encoder.layers:
+            if layer.name in self.copied_layer_names and layer.get_weights():
+                layer.trainable = False
+                self._frozen.append(layer.name)
+        if self.model is not None:
+            self.model.compile(optimizer=self.model.optimizer)
+
+    def on_epoch_begin(self, epoch, logs=None):
+        if epoch == self.freeze_epochs and self._frozen:
+            print(f"\nUnfreezing {len(self._frozen)} transferred encoder layers...")
+            for layer in self.encoder.layers:
+                if layer.name in self._frozen:
+                    layer.trainable = True
+            self._frozen = []
+            if self.model is not None:
+                self.model.compile(optimizer=self.model.optimizer)
 
 
 class KLWarmup(tf.keras.callbacks.Callback):
@@ -713,7 +741,8 @@ def main():
     x_train, y_train, x_test, y_test = load_dataset()
 
     encoder = build_encoder()
-    copy_mnist2_weights_to_encoder(encoder)
+    copied_layer_names = copy_mnist2_weights_to_encoder(encoder)
+    freeze_cb = FreezeTransferredLayers(encoder, copied_layer_names=copied_layer_names, freeze_epochs=5)
     generator = build_generator()
     perceptual_extractor = build_perceptual_extractor()
     cvae = CVAE(encoder, generator, perceptual_extractor=perceptual_extractor)
@@ -745,7 +774,7 @@ def main():
         validation_data=(x_test, y_test),
         epochs=EPOCHS,
         batch_size=BATCH_SIZE,
-        callbacks=[early_stopping, tensorboard_callback, kl_warmup, lr_warmup, perceptual_warmup, tv_warmup],
+        callbacks=[early_stopping, tensorboard_callback, kl_warmup, lr_warmup, freeze_cb, tv_warmup],
         verbose=2
     )
 
