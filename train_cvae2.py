@@ -41,7 +41,7 @@ LEARNING_RATE = 0.0003
 LR_WARMUP_EPOCHS = 11
 LR_START = 0.00005
 LR_DECAY_EPOCHS = EPOCHS - LR_WARMUP_EPOCHS
-LR_END = 0.000002
+LR_END = 0.0000015
 L2_REG = 0.00001
 KL_FREE_BITS = 0.0
 SPATIAL_DROPOUT = 0.3
@@ -285,19 +285,29 @@ def build_encoder():
     x = tf.keras.layers.Add()([x, x_res])
     x = tf.keras.layers.Activation("relu")(x)
     x = tf.keras.layers.SpatialDropout2D(SPATIAL_DROPOUT)(x)
-    # Label pathway
-    label_emb = tf.keras.layers.Dense(16, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(label_input)
-    label_emb = tf.keras.layers.Dropout(DENSE_DROPOUT)(label_emb)
 
     # SE block
     se = tf.keras.layers.GlobalAveragePooling2D()(x)
-    se = tf.keras.layers.Dense(128 // 4, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(se)
-    se = tf.keras.layers.Dense(128, activation="sigmoid", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(se)
+    se = tf.keras.layers.Dense(128 // 4, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(se)
+    se = tf.keras.layers.Dense(128, activation='sigmoid', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(se)
     x = tf.keras.layers.Multiply()([x, se])
     x = tf.keras.layers.SpatialDropout2D(SPATIAL_DROPOUT)(x)
     x7_pool = tf.keras.layers.GlobalAveragePooling2D()(x)
     x = tf.keras.layers.Flatten()(x)
-    x = tf.keras.layers.Concatenate()([x, x28_pool, x14_pool, x7_pool, label_emb])
+
+    # Wider label pathway with learned per-scale weighting
+    label_proj = tf.keras.layers.Dense(128, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(label_input)
+    label_proj = tf.keras.layers.Dropout(DENSE_DROPOUT)(label_proj)
+
+    w28 = tf.keras.layers.Dense(32, activation="sigmoid", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(label_proj)
+    w14 = tf.keras.layers.Dense(64, activation="sigmoid", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(label_proj)
+    w7 = tf.keras.layers.Dense(128, activation="sigmoid", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(label_proj)
+
+    x28_w = tf.keras.layers.Multiply()([x28_pool, w28])
+    x14_w = tf.keras.layers.Multiply()([x14_pool, w14])
+    x7_w = tf.keras.layers.Multiply()([x7_pool, w7])
+
+    x = tf.keras.layers.Concatenate()([x, x28_w, x14_w, x7_w, label_proj])
     x = tf.keras.layers.Dense(512, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = tf.keras.layers.LayerNormalization()(x)
     x = tf.keras.layers.Dropout(DENSE_DROPOUT)(x)
