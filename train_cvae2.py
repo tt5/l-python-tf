@@ -241,12 +241,6 @@ def build_encoder():
     ])
     x14 = x  # 14x14, 64 channels
 
-    # SE block at 14x14
-    se14_enc = tf.keras.layers.GlobalAveragePooling2D()(x14)
-    se14_enc = tf.keras.layers.Dense(64 // 4, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(se14_enc)
-    se14_enc = tf.keras.layers.Dense(64, activation='sigmoid', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(se14_enc)
-    x14 = tf.keras.layers.Multiply()([x14, se14_enc])
-
     # Cross-attention at 14x14
     x14 = label_cross_attention(x14, label_input, 64, L2_REG)
     film_gamma14, film_beta14 = make_film(64)(label_input)
