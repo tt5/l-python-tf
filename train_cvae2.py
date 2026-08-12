@@ -444,6 +444,14 @@ def build_generator():
 
     x = tf.keras.layers.Conv2D(32, 3, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = tf.keras.layers.LayerNormalization(center=True, scale=True)(x)
+
+    # post-FiLM refinement at 28x28 before the final 1x1
+    x28_refine = tf.keras.layers.Conv2D(32, 3, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
+    x28_refine = tf.keras.layers.LayerNormalization(center=True, scale=True)(x28_refine)
+    x28_refine = tf.keras.layers.Conv2D(32, 3, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x28_refine)
+    x28_refine = tf.keras.layers.LayerNormalization(center=True, scale=True)(x28_refine)
+    x = tf.keras.layers.Add()([x, x28_refine])
+
     x = tf.keras.layers.Conv2D(1, 1, padding="same", activation="sigmoid")(x)
 
     return tf.keras.Model([latent_input, label_input], x, name="generator")
