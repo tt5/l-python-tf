@@ -63,7 +63,7 @@ TV_START_WEIGHT = 0.07
 TV_PEAK_WEIGHT = 0.17
 TV_DECAY_EPOCHS = EPOCHS - TV_WARMUP_EPOCHS
 TV_END_WEIGHT = 0.0
-LOG_NAME = "train_gen2"
+LOG_NAME = "train_gen2b"
 
 def load_pbm(path):
     """Load a P4 PBM file and return a 2D numpy array of 0/1 float32."""
@@ -362,6 +362,10 @@ def build_generator():
     offset = tf.keras.layers.Reshape((1, 1, channels14))(offset)
     x = x * (1.0 + scale) + offset
 
+    # Conv after FiLM
+    x = tf.keras.layers.Conv2D(64, 3, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
+    x = tf.keras.layers.LayerNormalization(center=True, scale=True)(x)
+
     skip14 = x
     x = tf.keras.layers.SpatialDropout2D(SPATIAL_DROPOUT)(x)
     x = tf.keras.layers.Conv2DTranspose(64, 4, strides=2, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
@@ -393,6 +397,9 @@ def build_generator():
     offset = tf.keras.layers.Reshape((1, 1, channels28))(offset)
     x = x * (1.0 + scale) + offset
 
+    # Conv after FiLM
+    x = tf.keras.layers.Conv2D(64, 3, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
+    x = tf.keras.layers.LayerNormalization(center=True, scale=True)(x)
     x = tf.keras.layers.SpatialDropout2D(SPATIAL_DROPOUT)(x)
 
     x = tf.keras.layers.Conv2D(1, 1, padding="same", activation="sigmoid")(x)
