@@ -27,8 +27,9 @@ PBM_DIR = args.data_dir
 
 # ─── Hyperparameters ──────────────────────────────────────────────
 LATENT_DIM = 256
-EPOCHS = 150
+EPOCHS = 140
 BATCH_SIZE = 128
+FREEZE_EPOCHS = 100
 NUM_CLASSES = None  # derived from data + low_conf
 TARGET_SIZE = 28
 LOW_CONF_THRESHOLD = 0.6
@@ -842,14 +843,14 @@ def main():
     perceptual_warmup = PerceptualWarmup(cvae, warmup_epochs=PERCEPTUAL_WARMUP_EPOCHS, start_weight=PERCEPTUAL_START_WEIGHT, peak_weight=PERCEPTUAL_PEAK_WEIGHT, decay_epochs=PERCEPTUAL_DECAY_EPOCHS, end_weight=PERCEPTUAL_END_WEIGHT)
     tv_warmup = TVWarmup(cvae, warmup_epochs=TV_WARMUP_EPOCHS, start_weight=TV_START_WEIGHT, peak_weight=TV_PEAK_WEIGHT, decay_epochs=TV_DECAY_EPOCHS, end_weight=TV_END_WEIGHT)
 
-    print(f"\nPhase 1: freezing {len(frozen_weights)} transferred weights for 5 epochs...")
+    print(f"\nPhase 1: freezing {len(frozen_weights)} transferred weights for {FREEZE_EPOCHS} epochs...")
     for v in frozen_weights:
         v._trainable = False
     cvae.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=LEARNING_RATE, clipnorm=1.0))
     history_frozen = cvae.fit(
         x_train, y_train,
         validation_data=(x_test, y_test),
-        epochs=5,
+        epochs=FREEZE_EPOCHS,
         batch_size=BATCH_SIZE,
         callbacks=[early_stopping, tensorboard_callback, kl_warmup, lr_warmup, perceptual_warmup, tv_warmup],
         verbose=2,
@@ -866,7 +867,7 @@ def main():
         batch_size=BATCH_SIZE,
         callbacks=[early_stopping, tensorboard_callback, kl_warmup, lr_warmup, perceptual_warmup, tv_warmup],
         verbose=2,
-        initial_epoch=5,
+        initial_epoch=FREEZE_EPOCHS,
     )
 
     # ─── Save as ONNX ──────────────────────────────────────────────
