@@ -413,13 +413,13 @@ def build_generator():
     se7 = tf.keras.layers.Dense(128, activation='sigmoid', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(se7)
     x = tf.keras.layers.Multiply()([x, se7])
 
-    x = tf.keras.layers.Conv2DTranspose(128, 4, strides=2, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
-    x = tf.keras.layers.Conv2D(128, 3, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
+    x = tf.keras.layers.Conv2DTranspose(64, 4, strides=2, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
+    x = tf.keras.layers.Conv2D(64, 3, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = tf.keras.layers.LayerNormalization(center=True, scale=True)(x)
     x = tf.keras.layers.Activation("relu")(x)
     x = tf.keras.layers.SpatialDropout2D(SPATIAL_DROPOUT)(x)
-    skip7_up = tf.keras.layers.Conv2DTranspose(128, 4, strides=2, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(skip7)
-    skip7_up = tf.keras.layers.Conv2D(128, 1, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(skip7_up)
+    skip7_up = tf.keras.layers.Conv2DTranspose(64, 4, strides=2, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(skip7)
+    skip7_up = tf.keras.layers.Conv2D(64, 1, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(skip7_up)
 
     # learned gating on skip path from shared label conditioning
     skip7_gate = tf.keras.layers.GlobalAveragePooling2D()(skip7_up)
@@ -432,7 +432,7 @@ def build_generator():
     x = tf.keras.layers.LayerNormalization(center=True, scale=True)(x)
 
     # 14x14 block: 128 -> 64 channels
-    channels14 = 128
+    channels14 = 64
     x14_pre = x
     x = label_cross_attention(x, label_input, channels14, L2_REG)
     scale = tf.keras.layers.Dense(channels14, kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(label_shared)
@@ -442,24 +442,24 @@ def build_generator():
     x = x * (1.0 + scale) + offset
 
     # Conv after FiLM
-    x = tf.keras.layers.Conv2D(128, 3, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
+    x = tf.keras.layers.Conv2D(64, 3, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = tf.keras.layers.LayerNormalization(center=True, scale=True)(x)
 
     # Skip from pre-Film path so the model can weight raw features
     x = tf.keras.layers.Add()([
         x,
-        tf.keras.layers.Conv2D(128, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x14_pre),
+        tf.keras.layers.Conv2D(64, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x14_pre),
     ])
 
     skip14 = x
     x = tf.keras.layers.SpatialDropout2D(SPATIAL_DROPOUT)(x)
-    x = tf.keras.layers.Conv2DTranspose(64, 4, strides=2, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
-    x = tf.keras.layers.Conv2D(64, 3, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
+    x = tf.keras.layers.Conv2DTranspose(32, 4, strides=2, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
+    x = tf.keras.layers.Conv2D(32, 3, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = tf.keras.layers.LayerNormalization(center=True, scale=True)(x)
     x = tf.keras.layers.Activation("relu")(x)
     x = tf.keras.layers.SpatialDropout2D(SPATIAL_DROPOUT)(x)
-    skip14_up = tf.keras.layers.Conv2DTranspose(64, 4, strides=2, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(skip14)
-    skip14_up = tf.keras.layers.Conv2D(64, 1, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(skip14_up)
+    skip14_up = tf.keras.layers.Conv2DTranspose(32, 4, strides=2, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(skip14)
+    skip14_up = tf.keras.layers.Conv2D(32, 1, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(skip14_up)
 
     skip14_gate = tf.keras.layers.GlobalAveragePooling2D()(skip14_up)
     skip14_gate = tf.keras.layers.Dense(64, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(skip14_gate)
@@ -471,10 +471,10 @@ def build_generator():
     x = tf.keras.layers.LayerNormalization(center=True, scale=True)(x)
 
     # 28x28 block: 64 -> 32 channels
-    x = tf.keras.layers.Conv2D(64, 3, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
+    x = tf.keras.layers.Conv2D(32, 3, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
 
-    skip7_up28 = tf.keras.layers.Conv2DTranspose(64, 4, strides=4, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(skip7)
-    skip7_up28 = tf.keras.layers.Conv2D(64, 1, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(skip7_up28)
+    skip7_up28 = tf.keras.layers.Conv2DTranspose(32, 4, strides=4, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(skip7)
+    skip7_up28 = tf.keras.layers.Conv2D(32, 1, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(skip7_up28)
 
     skip7_up28_gate = tf.keras.layers.GlobalAveragePooling2D()(skip7_up28)
     skip7_up28_gate = tf.keras.layers.Dense(64, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(skip7_up28_gate)
@@ -485,7 +485,7 @@ def build_generator():
     skip7_up28 = tf.keras.layers.LayerNormalization(center=True, scale=True)(skip7_up28)
     x = tf.keras.layers.Add()([x, skip7_up28])
 
-    channels28 = 64
+    channels28 = 32
     x28_pre = x
     x = label_cross_attention(x28_pre, label_input, channels28, L2_REG)
     scale = tf.keras.layers.Dense(channels28, kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(label_shared)
@@ -495,13 +495,13 @@ def build_generator():
     x = x * (1.0 + scale) + offset
 
     # Conv after FiLM
-    x = tf.keras.layers.Conv2D(64, 3, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
+    x = tf.keras.layers.Conv2D(32, 3, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = tf.keras.layers.LayerNormalization(center=True, scale=True)(x)
 
     # Skip from pre-Film path so the model can weight raw features
     x = tf.keras.layers.Add()([
         x,
-        tf.keras.layers.Conv2D(64, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x28_pre),
+        tf.keras.layers.Conv2D(32, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x28_pre),
     ])
     x = tf.keras.layers.SpatialDropout2D(SPATIAL_DROPOUT)(x)
 
