@@ -727,29 +727,6 @@ def copy_mnist2_weights_to_encoder(encoder):
     return copied
 
 
-class FreezeTransferredLayers(tf.keras.callbacks.Callback):
-    def __init__(self, encoder, copied_layer_names, freeze_epochs=5):
-        super().__init__()
-        self.encoder = encoder
-        self.copied_layer_names = set(copied_layer_names)
-        self.freeze_epochs = freeze_epochs
-        self._frozen = []
-
-    def on_train_begin(self, logs=None):
-        for layer in self.encoder.layers:
-            if layer.name in self.copied_layer_names and layer.get_weights():
-                layer.trainable = False
-                self._frozen.append(layer.name)
-
-    def on_epoch_begin(self, epoch, logs=None):
-        if epoch == self.freeze_epochs and self._frozen:
-            print(f"\nUnfreezing {len(self._frozen)} transferred encoder layers...")
-            for layer in self.encoder.layers:
-                if layer.name in self._frozen:
-                    layer.trainable = True
-            self._frozen = []
-
-
 class KLWarmup(tf.keras.callbacks.Callback):
     def __init__(self, cvae, warmup_epochs, start_weight, kl_weight_final, decay_epochs, kl_weight_end):
         self.cvae = cvae
@@ -837,7 +814,7 @@ def main():
     copied_layer_names = copy_mnist2_weights_to_encoder(encoder)
     for name in copied_layer_names:
         encoder.get_layer(name=name).trainable = False
-    freeze_cb = FreezeTransferredLayers(encoder, copied_layer_names=copied_layer_names, freeze_epochs=5)
+    frozen_weights = [v for layer in encoder.layers if layer.name in copied_layer_names for v in layer.variables]
     generator = build_generator()
     perceptual_extractor = build_perceptual_extractor()
     cvae = CVAE(encoder, generator, perceptual_extractor=perceptual_extractor)
@@ -864,13 +841,32 @@ def main():
     lr_warmup = LRWarmup(lr_start=LR_START, lr_peak=LEARNING_RATE, warmup_epochs=LR_WARMUP_EPOCHS, lr_end=LR_END, decay_epochs=LR_DECAY_EPOCHS)
     perceptual_warmup = PerceptualWarmup(cvae, warmup_epochs=PERCEPTUAL_WARMUP_EPOCHS, start_weight=PERCEPTUAL_START_WEIGHT, peak_weight=PERCEPTUAL_PEAK_WEIGHT, decay_epochs=PERCEPTUAL_DECAY_EPOCHS, end_weight=PERCEPTUAL_END_WEIGHT)
     tv_warmup = TVWarmup(cvae, warmup_epochs=TV_WARMUP_EPOCHS, start_weight=TV_START_WEIGHT, peak_weight=TV_PEAK_WEIGHT, decay_epochs=TV_DECAY_EPOCHS, end_weight=TV_END_WEIGHT)
-    cvae.fit(
+
+    print(f"\nPhase 1: freezing {len(frozen_weights)} transferred weights for 5 epochs...")
+    for v in frozen_weights:
+        v._trainable = False
+    cvae.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=LEARNING_RATE, clipnorm=1.0))
+    history_frozen = cvae.fit(
+        x_train, y_train,
+        validation_data=(x_test, y_test),
+        epochs=5,
+        batch_size=BATCH_SIZE,
+        callbacks=[early_stopping, tensorboard_callback, kl_warmup, lr_warmup, perceptual_warmup, tv_warmup],
+        verbose=2,
+    )
+
+    print("\nUnfreezing transferred weights and resuming training...")
+    for v in frozen_weights:
+        v._trainable = True
+    cvae.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=LEARNING_RATE, clipnorm=1.0))
+    history = cvae.fit(
         x_train, y_train,
         validation_data=(x_test, y_test),
         epochs=EPOCHS,
         batch_size=BATCH_SIZE,
-        callbacks=[early_stopping, tensorboard_callback, kl_warmup, lr_warmup, freeze_cb, tv_warmup],
-        verbose=2
+        callbacks=[early_stopping, tensorboard_callback, kl_warmup, lr_warmup, perceptual_warmup, tv_warmup],
+        verbose=2,
+        initial_epoch=5,
     )
 
     # ─── Save as ONNX ──────────────────────────────────────────────
