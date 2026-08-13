@@ -62,7 +62,7 @@ TV_START_WEIGHT = 0.07
 TV_PEAK_WEIGHT = 0.2
 TV_DECAY_EPOCHS = EPOCHS - TV_WARMUP_EPOCHS
 TV_END_WEIGHT = 0.01
-LOG_NAME = "train_gen2b"
+LOG_NAME = "train_gen2"
 
 def load_pbm(path):
     """Load a P4 PBM file and return a 2D numpy array of 0/1 float32."""
@@ -269,9 +269,14 @@ def build_encoder():
     x = gate28 * x28_main + (1.0 - gate28) * x28_alt
 
     # Label-conditioned branches after CBAM
+    x28_pre = x
     x28 = label_cross_attention(x, label_input, 32, L2_REG)
     film_gamma28, film_beta28 = make_film(32)(label_input)
     x28 = x28 * (1.0 + film_gamma28) + film_beta28
+    x28 = tf.keras.layers.Add()([
+        x28,
+        tf.keras.layers.Conv2D(32, 1, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_skip28_1x1')(x28_pre),
+    ])
 
     # ── 14x14 block ──────────────────────────────────────────────
     x28_block_out = x28
