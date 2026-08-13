@@ -29,7 +29,7 @@ PBM_DIR = args.data_dir
 LATENT_DIM = 256
 EPOCHS = 140
 BATCH_SIZE = 128
-FREEZE_EPOCHS = 40
+FREEZE_EPOCHS = 1
 NUM_CLASSES = None  # derived from data + low_conf
 TARGET_SIZE = 28
 LOW_CONF_THRESHOLD = 0.6
@@ -62,7 +62,7 @@ TV_START_WEIGHT = 0.07
 TV_PEAK_WEIGHT = 0.2
 TV_DECAY_EPOCHS = EPOCHS - TV_WARMUP_EPOCHS
 TV_END_WEIGHT = 0.01
-LOG_NAME = "train_gen2"
+LOG_NAME = "train_gen2b"
 
 def load_pbm(path):
     """Load a P4 PBM file and return a 2D numpy array of 0/1 float32."""
@@ -842,20 +842,10 @@ def main():
     perceptual_warmup = PerceptualWarmup(cvae, warmup_epochs=PERCEPTUAL_WARMUP_EPOCHS, start_weight=PERCEPTUAL_START_WEIGHT, peak_weight=PERCEPTUAL_PEAK_WEIGHT, decay_epochs=PERCEPTUAL_DECAY_EPOCHS, end_weight=PERCEPTUAL_END_WEIGHT)
     tv_warmup = TVWarmup(cvae, warmup_epochs=TV_WARMUP_EPOCHS, start_weight=TV_START_WEIGHT, peak_weight=TV_PEAK_WEIGHT, decay_epochs=TV_DECAY_EPOCHS, end_weight=TV_END_WEIGHT)
 
-    print(f"\nPhase 1: freezing {len(copied_layer_names)} transferred layers for {FREEZE_EPOCHS} epochs...")
-    history_frozen = cvae.fit(
-        x_train, y_train,
-        validation_data=(x_test, y_test),
-        epochs=FREEZE_EPOCHS,
-        batch_size=BATCH_SIZE,
-        callbacks=[early_stopping, tensorboard_callback, kl_warmup, lr_warmup, perceptual_warmup, tv_warmup],
-        verbose=2,
-    )
+    optimizer = tf.keras.optimizers.Adam(learning_rate=LEARNING_RATE, clipnorm=1.0)
 
-    print(f"\nPhase 2: unfreezing all {len(copied_layer_names)} transferred layers, resuming from epoch {FREEZE_EPOCHS}...")
-    for name in copied_layer_names:
-        encoder.get_layer(name=name).trainable = True
-    cvae.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=LEARNING_RATE, clipnorm=1.0))
+    print(f"\nTraining CVAE for {EPOCHS} epochs with {len(copied_layer_names)} transferred layers frozen...")
+    cvae.compile(optimizer=optimizer)
     history = cvae.fit(
         x_train, y_train,
         validation_data=(x_test, y_test),
@@ -863,7 +853,6 @@ def main():
         batch_size=BATCH_SIZE,
         callbacks=[early_stopping, tensorboard_callback, kl_warmup, lr_warmup, perceptual_warmup, tv_warmup],
         verbose=2,
-        initial_epoch=FREEZE_EPOCHS,
     )
 
     # ─── Save as ONNX ──────────────────────────────────────────────
