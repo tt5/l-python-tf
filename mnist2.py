@@ -332,14 +332,14 @@ def main():
     c0 = L.Add()([c0, cbam_block(c0, name_prefix='cbam28')])
 
     # Conv block 1: 28x28 -> 14x14
-    c1 = L.SeparableConv2D(64, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(c0)
+    c1 = L.SeparableConv2D(64, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv14_pre')(c0)
     c1 = L.MaxPooling2D(2)(c1)
     c1_res = c1
-    c1 = L.SeparableConv2D(64, 3, padding='same', activation=None, kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(c1)
+    c1 = L.SeparableConv2D(64, 3, padding='same', activation=None, kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv14_res1')(c1)
     c1 = L.Add()([c1, c1_res])
     c1 = L.Activation('relu')(c1)
     c1_res2 = c1
-    c1 = L.SeparableConv2D(64, 3, padding='same', activation=None, kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(c1)
+    c1 = L.SeparableConv2D(64, 3, padding='same', activation=None, kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv14_res2')(c1)
     c1 = L.LayerNormalization()(c1)
     c1 = L.Add()([c1, c1_res2])
     c1 = L.Activation('relu')(c1)
@@ -348,7 +348,7 @@ def main():
     c1 = L.Add()([c1, cbam_block(c1, name_prefix='cbam14')])
 
     # Conv block 2: 14x14 -> 7x7
-    c2 = L.SeparableConv2D(128, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv14')(c1)
+    c2 = L.SeparableConv2D(128, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv7')(c1)
     c2 = L.MaxPooling2D(2)(c2)
     c2 = L.SpatialDropout2D(SPATIAL_DROPOUT)(c2)
     c2 = L.Dropout(CONV_DROPOUT)(c2)

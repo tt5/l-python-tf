@@ -279,14 +279,14 @@ def build_encoder():
     x14_main = tf.keras.layers.MaxPooling2D(2)(x14_main)
     x14_main = tf.keras.layers.LayerNormalization(name='enc_main14_ln')(x14_main)
 
-    x14_alt = tf.keras.layers.SeparableConv2D(64, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_conv14_pre')(x28)
+    x14_alt = tf.keras.layers.SeparableConv2D(64, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv14_pre')(x28)
     x14_alt = tf.keras.layers.MaxPooling2D(2)(x14_alt)
     x14_alt_res = x14_alt
-    x14_alt = tf.keras.layers.SeparableConv2D(64, 3, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_conv14_res1')(x14_alt)
+    x14_alt = tf.keras.layers.SeparableConv2D(64, 3, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv14_res1')(x14_alt)
     x14_alt = tf.keras.layers.Add()([x14_alt, x14_alt_res])
     x14_alt = tf.keras.layers.Activation('relu')(x14_alt)
     x14_alt_res2 = x14_alt
-    x14_alt = tf.keras.layers.SeparableConv2D(64, 3, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_conv14_res2')(x14_alt)
+    x14_alt = tf.keras.layers.SeparableConv2D(64, 3, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv14_res2')(x14_alt)
     x14_alt = tf.keras.layers.LayerNormalization(name='enc_ln14_1')(x14_alt)
     x14_alt = tf.keras.layers.Add()([x14_alt, x14_alt_res2])
     x14_alt = tf.keras.layers.Activation('relu')(x14_alt)
@@ -329,7 +329,7 @@ def build_encoder():
     x7_main = tf.keras.layers.MaxPooling2D(2)(x7_main)
     x7_main = tf.keras.layers.LayerNormalization(name='enc_main7_ln')(x7_main)
 
-    x7_alt = tf.keras.layers.SeparableConv2D(128, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv14')(x14)
+    x7_alt = tf.keras.layers.SeparableConv2D(128, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv7')(x14)
     x7_alt = tf.keras.layers.MaxPooling2D(2)(x7_alt)
     x7_alt = tf.keras.layers.SpatialDropout2D(SPATIAL_DROPOUT)(x7_alt)
     x7_alt = tf.keras.layers.Dropout(DENSE_DROPOUT)(x7_alt)
@@ -686,8 +686,8 @@ def build_perceptual_extractor():
     base.trainable = False
 
     conv28_layer = base.get_layer(name='conv28').output
-    fine_layer = base.get_layer(name='conv14').output
-    coarse_layer = base.get_layer(name='conv7_deep2').output
+    fine_layer = base.get_layer(name='conv14_pre').output
+    coarse_layer = base.get_layer(name='conv7').output
 
     gap_conv28 = tf.keras.layers.GlobalAveragePooling2D(name='perceptual_gap_conv28')(conv28_layer)
     gap_fine = tf.keras.layers.GlobalAveragePooling2D(name='perceptual_gap_conv14')(fine_layer)
