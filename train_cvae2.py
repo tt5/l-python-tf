@@ -249,9 +249,9 @@ def build_encoder():
 
     # alternative 28x28 conv path + learned gate to bypass transferred layers
     x28_alt = x28_block_in
-    x28_alt = tf.keras.layers.SeparableConv2D(32, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_alt28_conv1')(x28_alt)
+    x28_alt = tf.keras.layers.Conv2D(32, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_alt28_conv1')(x28_alt)
     x28_alt = tf.keras.layers.LayerNormalization(name='enc_alt28_ln1')(x28_alt)
-    x28_alt = tf.keras.layers.SeparableConv2D(32, 3, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_alt28_conv2')(x28_alt)
+    x28_alt = tf.keras.layers.Conv2D(32, 3, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_alt28_conv2')(x28_alt)
     x28_alt = tf.keras.layers.LayerNormalization(name='enc_alt28_ln2')(x28_alt)
     x28_alt = tf.keras.layers.Activation('relu', name='enc_alt28_act')(x28_alt)
 
@@ -267,9 +267,9 @@ def build_encoder():
     # CBAM residual add
     x = tf.keras.layers.Add()([x, cbam_block(x, name_prefix='cbam28')])
     x28_skip = x
-    x28_skip = tf.keras.layers.SeparableConv2D(32, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_skip28_conv1')(x28_skip)
+    x28_skip = tf.keras.layers.Conv2D(32, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_skip28_conv1')(x28_skip)
     x28_skip = tf.keras.layers.LayerNormalization(name='enc_skip28_ln1')(x28_skip)
-    x28_skip = tf.keras.layers.SeparableConv2D(32, 3, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_skip28_conv2')(x28_skip)
+    x28_skip = tf.keras.layers.Conv2D(32, 3, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_skip28_conv2')(x28_skip)
     x28_skip = tf.keras.layers.LayerNormalization(name='enc_skip28_ln2')(x28_skip)
     x = tf.keras.layers.Add()([x, x28_skip])
 
@@ -295,9 +295,9 @@ def build_encoder():
     x = tf.keras.layers.Dropout(DENSE_DROPOUT)(x)
     x = tf.keras.layers.Add()([x, cbam_block(x, name_prefix='cbam14')])
     x14_skip = x
-    x14_skip = tf.keras.layers.SeparableConv2D(64, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_skip14_conv1')(x14_skip)
+    x14_skip = tf.keras.layers.Conv2D(64, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_skip14_conv1')(x14_skip)
     x14_skip = tf.keras.layers.LayerNormalization(name='enc_skip14_ln1')(x14_skip)
-    x14_skip = tf.keras.layers.SeparableConv2D(64, 3, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_skip14_conv2')(x14_skip)
+    x14_skip = tf.keras.layers.Conv2D(64, 3, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_skip14_conv2')(x14_skip)
     x14_skip = tf.keras.layers.LayerNormalization(name='enc_skip14_ln2')(x14_skip)
     x = tf.keras.layers.Add()([x, x14_skip])
     x14 = x
@@ -308,7 +308,7 @@ def build_encoder():
     x14 = x14 * (1.0 + film_gamma14) + film_beta14
     x14 = tf.keras.layers.Add()([
         x14,
-        tf.keras.layers.SeparableConv2D(64, 1, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_skip14_1x1')(x14_pre),
+        tf.keras.layers.Conv2D(64, 1, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_skip14_1x1')(x14_pre),
     ])
 
     x14_res = x14
@@ -326,9 +326,9 @@ def build_encoder():
     x = tf.keras.layers.Dropout(DENSE_DROPOUT)(x)
     x = tf.keras.layers.Add()([x, cbam_block(x, name_prefix='cbam7')])
     x7_skip = x
-    x7_skip = tf.keras.layers.SeparableConv2D(128, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_skip7_conv1')(x7_skip)
+    x7_skip = tf.keras.layers.Conv2D(128, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_skip7_conv1')(x7_skip)
     x7_skip = tf.keras.layers.LayerNormalization(name='enc_skip7_ln1')(x7_skip)
-    x7_skip = tf.keras.layers.SeparableConv2D(128, 3, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_skip7_conv2')(x7_skip)
+    x7_skip = tf.keras.layers.Conv2D(128, 3, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_skip7_conv2')(x7_skip)
     x7_skip = tf.keras.layers.LayerNormalization(name='enc_skip7_ln2')(x7_skip)
     x = tf.keras.layers.Add()([x, x7_skip])
 
