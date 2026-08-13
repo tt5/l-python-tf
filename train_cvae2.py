@@ -360,8 +360,33 @@ def build_encoder():
     gate7 = tf.keras.layers.Reshape((1, 1, 1))(gate7)
     x = gate7 * x7_main + (1.0 - gate7) * x7_alt
 
-    # ── Latent head ──────────────────────────────────────────────
-    x = tf.keras.layers.Flatten(name='enc_flat')(x)
+    # ── Latent head: progressive fusion ──────────────────────────
+    # x: 7x7x128, x14: 14x14x64, x28: 28x28x32
+    fused = x
+    # 7x7 -> 14x14
+    fused = tf.keras.layers.Conv2DTranspose(128, 4, strides=2, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_up7_14')(fused)
+    fused = tf.keras.layers.Conv2D(128, 3, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_up7_14_conv')(fused)
+    fused = tf.keras.layers.LayerNormalization(name='enc_up7_14_ln')(fused)
+    fused = tf.keras.layers.Activation('relu')(fused)
+    x14_proj = tf.keras.layers.Conv2D(128, 1, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_proj14')(x14)
+    fused = tf.keras.layers.Add()([fused, x14_proj])
+    fused = tf.keras.layers.Conv2D(128, 3, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_fuse14')(fused)
+    fused = tf.keras.layers.LayerNormalization(name='enc_fuse14_ln')(fused)
+    fused = tf.keras.layers.Activation('relu')(fused)
+
+    # 14x14 -> 28x28
+    fused = tf.keras.layers.Conv2DTranspose(128, 4, strides=2, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_up14_28')(fused)
+    fused = tf.keras.layers.Conv2D(128, 3, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_up14_28_conv')(fused)
+    fused = tf.keras.layers.LayerNormalization(name='enc_up14_28_ln')(fused)
+    fused = tf.keras.layers.Activation('relu')(fused)
+    x28_proj = tf.keras.layers.Conv2D(128, 1, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_proj28')(x28)
+    fused = tf.keras.layers.Add()([fused, x28_proj])
+    fused = tf.keras.layers.Conv2D(128, 3, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_fuse28')(fused)
+    fused = tf.keras.layers.LayerNormalization(name='enc_fuse28_ln')(fused)
+    fused = tf.keras.layers.Activation('relu')(fused)
+
+    # Pool to vector
+    x = tf.keras.layers.GlobalAveragePooling2D(name='enc_gap_fused')(fused)
 
     label_proj = tf.keras.layers.Dense(128, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_label_proj")(label_input)
     label_proj = tf.keras.layers.Dropout(DENSE_DROPOUT, name="enc_label_drop")(label_proj)
