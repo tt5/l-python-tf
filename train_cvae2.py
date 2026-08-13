@@ -29,7 +29,7 @@ PBM_DIR = args.data_dir
 LATENT_DIM = 256
 EPOCHS = 140
 BATCH_SIZE = 128
-FREEZE_EPOCHS = 100
+FREEZE_EPOCHS = 40
 NUM_CLASSES = None  # derived from data + low_conf
 TARGET_SIZE = 28
 LOW_CONF_THRESHOLD = 0.6
@@ -815,7 +815,6 @@ def main():
     copied_layer_names = copy_mnist2_weights_to_encoder(encoder)
     for name in copied_layer_names:
         encoder.get_layer(name=name).trainable = False
-    frozen_weights = [v for layer in encoder.layers if layer.name in copied_layer_names for v in layer.variables]
     generator = build_generator()
     perceptual_extractor = build_perceptual_extractor()
     cvae = CVAE(encoder, generator, perceptual_extractor=perceptual_extractor)
@@ -843,10 +842,7 @@ def main():
     perceptual_warmup = PerceptualWarmup(cvae, warmup_epochs=PERCEPTUAL_WARMUP_EPOCHS, start_weight=PERCEPTUAL_START_WEIGHT, peak_weight=PERCEPTUAL_PEAK_WEIGHT, decay_epochs=PERCEPTUAL_DECAY_EPOCHS, end_weight=PERCEPTUAL_END_WEIGHT)
     tv_warmup = TVWarmup(cvae, warmup_epochs=TV_WARMUP_EPOCHS, start_weight=TV_START_WEIGHT, peak_weight=TV_PEAK_WEIGHT, decay_epochs=TV_DECAY_EPOCHS, end_weight=TV_END_WEIGHT)
 
-    print(f"\nPhase 1: freezing {len(frozen_weights)} transferred weights for {FREEZE_EPOCHS} epochs...")
-    for v in frozen_weights:
-        v._trainable = False
-    cvae.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=LEARNING_RATE, clipnorm=1.0))
+    print(f"\nPhase 1: freezing {len(copied_layer_names)} transferred layers for {FREEZE_EPOCHS} epochs...")
     history_frozen = cvae.fit(
         x_train, y_train,
         validation_data=(x_test, y_test),
@@ -856,9 +852,9 @@ def main():
         verbose=2,
     )
 
-    print("\nUnfreezing transferred weights and resuming training...")
-    for v in frozen_weights:
-        v._trainable = True
+    print(f"\nPhase 2: unfreezing all {len(copied_layer_names)} transferred layers, resuming from epoch {FREEZE_EPOCHS}...")
+    for name in copied_layer_names:
+        encoder.get_layer(name=name).trainable = True
     cvae.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=LEARNING_RATE, clipnorm=1.0))
     history = cvae.fit(
         x_train, y_train,
