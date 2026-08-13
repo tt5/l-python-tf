@@ -363,6 +363,7 @@ def build_encoder():
     # ── Latent head: progressive fusion ──────────────────────────
     # x: 7x7x128, x14: 14x14x64, x28: 28x28x32
     fused = x
+    x7 = x  # save for direct skip
     # 7x7 -> 14x14
     fused = tf.keras.layers.Conv2DTranspose(128, 4, strides=2, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_up7_14')(fused)
     fused = tf.keras.layers.Conv2D(128, 3, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_up7_14_conv')(fused)
@@ -387,6 +388,12 @@ def build_encoder():
 
     # Pool to vector
     x = tf.keras.layers.GlobalAveragePooling2D(name='enc_gap_fused')(fused)
+
+    # Direct skip from original 7x7 features
+    x_direct = tf.keras.layers.GlobalAveragePooling2D(name='enc_gap_direct')(x7)
+    x_direct = tf.keras.layers.Dense(128, kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_direct_proj')(x_direct)
+    x_direct = tf.keras.layers.LayerNormalization(name='enc_direct_ln')(x_direct)
+    x = tf.keras.layers.Add()([x, x_direct])
 
     label_proj = tf.keras.layers.Dense(128, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_label_proj")(label_input)
     label_proj = tf.keras.layers.Dropout(DENSE_DROPOUT, name="enc_label_drop")(label_proj)
