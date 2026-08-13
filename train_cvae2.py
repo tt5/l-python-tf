@@ -238,40 +238,34 @@ def build_encoder():
     x = tf.keras.layers.LayerNormalization(name='enc_ln28')(x)
     x28_block_in = x
 
-    # Residual conv block matching mnist2.py c0 block
-    x28_res = x
-    x = tf.keras.layers.SeparableConv2D(32, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_res28_1')(x)
-    x = tf.keras.layers.LayerNormalization(name='enc_ln28_2')(x)
-    x = tf.keras.layers.SeparableConv2D(32, 3, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_res28_2')(x)
-    x = tf.keras.layers.LayerNormalization(name='enc_ln28_3')(x)
-    x = tf.keras.layers.Add()([x, x28_res])
-    x = tf.keras.layers.Activation('relu', name='enc_act28')(x)
+    # Main path: simple conv
+    x28_main = tf.keras.layers.Conv2D(32, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_main28_conv')(x28_block_in)
+    x28_main = tf.keras.layers.LayerNormalization(name='enc_main28_ln')(x28_main)
 
-    # alternative 28x28 conv path + learned gate to bypass transferred layers
+    # Alternative path: transferred mnist2 layers + CBAM + skip convs
     x28_alt = x28_block_in
-    x28_alt = tf.keras.layers.Conv2D(32, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_alt28_conv1')(x28_alt)
-    x28_alt = tf.keras.layers.LayerNormalization(name='enc_alt28_ln1')(x28_alt)
-    x28_alt = tf.keras.layers.Conv2D(32, 3, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_alt28_conv2')(x28_alt)
-    x28_alt = tf.keras.layers.LayerNormalization(name='enc_alt28_ln2')(x28_alt)
-    x28_alt = tf.keras.layers.Activation('relu', name='enc_alt28_act')(x28_alt)
+    x28_alt_res = x28_alt
+    x28_alt = tf.keras.layers.SeparableConv2D(32, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_res28_1')(x28_alt)
+    x28_alt = tf.keras.layers.LayerNormalization(name='enc_ln28_2')(x28_alt)
+    x28_alt = tf.keras.layers.SeparableConv2D(32, 3, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_res28_2')(x28_alt)
+    x28_alt = tf.keras.layers.LayerNormalization(name='enc_ln28_3')(x28_alt)
+    x28_alt = tf.keras.layers.Add()([x28_alt, x28_alt_res])
+    x28_alt = tf.keras.layers.Activation('relu', name='enc_act28')(x28_alt)
+    x28_alt = tf.keras.layers.SpatialDropout2D(SPATIAL_DROPOUT)(x28_alt)
+    x28_alt = tf.keras.layers.Dropout(DENSE_DROPOUT)(x28_alt)
+    x28_alt = tf.keras.layers.Add()([x28_alt, cbam_block(x28_alt, name_prefix='cbam28')])
+    x28_alt_skip = x28_alt
+    x28_alt_skip = tf.keras.layers.Conv2D(32, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_skip28_conv1')(x28_alt_skip)
+    x28_alt_skip = tf.keras.layers.LayerNormalization(name='enc_skip28_ln1')(x28_alt_skip)
+    x28_alt_skip = tf.keras.layers.Conv2D(32, 3, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_skip28_conv2')(x28_alt_skip)
+    x28_alt_skip = tf.keras.layers.LayerNormalization(name='enc_skip28_ln2')(x28_alt_skip)
+    x28_alt = tf.keras.layers.Add()([x28_alt, x28_alt_skip])
 
-    gate28 = tf.keras.layers.GlobalAveragePooling2D()(x)
+    # Learned gate between main and alternative paths
+    gate28 = tf.keras.layers.GlobalAveragePooling2D()(x28_block_in)
     gate28 = tf.keras.layers.Dense(1, activation='sigmoid', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc28_skip_gate')(gate28)
     gate28 = tf.keras.layers.Reshape((1, 1, 1))(gate28)
-    x = gate28 * x + (1.0 - gate28) * x28_alt
-
-    # Dropout stack matching mnist2.py ordering
-    x = tf.keras.layers.SpatialDropout2D(SPATIAL_DROPOUT)(x)
-    x = tf.keras.layers.Dropout(DENSE_DROPOUT)(x)
-
-    # CBAM residual add
-    x = tf.keras.layers.Add()([x, cbam_block(x, name_prefix='cbam28')])
-    x28_skip = x
-    x28_skip = tf.keras.layers.Conv2D(32, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_skip28_conv1')(x28_skip)
-    x28_skip = tf.keras.layers.LayerNormalization(name='enc_skip28_ln1')(x28_skip)
-    x28_skip = tf.keras.layers.Conv2D(32, 3, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_skip28_conv2')(x28_skip)
-    x28_skip = tf.keras.layers.LayerNormalization(name='enc_skip28_ln2')(x28_skip)
-    x = tf.keras.layers.Add()([x, x28_skip])
+    x = gate28 * x28_main + (1.0 - gate28) * x28_alt
 
     # Label-conditioned branches after CBAM
     x28 = label_cross_attention(x, label_input, 32, L2_REG)
@@ -280,27 +274,36 @@ def build_encoder():
 
     # ── 14x14 block ──────────────────────────────────────────────
     x28_block_out = x28
-    x = tf.keras.layers.SeparableConv2D(64, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_conv14_pre')(x28)
-    x = tf.keras.layers.MaxPooling2D(2)(x)
-    x14_res = x
-    x = tf.keras.layers.SeparableConv2D(64, 3, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_conv14_res1')(x)
-    x = tf.keras.layers.Add()([x, x14_res])
-    x = tf.keras.layers.Activation('relu')(x)
-    x14_res2 = x
-    x = tf.keras.layers.SeparableConv2D(64, 3, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_conv14_res2')(x)
-    x = tf.keras.layers.LayerNormalization(name='enc_ln14_1')(x)
-    x = tf.keras.layers.Add()([x, x14_res2])
-    x = tf.keras.layers.Activation('relu')(x)
-    x = tf.keras.layers.SpatialDropout2D(SPATIAL_DROPOUT)(x)
-    x = tf.keras.layers.Dropout(DENSE_DROPOUT)(x)
-    x = tf.keras.layers.Add()([x, cbam_block(x, name_prefix='cbam14')])
-    x14_skip = x
-    x14_skip = tf.keras.layers.Conv2D(64, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_skip14_conv1')(x14_skip)
-    x14_skip = tf.keras.layers.LayerNormalization(name='enc_skip14_ln1')(x14_skip)
-    x14_skip = tf.keras.layers.Conv2D(64, 3, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_skip14_conv2')(x14_skip)
-    x14_skip = tf.keras.layers.LayerNormalization(name='enc_skip14_ln2')(x14_skip)
-    x = tf.keras.layers.Add()([x, x14_skip])
-    x14 = x
+    x14_main = tf.keras.layers.Conv2D(64, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_main14_conv')(x28)
+    x14_main = tf.keras.layers.MaxPooling2D(2)(x14_main)
+    x14_main = tf.keras.layers.LayerNormalization(name='enc_main14_ln')(x14_main)
+
+    x14_alt = tf.keras.layers.SeparableConv2D(64, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_conv14_pre')(x28)
+    x14_alt = tf.keras.layers.MaxPooling2D(2)(x14_alt)
+    x14_alt_res = x14_alt
+    x14_alt = tf.keras.layers.SeparableConv2D(64, 3, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_conv14_res1')(x14_alt)
+    x14_alt = tf.keras.layers.Add()([x14_alt, x14_alt_res])
+    x14_alt = tf.keras.layers.Activation('relu')(x14_alt)
+    x14_alt_res2 = x14_alt
+    x14_alt = tf.keras.layers.SeparableConv2D(64, 3, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_conv14_res2')(x14_alt)
+    x14_alt = tf.keras.layers.LayerNormalization(name='enc_ln14_1')(x14_alt)
+    x14_alt = tf.keras.layers.Add()([x14_alt, x14_alt_res2])
+    x14_alt = tf.keras.layers.Activation('relu')(x14_alt)
+    x14_alt = tf.keras.layers.SpatialDropout2D(SPATIAL_DROPOUT)(x14_alt)
+    x14_alt = tf.keras.layers.Dropout(DENSE_DROPOUT)(x14_alt)
+    x14_alt = tf.keras.layers.Add()([x14_alt, cbam_block(x14_alt, name_prefix='cbam14')])
+    x14_alt_skip = x14_alt
+    x14_alt_skip = tf.keras.layers.Conv2D(64, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_skip14_conv1')(x14_alt_skip)
+    x14_alt_skip = tf.keras.layers.LayerNormalization(name='enc_skip14_ln1')(x14_alt_skip)
+    x14_alt_skip = tf.keras.layers.Conv2D(64, 3, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_skip14_conv2')(x14_alt_skip)
+    x14_alt_skip = tf.keras.layers.LayerNormalization(name='enc_skip14_ln2')(x14_alt_skip)
+    x14_alt = tf.keras.layers.Add()([x14_alt, x14_alt_skip])
+    x14 = x14_alt
+
+    gate14 = tf.keras.layers.GlobalAveragePooling2D()(x28_block_out)
+    gate14 = tf.keras.layers.Dense(1, activation='sigmoid', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc14_skip_gate')(gate14)
+    gate14 = tf.keras.layers.Reshape((1, 1, 1))(gate14)
+    x = gate14 * x14_main + (1.0 - gate14) * x14_alt
 
     x14_pre = x14
     x14 = label_cross_attention(x14, label_input, 64, L2_REG)
@@ -320,26 +323,36 @@ def build_encoder():
     x14 = tf.keras.layers.Activation('relu', name='enc_act14')(x14)
 
     # ── 7x7 block ───────────────────────────────────────────────
-    x = tf.keras.layers.SeparableConv2D(128, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv14')(x14)
-    x = tf.keras.layers.MaxPooling2D(2)(x)
-    x = tf.keras.layers.SpatialDropout2D(SPATIAL_DROPOUT)(x)
-    x = tf.keras.layers.Dropout(DENSE_DROPOUT)(x)
-    x = tf.keras.layers.Add()([x, cbam_block(x, name_prefix='cbam7')])
-    x7_skip = x
-    x7_skip = tf.keras.layers.Conv2D(128, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_skip7_conv1')(x7_skip)
-    x7_skip = tf.keras.layers.LayerNormalization(name='enc_skip7_ln1')(x7_skip)
-    x7_skip = tf.keras.layers.Conv2D(128, 3, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_skip7_conv2')(x7_skip)
-    x7_skip = tf.keras.layers.LayerNormalization(name='enc_skip7_ln2')(x7_skip)
-    x = tf.keras.layers.Add()([x, x7_skip])
+    x14_block_out = x14
+    x7_main = tf.keras.layers.Conv2D(128, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_main7_conv')(x14)
+    x7_main = tf.keras.layers.MaxPooling2D(2)(x7_main)
+    x7_main = tf.keras.layers.LayerNormalization(name='enc_main7_ln')(x7_main)
 
-    x = tf.keras.layers.SeparableConv2D(128, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv7_deep2')(x)
-    x = tf.keras.layers.SpatialDropout2D(SPATIAL_DROPOUT)(x)
-    x = tf.keras.layers.Dropout(DENSE_DROPOUT)(x)
-    x = tf.keras.layers.LayerNormalization(name='enc_ln7_1')(x)
-    x7_res = x
-    x = tf.keras.layers.SeparableConv2D(128, 3, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_res7_1')(x)
-    x = tf.keras.layers.Add()([x, x7_res])
-    x = tf.keras.layers.Activation('relu', name='enc_act7')(x)
+    x7_alt = tf.keras.layers.SeparableConv2D(128, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv14')(x14)
+    x7_alt = tf.keras.layers.MaxPooling2D(2)(x7_alt)
+    x7_alt = tf.keras.layers.SpatialDropout2D(SPATIAL_DROPOUT)(x7_alt)
+    x7_alt = tf.keras.layers.Dropout(DENSE_DROPOUT)(x7_alt)
+    x7_alt = tf.keras.layers.Add()([x7_alt, cbam_block(x7_alt, name_prefix='cbam7')])
+    x7_alt_skip = x7_alt
+    x7_alt_skip = tf.keras.layers.Conv2D(128, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_skip7_conv1')(x7_alt_skip)
+    x7_alt_skip = tf.keras.layers.LayerNormalization(name='enc_skip7_ln1')(x7_alt_skip)
+    x7_alt_skip = tf.keras.layers.Conv2D(128, 3, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_skip7_conv2')(x7_alt_skip)
+    x7_alt_skip = tf.keras.layers.LayerNormalization(name='enc_skip7_ln2')(x7_alt_skip)
+    x7_alt = tf.keras.layers.Add()([x7_alt, x7_alt_skip])
+
+    x7_alt = tf.keras.layers.SeparableConv2D(128, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv7_deep2')(x7_alt)
+    x7_alt = tf.keras.layers.SpatialDropout2D(SPATIAL_DROPOUT)(x7_alt)
+    x7_alt = tf.keras.layers.Dropout(DENSE_DROPOUT)(x7_alt)
+    x7_alt = tf.keras.layers.LayerNormalization(name='enc_ln7_1')(x7_alt)
+    x7_alt_res = x7_alt
+    x7_alt = tf.keras.layers.SeparableConv2D(128, 3, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_res7_1')(x7_alt)
+    x7_alt = tf.keras.layers.Add()([x7_alt, x7_alt_res])
+    x7_alt = tf.keras.layers.Activation('relu', name='enc_act7')(x7_alt)
+
+    gate7 = tf.keras.layers.GlobalAveragePooling2D()(x14_block_out)
+    gate7 = tf.keras.layers.Dense(1, activation='sigmoid', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc7_skip_gate')(gate7)
+    gate7 = tf.keras.layers.Reshape((1, 1, 1))(gate7)
+    x = gate7 * x7_main + (1.0 - gate7) * x7_alt
 
     # ── Latent head ──────────────────────────────────────────────
     x = tf.keras.layers.Flatten(name='enc_flat')(x)
