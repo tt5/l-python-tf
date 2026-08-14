@@ -38,9 +38,9 @@ KL_START_WEIGHT = 0.02
 KL_WEIGHT = 0.45
 KL_DECAY_EPOCHS = EPOCHS - KL_WARMUP_EPOCHS
 KL_WEIGHT_END = 0.1
-LEARNING_RATE = 0.0002
-LR_WARMUP_EPOCHS = 11
-LR_START = 0.0001
+LEARNING_RATE = 0.0003
+LR_WARMUP_EPOCHS = 10
+LR_START = 0.0002
 LR_DECAY_EPOCHS = EPOCHS - LR_WARMUP_EPOCHS
 LR_END = 0.000002
 L2_REG = 0.00001
@@ -390,9 +390,12 @@ def build_encoder():
     x = tf.keras.layers.GlobalAveragePooling2D(name='enc_gap_fused')(fused)
 
     # Direct skip from original 7x7 features
-    x_direct = tf.keras.layers.GlobalAveragePooling2D(name='enc_gap_direct')(x7)
-    x_direct = tf.keras.layers.Dense(128, kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_direct_proj')(x_direct)
+    x_direct = tf.keras.layers.Flatten(name='enc_flat_direct')(x7)
+    x_direct = tf.keras.layers.Dense(512, kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_direct_proj1')(x_direct)
+    x_direct = tf.keras.layers.LayerNormalization(name='enc_direct_ln1')(x_direct)
+    x_direct = tf.keras.layers.Dense(256, kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_direct_proj')(x_direct)
     x_direct = tf.keras.layers.LayerNormalization(name='enc_direct_ln')(x_direct)
+    x = tf.keras.layers.Dense(256, kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_main_proj')(x)
     x = tf.keras.layers.Add()([x, x_direct])
 
     label_proj = tf.keras.layers.Dense(128, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_label_proj")(label_input)
