@@ -373,7 +373,6 @@ def build_encoder():
     x = tf.keras.layers.Dense(256, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_dense256")(x)
     x = tf.keras.layers.LayerNormalization(name="enc_ln256_1")(x)
     x = tf.keras.layers.Dropout(DENSE_DROPOUT, name="enc_drop256")(x)
-    x = tf.keras.layers.LayerNormalization(name="enc_ln256_2")(x)
     x = tf.keras.layers.Dense(256, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_dense256_2")(x)
     x = tf.keras.layers.LayerNormalization(name="enc_ln256_3")(x)
     x = tf.keras.layers.Dropout(DENSE_DROPOUT, name="enc_drop256_2")(x)
