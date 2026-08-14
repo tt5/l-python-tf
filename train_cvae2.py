@@ -48,8 +48,7 @@ KL_FREE_BITS = 0.0
 SPATIAL_DROPOUT = 0.3
 DENSE_DROPOUT = 0.3
 AUGMENT = True
-RECON_LOSS_WEIGHT = 0.5
-PERCEPTUAL_WEIGHTS = [0.475, 0.05, 0.475]
+RECON_LOSS_WEIGHT = 0.6
 PERCEPTUAL_MULTISCALE = True
 PERCEPTUAL_WARMUP_EPOCHS = 11
 PERCEPTUAL_START_WEIGHT = 0.001
@@ -59,10 +58,10 @@ PERCEPTUAL_END_WEIGHT = 0.4
 PERCEPTUAL_EXTRACTOR_PATH = Path(__file__).parent / "mnist2_model"
 TV_WARMUP_EPOCHS = 25
 TV_START_WEIGHT = 0.07
-TV_PEAK_WEIGHT = 0.3
+TV_PEAK_WEIGHT = 0.25
 TV_DECAY_EPOCHS = EPOCHS - TV_WARMUP_EPOCHS
 TV_END_WEIGHT = 0.2
-LOG_NAME = "train_gen2b"
+LOG_NAME = "train_gen2"
 
 def load_pbm(path):
     """Load a P4 PBM file and return a 2D numpy array of 0/1 float32."""
@@ -551,6 +550,10 @@ class CVAE(tf.keras.Model):
         self.kl_weight = 0.0
         self.perceptual_weight = float(PERCEPTUAL_PEAK_WEIGHT)
         self.tv_weight = float(TV_PEAK_WEIGHT)
+        self.perceptual_scale_weights = tf.keras.Sequential([
+            tf.keras.layers.Dense(16, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG)),
+            tf.keras.layers.Dense(3, activation="softmax", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="perceptual_scale_weights"),
+        ], name="perceptual_scale_weights")
 
     @property
     def metrics(self):
@@ -608,11 +611,9 @@ class CVAE(tf.keras.Model):
                 perceptual_loss_conv7 = tf.reduce_mean(tf.reduce_sum(tf.square(real_feats[2] - fake_feats[2]), axis=-1))
 
             if PERCEPTUAL_MULTISCALE:
-                perceptual_loss = (
-                    PERCEPTUAL_WEIGHTS[0] * perceptual_loss_conv28 +
-                    PERCEPTUAL_WEIGHTS[1] * perceptual_loss_conv14 +
-                    PERCEPTUAL_WEIGHTS[2] * perceptual_loss_conv7
-                )
+                scale_losses = tf.stack([perceptual_loss_conv28, perceptual_loss_conv14, perceptual_loss_conv7], axis=-1)
+                scale_weights = self.perceptual_scale_weights(scale_losses)
+                perceptual_loss = tf.reduce_sum(scale_weights * scale_losses, axis=-1)
             else:
                 perceptual_loss = perceptual_loss_conv28 + perceptual_loss_conv14 + perceptual_loss_conv7
 
@@ -666,11 +667,9 @@ class CVAE(tf.keras.Model):
             perceptual_loss_conv7 = tf.constant(0.0)
 
         if PERCEPTUAL_MULTISCALE:
-            perceptual_loss = (
-                PERCEPTUAL_WEIGHTS[0] * perceptual_loss_conv28 +
-                PERCEPTUAL_WEIGHTS[1] * perceptual_loss_conv14 +
-                PERCEPTUAL_WEIGHTS[2] * perceptual_loss_conv7
-            )
+            scale_losses = tf.stack([perceptual_loss_conv28, perceptual_loss_conv14, perceptual_loss_conv7], axis=-1)
+            scale_weights = self.perceptual_scale_weights(scale_losses)
+            perceptual_loss = tf.reduce_sum(scale_weights * scale_losses, axis=-1)
         else:
             perceptual_loss = perceptual_loss_conv28 + perceptual_loss_conv14 + perceptual_loss_conv7
 
