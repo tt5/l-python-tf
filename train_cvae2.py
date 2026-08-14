@@ -243,6 +243,16 @@ def build_encoder():
     x28_main = tf.keras.layers.Conv2D(32, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_main28_conv')(x28_main)
     x28_main = tf.keras.layers.LayerNormalization(name='enc_main28_ln2')(x28_main)
 
+    # Label-conditioned branches in main path
+    x28_pre = x28_main
+    x28_main = label_cross_attention(x28_main, label_input, 32, L2_REG)
+    film_gamma28, film_beta28 = make_film(32)(label_input)
+    x28_main = x28_main * (1.0 + film_gamma28) + film_beta28
+    x28_main = tf.keras.layers.Add()([
+        x28_main,
+        tf.keras.layers.Conv2D(32, 1, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_skip28_1x1')(x28_pre),
+    ])
+
     # Alternative path: transferred mnist2 layers + CBAM
     x28_alt = image_input
     x28_alt_res = x28_alt
@@ -261,17 +271,8 @@ def build_encoder():
     gate28 = tf.keras.layers.Reshape((1, 1, 1))(gate28)
     x = gate28 * x28_main + (1.0 - gate28) * x28_alt
 
-    # Label-conditioned branches after CBAM
-    x28_pre = x
-    x28 = label_cross_attention(x, label_input, 32, L2_REG)
-    film_gamma28, film_beta28 = make_film(32)(label_input)
-    x28 = x28 * (1.0 + film_gamma28) + film_beta28
-    x28 = tf.keras.layers.Add()([
-        x28,
-        tf.keras.layers.Conv2D(32, 1, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_skip28_1x1')(x28_pre),
-    ])
-
     # ── 14x14 block ──────────────────────────────────────────────
+    x28 = x
     x28_block_out = x28
     x14_main = tf.keras.layers.Conv2D(64, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_main14_conv')(x28)
     x14_main = tf.keras.layers.MaxPooling2D(2)(x14_main)
