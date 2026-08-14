@@ -395,6 +395,7 @@ def build_encoder():
     x_direct = tf.keras.layers.LayerNormalization(name='enc_direct_ln1')(x_direct)
     x_direct = tf.keras.layers.Dense(256, kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_direct_proj')(x_direct)
     x_direct = tf.keras.layers.LayerNormalization(name='enc_direct_ln')(x_direct)
+    x_direct = tf.keras.layers.Dropout(DENSE_DROPOUT, name='enc_direct_drop')(x_direct)
     x = tf.keras.layers.Dense(256, kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_main_proj')(x)
     x = tf.keras.layers.Add()([x, x_direct])
 
