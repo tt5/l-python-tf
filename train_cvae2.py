@@ -399,6 +399,12 @@ def build_generator():
     z = tf.keras.layers.Dense(64, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(latent_input)
     z = tf.keras.layers.Dropout(DENSE_DROPOUT)(z)
     x = tf.keras.layers.Concatenate()([z, class_emb])
+    x = tf.keras.layers.Dense(256, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
+    x = tf.keras.layers.LayerNormalization()(x)
+    # Channel attention over the 256-D bottleneck
+    attn = tf.keras.layers.Dense(256 // 4, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
+    attn = tf.keras.layers.Dense(256, activation="sigmoid", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="gen_latent_attn")(attn)
+    x = x * attn
     x = tf.keras.layers.Dense(7 * 7 * 128, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = tf.keras.layers.LayerNormalization()(x)
     x = tf.keras.layers.Dropout(DENSE_DROPOUT)(x)
