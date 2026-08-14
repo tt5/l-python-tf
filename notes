@@ -154,3 +154,10 @@ gradient accumulation
   Class 3: 91.3% correctly classified (913/1000), avg confidence: 98.8%
   Class 4: 13.8% correctly classified (138/1000), avg confidence: 72.8%
   Class 5: 58.7% correctly classified (587/1000), avg confidence: 84.9%
+
+  Class 0: 99.8% correctly classified (998/1000), avg confidence: 99.9%
+  Class 1: 6.9% correctly classified (69/1000), avg confidence: 82.0%
+  Class 2: 31.9% correctly classified (319/1000), avg confidence: 94.1%
+  Class 3: 96.4% correctly classified (964/1000), avg confidence: 98.8%
+  Class 4: 89.4% correctly classified (894/1000), avg confidence: 83.8%
+  Class 5: 69.8% correctly classified (698/1000), avg confidence: 88.5%
