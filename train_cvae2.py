@@ -62,7 +62,7 @@ TV_START_WEIGHT = 0.07
 TV_PEAK_WEIGHT = 0.2
 TV_DECAY_EPOCHS = EPOCHS - TV_WARMUP_EPOCHS
 TV_END_WEIGHT = 0.01
-LOG_NAME = "train_gen2"
+LOG_NAME = "train_gen2b"
 
 def load_pbm(path):
     """Load a P4 PBM file and return a 2D numpy array of 0/1 float32."""
@@ -399,13 +399,13 @@ def build_encoder():
     label_proj = tf.keras.layers.Dropout(DENSE_DROPOUT, name="enc_label_drop")(label_proj)
 
     x = tf.keras.layers.Concatenate(name="enc_concat")([x, label_proj])
-    x = tf.keras.layers.Dense(512, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_dense512")(x)
-    x = tf.keras.layers.LayerNormalization(name="enc_ln512_1")(x)
-    x = tf.keras.layers.Dropout(DENSE_DROPOUT, name="enc_drop512")(x)
-    x = tf.keras.layers.LayerNormalization(name="enc_ln512_2")(x)
     x = tf.keras.layers.Dense(256, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_dense256")(x)
-    x = tf.keras.layers.LayerNormalization(name="enc_ln256")(x)
+    x = tf.keras.layers.LayerNormalization(name="enc_ln256_1")(x)
     x = tf.keras.layers.Dropout(DENSE_DROPOUT, name="enc_drop256")(x)
+    x = tf.keras.layers.LayerNormalization(name="enc_ln256_2")(x)
+    x = tf.keras.layers.Dense(256, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_dense256_2")(x)
+    x = tf.keras.layers.LayerNormalization(name="enc_ln256_3")(x)
+    x = tf.keras.layers.Dropout(DENSE_DROPOUT, name="enc_drop256_2")(x)
 
     z_mean = tf.keras.layers.Dense(LATENT_DIM, name="z_mean", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     z_log_var = tf.keras.layers.Dense(LATENT_DIM, name="z_log_var", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
