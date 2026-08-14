@@ -430,11 +430,8 @@ def build_generator():
     skip7_up = tf.keras.layers.Conv2DTranspose(64, 4, strides=2, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(skip7)
     skip7_up = tf.keras.layers.Conv2D(64, 1, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(skip7_up)
 
-    # learned gating on skip path from shared label conditioning
-    skip7_gate = tf.keras.layers.GlobalAveragePooling2D()(skip7_up)
-    skip7_gate = tf.keras.layers.Dense(64, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(skip7_gate)
-    skip7_gate = tf.keras.layers.Dense(1, activation='sigmoid', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(skip7_gate)
-    skip7_gate = tf.keras.layers.Reshape((1, 1, 1))(skip7_gate)
+    # Spatial learned gating on skip path from shared label conditioning
+    skip7_gate = tf.keras.layers.Conv2D(1, 3, padding='same', activation='sigmoid', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(skip7_up)
     skip7_up = skip7_up * skip7_gate
 
     x = tf.keras.layers.Add()([x, skip7_up])
@@ -470,10 +467,7 @@ def build_generator():
     skip14_up = tf.keras.layers.Conv2DTranspose(32, 4, strides=2, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(skip14)
     skip14_up = tf.keras.layers.Conv2D(32, 1, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(skip14_up)
 
-    skip14_gate = tf.keras.layers.GlobalAveragePooling2D()(skip14_up)
-    skip14_gate = tf.keras.layers.Dense(64, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(skip14_gate)
-    skip14_gate = tf.keras.layers.Dense(1, activation='sigmoid', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(skip14_gate)
-    skip14_gate = tf.keras.layers.Reshape((1, 1, 1))(skip14_gate)
+    skip14_gate = tf.keras.layers.Conv2D(1, 3, padding='same', activation='sigmoid', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(skip14_up)
     skip14_up = skip14_up * skip14_gate
 
     x = tf.keras.layers.Add()([x, skip14_up])
@@ -486,10 +480,7 @@ def build_generator():
     skip7_up14 = tf.keras.layers.Conv2DTranspose(32, 4, strides=2, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(skip7)
     skip7_up14 = tf.keras.layers.Conv2D(32, 1, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(skip7_up14)
 
-    skip7_up14_gate = tf.keras.layers.GlobalAveragePooling2D()(skip7_up14)
-    skip7_up14_gate = tf.keras.layers.Dense(64, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(skip7_up14_gate)
-    skip7_up14_gate = tf.keras.layers.Dense(1, activation='sigmoid', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(skip7_up14_gate)
-    skip7_up14_gate = tf.keras.layers.Reshape((1, 1, 1))(skip7_up14_gate)
+    skip7_up14_gate = tf.keras.layers.Conv2D(1, 3, padding='same', activation='sigmoid', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(skip7_up14)
     skip7_up14 = skip7_up14 * skip7_up14_gate
 
     skip7_up14 = tf.keras.layers.LayerNormalization(center=True, scale=True)(skip7_up14)
@@ -497,10 +488,7 @@ def build_generator():
     skip7_up28 = tf.keras.layers.Conv2DTranspose(32, 4, strides=2, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(skip7_up14)
     skip7_up28 = tf.keras.layers.Conv2D(32, 1, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(skip7_up28)
 
-    skip7_up28_gate = tf.keras.layers.GlobalAveragePooling2D()(skip7_up28)
-    skip7_up28_gate = tf.keras.layers.Dense(64, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(skip7_up28_gate)
-    skip7_up28_gate = tf.keras.layers.Dense(1, activation='sigmoid', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(skip7_up28_gate)
-    skip7_up28_gate = tf.keras.layers.Reshape((1, 1, 1))(skip7_up28_gate)
+    skip7_up28_gate = tf.keras.layers.Conv2D(1, 3, padding='same', activation='sigmoid', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(skip7_up28)
     skip7_up28 = skip7_up28 * skip7_up28_gate
 
     skip7_up28 = tf.keras.layers.LayerNormalization(center=True, scale=True)(skip7_up28)
