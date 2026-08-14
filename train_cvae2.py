@@ -62,7 +62,7 @@ TV_START_WEIGHT = 0.07
 TV_PEAK_WEIGHT = 0.2
 TV_DECAY_EPOCHS = EPOCHS - TV_WARMUP_EPOCHS
 TV_END_WEIGHT = 0.01
-LOG_NAME = "train_gen2b"
+LOG_NAME = "train_gen2"
 
 def load_pbm(path):
     """Load a P4 PBM file and return a 2D numpy array of 0/1 float32."""
@@ -389,7 +389,9 @@ def build_encoder():
     x_direct = tf.keras.layers.LayerNormalization(name='enc_direct_ln')(x_direct)
     x_direct = tf.keras.layers.Dropout(DENSE_DROPOUT, name='enc_direct_drop')(x_direct)
     x = tf.keras.layers.Dense(256, kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_main_proj')(x)
-    x = tf.keras.layers.Add()([x, x_direct])
+    gate = tf.keras.layers.Concatenate(name='enc_direct_gate_in')([x, x_direct])
+    gate = tf.keras.layers.Dense(1, activation='sigmoid', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_direct_gate')(gate)
+    x = gate * x + (1.0 - gate) * x_direct
 
     label_proj = tf.keras.layers.Dense(128, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_label_proj")(label_input)
     label_proj = tf.keras.layers.Dropout(DENSE_DROPOUT, name="enc_label_drop")(label_proj)
