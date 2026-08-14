@@ -61,7 +61,7 @@ TV_START_WEIGHT = 0.07
 TV_PEAK_WEIGHT = 0.25
 TV_DECAY_EPOCHS = EPOCHS - TV_WARMUP_EPOCHS
 TV_END_WEIGHT = 0.2
-LOG_NAME = "train_gen2"
+LOG_NAME = "train_gen2b"
 
 def load_pbm(path):
     """Load a P4 PBM file and return a 2D numpy array of 0/1 float32."""
@@ -233,26 +233,6 @@ def build_encoder():
     image_input = tf.keras.layers.Input(shape=(28, 28, 1), name="image_input")
     label_input = tf.keras.layers.Input(shape=(NUM_CLASSES,), name="label_input")
 
-    # ── 28x28 block ──────────────────────────────────────────────
-    # Main path: initial conv from image
-    x28_main = tf.keras.layers.Conv2D(32, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_main28_conv0')(image_input)
-    x28_block_in = x28_main
-
-    # Main path: second conv
-    x28_main = tf.keras.layers.LayerNormalization(name='enc_main28_ln')(x28_main)
-    x28_main = tf.keras.layers.Conv2D(32, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_main28_conv')(x28_main)
-    x28_main = tf.keras.layers.LayerNormalization(name='enc_main28_ln2')(x28_main)
-
-    # Label-conditioned branches in main path
-    x28_pre = x28_main
-    x28_main = label_cross_attention(x28_main, label_input, 32, L2_REG)
-    film_gamma28, film_beta28 = make_film(32)(label_input)
-    x28_main = x28_main * (1.0 + film_gamma28) + film_beta28
-    x28_main = tf.keras.layers.Add()([
-        x28_main,
-        tf.keras.layers.Conv2D(32, 1, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_skip28_1x1')(x28_pre),
-    ])
-
     # Alternative path: transferred mnist2 layers + CBAM
     x28_alt = image_input
     x28_alt_res = x28_alt
@@ -265,14 +245,9 @@ def build_encoder():
     x28_alt = tf.keras.layers.Dropout(DENSE_DROPOUT)(x28_alt)
     x28_alt = tf.keras.layers.Add()([x28_alt, cbam_block(x28_alt, name_prefix='cbam28')])
 
-    # Learned gate between main and alternative paths
-    gate28 = tf.keras.layers.GlobalAveragePooling2D()(x28_block_in)
-    gate28 = tf.keras.layers.Dense(1, activation='sigmoid', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc28_skip_gate')(gate28)
-    gate28 = tf.keras.layers.Reshape((1, 1, 1))(gate28)
-    x = gate28 * x28_main + (1.0 - gate28) * x28_alt
 
     # ── 14x14 block ──────────────────────────────────────────────
-    x28 = x
+    x28 = x28_alt
     x28_block_out = x28
     x14_main = tf.keras.layers.Conv2D(64, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_main14_conv')(x28)
     x14_main = tf.keras.layers.MaxPooling2D(2)(x14_main)
