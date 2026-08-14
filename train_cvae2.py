@@ -320,14 +320,6 @@ def build_encoder():
         tf.keras.layers.Conv2D(64, 1, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_skip14_1x1')(x14_pre),
     ])
 
-    x14_res = x14
-    x14 = tf.keras.layers.SeparableConv2D(64, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_res14_1')(x14)
-    x14 = tf.keras.layers.LayerNormalization(name='enc_ln14_2')(x14)
-    x14 = tf.keras.layers.SeparableConv2D(64, 3, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_res14_2')(x14)
-    x14 = tf.keras.layers.LayerNormalization(name='enc_ln14_3')(x14)
-    x14 = tf.keras.layers.Add()([x14, x14_res])
-    x14 = tf.keras.layers.Activation('relu', name='enc_act14')(x14)
-
     # ── 7x7 block ───────────────────────────────────────────────
     x14_block_out = x14
     x7_main = tf.keras.layers.Conv2D(128, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_main7_conv')(x14)
