@@ -318,6 +318,7 @@ def build_encoder():
     x7_alt = tf.keras.layers.SpatialDropout2D(SPATIAL_DROPOUT)(x7_alt)
     x7_alt = tf.keras.layers.Dropout(DENSE_DROPOUT)(x7_alt)
     x7_alt = tf.keras.layers.Add()([x7_alt, cbam_block(x7_alt, name_prefix='cbam7')])
+    x7_alt_shallow = x7_alt
     x7_alt = tf.keras.layers.SeparableConv2D(128, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv7_deep2')(x7_alt)
     x7_alt = tf.keras.layers.SpatialDropout2D(SPATIAL_DROPOUT)(x7_alt)
     x7_alt = tf.keras.layers.Dropout(DENSE_DROPOUT)(x7_alt)
@@ -326,7 +327,7 @@ def build_encoder():
     x7_alt = tf.keras.layers.SeparableConv2D(128, 3, padding='same', activation=None, kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv7_res1')(x7_alt)
     x7_alt = tf.keras.layers.Add()([x7_alt, x7_alt_res])
     x7_alt = tf.keras.layers.Activation('relu', name='enc_act7')(x7_alt)
-    x7_alt = tf.keras.layers.Add(name='enc_add7')([x7_main, x7_alt])
+    x7_alt = tf.keras.layers.Add(name='enc_add7')([x7_alt_shallow, x7_alt])
     x7_alt = tf.keras.layers.Conv2D(128, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_fuse7')(x7_alt)
     x7_alt = tf.keras.layers.LayerNormalization(name='enc_fuse7_ln')(x7_alt)
 
