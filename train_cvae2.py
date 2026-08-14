@@ -326,6 +326,9 @@ def build_encoder():
     x7_alt = tf.keras.layers.SeparableConv2D(128, 3, padding='same', activation=None, kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv7_res1')(x7_alt)
     x7_alt = tf.keras.layers.Add()([x7_alt, x7_alt_res])
     x7_alt = tf.keras.layers.Activation('relu', name='enc_act7')(x7_alt)
+    x7_alt = tf.keras.layers.Add(name='enc_add7')([x7_main, x7_alt])
+    x7_alt = tf.keras.layers.Conv2D(128, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_fuse7')(x7_alt)
+    x7_alt = tf.keras.layers.LayerNormalization(name='enc_fuse7_ln')(x7_alt)
 
     # ── Latent head: progressive fusion ──────────────────────────
     # x: 7x7x128, x14: 14x14x64, x28: 28x28x32
@@ -333,8 +336,6 @@ def build_encoder():
     gate7 = tf.keras.layers.Dense(1, activation='sigmoid', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc7_skip_gate')(gate7)
     gate7 = tf.keras.layers.Reshape((1, 1, 1))(gate7)
     x7 = gate7 * x7_main + (1.0 - gate7) * x7_alt
-    x7 = tf.keras.layers.Conv2D(128, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_fuse7')(x7)
-    x7 = tf.keras.layers.LayerNormalization(name='enc_fuse7_ln')(x7)
 
     # 7x7 -> 14x14
     x7 = tf.keras.layers.UpSampling2D(2, name='enc_up7_14')(x7)
