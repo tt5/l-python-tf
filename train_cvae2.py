@@ -482,7 +482,19 @@ def build_generator():
     # 28x28 block: 64 -> 32 channels
     x = tf.keras.layers.Conv2D(32, 3, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
 
-    skip7_up28 = tf.keras.layers.Conv2DTranspose(32, 4, strides=4, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(skip7)
+    # Progressive upsampling of skip7 toward 28x28: 7x7 -> 14x14 -> 28x28
+    skip7_up14 = tf.keras.layers.Conv2DTranspose(32, 4, strides=2, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(skip7)
+    skip7_up14 = tf.keras.layers.Conv2D(32, 1, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(skip7_up14)
+
+    skip7_up14_gate = tf.keras.layers.GlobalAveragePooling2D()(skip7_up14)
+    skip7_up14_gate = tf.keras.layers.Dense(64, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(skip7_up14_gate)
+    skip7_up14_gate = tf.keras.layers.Dense(1, activation='sigmoid', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(skip7_up14_gate)
+    skip7_up14_gate = tf.keras.layers.Reshape((1, 1, 1))(skip7_up14_gate)
+    skip7_up14 = skip7_up14 * skip7_up14_gate
+
+    skip7_up14 = tf.keras.layers.LayerNormalization(center=True, scale=True)(skip7_up14)
+
+    skip7_up28 = tf.keras.layers.Conv2DTranspose(32, 4, strides=2, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(skip7_up14)
     skip7_up28 = tf.keras.layers.Conv2D(32, 1, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(skip7_up28)
 
     skip7_up28_gate = tf.keras.layers.GlobalAveragePooling2D()(skip7_up28)
