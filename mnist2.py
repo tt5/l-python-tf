@@ -365,27 +365,27 @@ def main():
     c3 = L.Activation('relu')(c3)
 
     # Progressive pyramid fusion: c3 -> c2 -> c1 -> c0
-    # Step 1: fuse c3 + c2 (both 7x7, 128ch)
-    fused = L.Add(name='enc_add7')([c3, c2])
-    fused = L.Conv2D(128, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_fuse7')(fused)
-    fused = L.LayerNormalization(name='enc_fuse7_ln')(fused)
+    # Step 1: merge c3 + c2 (both 7x7, 128ch)
+    merged7 = L.Add(name='enc_add7')([c3, c2])
+    merged7 = L.Conv2D(128, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_fuse7')(merged7)
+    merged7 = L.LayerNormalization(name='enc_fuse7_ln')(merged7)
 
     # Step 2: upsample to 14x14, project c1 to 128ch, fuse
-    fused = L.UpSampling2D(2, name='enc_up7_14')(fused)  # 14x14x128
+    up14 = L.UpSampling2D(2, name='enc_up7_14')(merged7)  # 14x14x128
     c1_proj = L.Conv2D(128, 1, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_proj14')(c1)
-    fused = L.Add()([fused, c1_proj])
-    fused = L.Conv2D(128, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_fuse14')(fused)
-    fused = L.LayerNormalization(name='enc_fuse14_ln')(fused)
+    up14 = L.Add()([up14, c1_proj])
+    up14 = L.Conv2D(128, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_fuse14')(up14)
+    up14 = L.LayerNormalization(name='enc_fuse14_ln')(up14)
 
     # Step 3: upsample to 28x28, project c0 to 128ch, fuse
-    fused = L.UpSampling2D(2, name='enc_up14_28')(fused)  # 28x28x128
+    up28 = L.UpSampling2D(2, name='enc_up14_28')(up14)  # 28x28x128
     c0_proj = L.Conv2D(128, 1, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_proj28')(c0)
-    fused = L.Add()([fused, c0_proj])
-    fused = L.Conv2D(128, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_fuse28')(fused)
-    fused = L.LayerNormalization(name='enc_fuse28_ln')(fused)
+    up28 = L.Add()([up28, c0_proj])
+    up28 = L.Conv2D(128, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_fuse28')(up28)
+    up28 = L.LayerNormalization(name='enc_fuse28_ln')(up28)
 
     # Single pooled feature vector
-    x = L.GlobalAveragePooling2D()(fused)
+    x = L.GlobalAveragePooling2D()(up28)
 
     d1 = L.Dense(256, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     d1 = L.Dropout(DENSE_DROPOUT)(d1)
