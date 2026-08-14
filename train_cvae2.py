@@ -298,7 +298,6 @@ def build_encoder():
 
     x14 = x
     x14_pre = x14
-    x14 = label_cross_attention(x14, label_input, 64, L2_REG)
     film_gamma14, film_beta14 = make_film(64)(label_input)
     x14 = x14 * (1.0 + film_gamma14) + film_beta14
     x14 = tf.keras.layers.Add()([
@@ -333,8 +332,8 @@ def build_encoder():
     # ── Latent head: progressive fusion ──────────────────────────
     # x: 7x7x128, x14: 14x14x64, x28: 28x28x32
     gate7 = tf.keras.layers.GlobalAveragePooling2D()(x14_block_out)
-    gate7 = tf.keras.layers.Dense(1, activation='sigmoid', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc7_skip_gate')(gate7)
-    gate7 = tf.keras.layers.Reshape((1, 1, 1))(gate7)
+    gate7 = tf.keras.layers.Dense(128, activation='sigmoid', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc7_skip_gate')(gate7)
+    gate7 = tf.keras.layers.Reshape((1, 1, 128))(gate7)
     x7 = gate7 * x7_main + (1.0 - gate7) * x7_alt
 
     # 7x7 -> 14x14
