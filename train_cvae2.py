@@ -57,12 +57,12 @@ PERCEPTUAL_PEAK_WEIGHT = 3
 PERCEPTUAL_DECAY_EPOCHS = EPOCHS - PERCEPTUAL_WARMUP_EPOCHS
 PERCEPTUAL_END_WEIGHT = 0.4
 PERCEPTUAL_EXTRACTOR_PATH = Path(__file__).parent / "mnist2_model"
-TV_WARMUP_EPOCHS = 30
+TV_WARMUP_EPOCHS = 25
 TV_START_WEIGHT = 0.07
-TV_PEAK_WEIGHT = 0.2
+TV_PEAK_WEIGHT = 0.3
 TV_DECAY_EPOCHS = EPOCHS - TV_WARMUP_EPOCHS
-TV_END_WEIGHT = 0.1
-LOG_NAME = "train_gen2b"
+TV_END_WEIGHT = 0.2
+LOG_NAME = "train_gen2"
 
 def load_pbm(path):
     """Load a P4 PBM file and return a 2D numpy array of 0/1 float32."""
@@ -246,21 +246,13 @@ def build_encoder():
     # Alternative path: transferred mnist2 layers + CBAM + skip convs
     x28_alt = x28_block_in
     x28_alt_res = x28_alt
-    x28_alt = tf.keras.layers.SeparableConv2D(32, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_res28_1')(x28_alt)
-    x28_alt = tf.keras.layers.LayerNormalization(name='enc_ln28_2')(x28_alt)
-    x28_alt = tf.keras.layers.SeparableConv2D(32, 3, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_res28_2')(x28_alt)
-    x28_alt = tf.keras.layers.LayerNormalization(name='enc_ln28_3')(x28_alt)
+    x28_alt = tf.keras.layers.SeparableConv2D(32, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv28')(x28_alt)
+    x28_alt = tf.keras.layers.SeparableConv2D(32, 3, padding='same', activation=None, kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv28_second')(x28_alt)
     x28_alt = tf.keras.layers.Add()([x28_alt, x28_alt_res])
-    x28_alt = tf.keras.layers.Activation('relu', name='enc_act28')(x28_alt)
+    x28_alt = tf.keras.layers.Activation('relu')(x28_alt)
     x28_alt = tf.keras.layers.SpatialDropout2D(SPATIAL_DROPOUT)(x28_alt)
     x28_alt = tf.keras.layers.Dropout(DENSE_DROPOUT)(x28_alt)
     x28_alt = tf.keras.layers.Add()([x28_alt, cbam_block(x28_alt, name_prefix='cbam28')])
-    x28_alt_skip = x28_alt
-    x28_alt_skip = tf.keras.layers.Conv2D(32, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_skip28_conv1')(x28_alt_skip)
-    x28_alt_skip = tf.keras.layers.LayerNormalization(name='enc_skip28_ln1')(x28_alt_skip)
-    x28_alt_skip = tf.keras.layers.Conv2D(32, 3, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_skip28_conv2')(x28_alt_skip)
-    x28_alt_skip = tf.keras.layers.LayerNormalization(name='enc_skip28_ln2')(x28_alt_skip)
-    x28_alt = tf.keras.layers.Add()([x28_alt, x28_alt_skip])
 
     # Learned gate between main and alternative paths
     gate28 = tf.keras.layers.GlobalAveragePooling2D()(x28_block_in)
@@ -298,12 +290,6 @@ def build_encoder():
     x14_alt = tf.keras.layers.SpatialDropout2D(SPATIAL_DROPOUT)(x14_alt)
     x14_alt = tf.keras.layers.Dropout(DENSE_DROPOUT)(x14_alt)
     x14_alt = tf.keras.layers.Add()([x14_alt, cbam_block(x14_alt, name_prefix='cbam14')])
-    x14_alt_skip = x14_alt
-    x14_alt_skip = tf.keras.layers.Conv2D(64, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_skip14_conv1')(x14_alt_skip)
-    x14_alt_skip = tf.keras.layers.LayerNormalization(name='enc_skip14_ln1')(x14_alt_skip)
-    x14_alt_skip = tf.keras.layers.Conv2D(64, 3, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_skip14_conv2')(x14_alt_skip)
-    x14_alt_skip = tf.keras.layers.LayerNormalization(name='enc_skip14_ln2')(x14_alt_skip)
-    x14_alt = tf.keras.layers.Add()([x14_alt, x14_alt_skip])
     x14 = x14_alt
 
     gate14 = tf.keras.layers.GlobalAveragePooling2D()(x28_block_out)
@@ -331,19 +317,12 @@ def build_encoder():
     x7_alt = tf.keras.layers.SpatialDropout2D(SPATIAL_DROPOUT)(x7_alt)
     x7_alt = tf.keras.layers.Dropout(DENSE_DROPOUT)(x7_alt)
     x7_alt = tf.keras.layers.Add()([x7_alt, cbam_block(x7_alt, name_prefix='cbam7')])
-    x7_alt_skip = x7_alt
-    x7_alt_skip = tf.keras.layers.Conv2D(128, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_skip7_conv1')(x7_alt_skip)
-    x7_alt_skip = tf.keras.layers.LayerNormalization(name='enc_skip7_ln1')(x7_alt_skip)
-    x7_alt_skip = tf.keras.layers.Conv2D(128, 3, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_skip7_conv2')(x7_alt_skip)
-    x7_alt_skip = tf.keras.layers.LayerNormalization(name='enc_skip7_ln2')(x7_alt_skip)
-    x7_alt = tf.keras.layers.Add()([x7_alt, x7_alt_skip])
-
     x7_alt = tf.keras.layers.SeparableConv2D(128, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv7_deep2')(x7_alt)
     x7_alt = tf.keras.layers.SpatialDropout2D(SPATIAL_DROPOUT)(x7_alt)
     x7_alt = tf.keras.layers.Dropout(DENSE_DROPOUT)(x7_alt)
     x7_alt = tf.keras.layers.LayerNormalization(name='enc_ln7_1')(x7_alt)
     x7_alt_res = x7_alt
-    x7_alt = tf.keras.layers.SeparableConv2D(128, 3, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_res7_1')(x7_alt)
+    x7_alt = tf.keras.layers.SeparableConv2D(128, 3, padding='same', activation=None, kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv7_res1')(x7_alt)
     x7_alt = tf.keras.layers.Add()([x7_alt, x7_alt_res])
     x7_alt = tf.keras.layers.Activation('relu', name='enc_act7')(x7_alt)
 
@@ -838,8 +817,46 @@ def main():
 
     encoder = build_encoder()
     copied_layer_names = copy_mnist2_weights_to_encoder(encoder)
-    for name in copied_layer_names:
+    fusion_frozen = [
+        # progressive fusion
+        'enc_fuse7',
+        'enc_fuse7_ln',
+        'enc_proj14',
+        'enc_fuse14',
+        'enc_fuse14_ln',
+        'enc_proj28',
+        'enc_fuse28',
+        'enc_fuse28_ln',
+        # alt path conv / res blocks
+        'conv28',
+        'conv28_second',
+        'conv14_pre',
+        'conv14_res1',
+        'conv14_res2',
+        'conv7',
+        'conv7_deep2',
+        'conv7_res1',
+        # CBAM sublayers
+        'cbam28_ca_dense1',
+        'cbam28_ca_dense2',
+        'cbam28_sa_conv1',
+        'cbam28_sa_conv2',
+        'cbam28_ln',
+        'cbam14_ca_dense1',
+        'cbam14_ca_dense2',
+        'cbam14_sa_conv1',
+        'cbam14_sa_conv2',
+        'cbam14_ln',
+        'cbam7_ca_dense1',
+        'cbam7_ca_dense2',
+        'cbam7_sa_conv1',
+        'cbam7_sa_conv2',
+        'cbam7_ln',
+    ]
+    frozen = [name for name in copied_layer_names if name in fusion_frozen]
+    for name in frozen:
         encoder.get_layer(name=name).trainable = False
+    print(f"Frozen transferred layers: {frozen}")
     generator = build_generator()
     perceptual_extractor = build_perceptual_extractor()
     cvae = CVAE(encoder, generator, perceptual_extractor=perceptual_extractor)

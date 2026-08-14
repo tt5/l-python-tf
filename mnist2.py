@@ -324,7 +324,7 @@ def main():
     # Conv block 0: 28x28 -> 28x28
     c0 = L.SeparableConv2D(32, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv28')(x)
     c0_res = c0
-    c0 = L.SeparableConv2D(32, 3, padding='same', activation=None, kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(c0)
+    c0 = L.SeparableConv2D(32, 3, padding='same', activation=None, kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv28_second')(c0)
     c0 = L.Add()([c0, c0_res])
     c0 = L.Activation('relu')(c0)
     c0 = L.SpatialDropout2D(SPATIAL_DROPOUT)(c0)
@@ -360,7 +360,7 @@ def main():
     c3 = L.Dropout(DENSE_DROPOUT)(c3)
     c3 = L.LayerNormalization()(c3)
     c3_res = c3
-    c3 = L.SeparableConv2D(128, 3, padding='same', activation=None, kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(c3)
+    c3 = L.SeparableConv2D(128, 3, padding='same', activation=None, kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv7_res1')(c3)
     c3 = L.Add()([c3, c3_res])
     c3 = L.Activation('relu')(c3)
 
