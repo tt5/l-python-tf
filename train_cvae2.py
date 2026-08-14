@@ -61,7 +61,7 @@ TV_START_WEIGHT = 0.07
 TV_PEAK_WEIGHT = 0.25
 TV_DECAY_EPOCHS = EPOCHS - TV_WARMUP_EPOCHS
 TV_END_WEIGHT = 0.2
-LOG_NAME = "train_gen2b"
+LOG_NAME = "train_gen2"
 
 def load_pbm(path):
     """Load a P4 PBM file and return a 2D numpy array of 0/1 float32."""
@@ -252,6 +252,29 @@ def build_encoder():
     x14_main = tf.keras.layers.Conv2D(64, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_main14_conv')(x28)
     x14_main = tf.keras.layers.MaxPooling2D(2)(x14_main)
     x14_main = tf.keras.layers.LayerNormalization(name='enc_main14_ln')(x14_main)
+
+    # Two residual conv blocks in main path
+    x14_main_res = x14_main
+    x14_main = tf.keras.layers.Conv2D(64, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_main14_res1')(x14_main)
+    x14_main = tf.keras.layers.Add()([x14_main, x14_main_res])
+    x14_main = tf.keras.layers.LayerNormalization(name='enc_main14_res1_ln')(x14_main)
+    x14_main = tf.keras.layers.Activation('relu')(x14_main)
+    x14_main = tf.keras.layers.SpatialDropout2D(SPATIAL_DROPOUT)(x14_main)
+    x14_main = tf.keras.layers.Dropout(DENSE_DROPOUT)(x14_main)
+
+    x14_main_res2 = x14_main
+    x14_main = tf.keras.layers.Conv2D(64, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_main14_res2')(x14_main)
+    x14_main = tf.keras.layers.Add()([x14_main, x14_main_res2])
+    x14_main = tf.keras.layers.LayerNormalization(name='enc_main14_res2_ln')(x14_main)
+    x14_main = tf.keras.layers.Activation('relu')(x14_main)
+    x14_main = tf.keras.layers.SpatialDropout2D(SPATIAL_DROPOUT)(x14_main)
+    x14_main = tf.keras.layers.Dropout(DENSE_DROPOUT)(x14_main)
+
+    # SE block on main path
+    se14 = tf.keras.layers.GlobalAveragePooling2D()(x14_main)
+    se14 = tf.keras.layers.Dense(64 // 4, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_se14_dense1')(se14)
+    se14 = tf.keras.layers.Dense(64, activation='sigmoid', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_se14_dense2')(se14)
+    x14_main = tf.keras.layers.Multiply()([x14_main, se14])
 
     x14_alt = tf.keras.layers.SeparableConv2D(64, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv14_pre')(x28)
     x14_alt = tf.keras.layers.MaxPooling2D(2)(x14_alt)
