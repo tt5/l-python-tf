@@ -62,7 +62,7 @@ TV_START_WEIGHT = 0.07
 TV_PEAK_WEIGHT = 0.3
 TV_DECAY_EPOCHS = EPOCHS - TV_WARMUP_EPOCHS
 TV_END_WEIGHT = 0.2
-LOG_NAME = "train_gen2"
+LOG_NAME = "train_gen2b"
 
 def load_pbm(path):
     """Load a P4 PBM file and return a 2D numpy array of 0/1 float32."""
@@ -235,16 +235,17 @@ def build_encoder():
     label_input = tf.keras.layers.Input(shape=(NUM_CLASSES,), name="label_input")
 
     # ── 28x28 block ──────────────────────────────────────────────
-    x = tf.keras.layers.SeparableConv2D(32, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv28')(image_input)
-    x = tf.keras.layers.LayerNormalization(name='enc_ln28')(x)
-    x28_block_in = x
+    # Main path: initial conv from image
+    x28_main = tf.keras.layers.Conv2D(32, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_main28_conv0')(image_input)
+    x28_block_in = x28_main
 
-    # Main path: simple conv
-    x28_main = tf.keras.layers.Conv2D(32, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_main28_conv')(x28_block_in)
+    # Main path: second conv
     x28_main = tf.keras.layers.LayerNormalization(name='enc_main28_ln')(x28_main)
+    x28_main = tf.keras.layers.Conv2D(32, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_main28_conv')(x28_main)
+    x28_main = tf.keras.layers.LayerNormalization(name='enc_main28_ln2')(x28_main)
 
-    # Alternative path: transferred mnist2 layers + CBAM + skip convs
-    x28_alt = x28_block_in
+    # Alternative path: transferred mnist2 layers + CBAM
+    x28_alt = image_input
     x28_alt_res = x28_alt
     x28_alt = tf.keras.layers.SeparableConv2D(32, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv28')(x28_alt)
     x28_alt = tf.keras.layers.SeparableConv2D(32, 3, padding='same', activation=None, kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv28_second')(x28_alt)
