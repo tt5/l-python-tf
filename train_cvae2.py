@@ -62,7 +62,7 @@ TV_START_WEIGHT = 0.07
 TV_PEAK_WEIGHT = 0.3
 TV_DECAY_EPOCHS = EPOCHS - TV_WARMUP_EPOCHS
 TV_END_WEIGHT = 0.2
-LOG_NAME = "train_gen2b"
+LOG_NAME = "train_gen2"
 
 def load_pbm(path):
     """Load a P4 PBM file and return a 2D numpy array of 0/1 float32."""
@@ -836,11 +836,14 @@ def main():
         # alt path conv / res blocks
         'conv28',
         'conv28_second',
+        'enc_ln28_2',
         'conv14_pre',
         'conv14_res1',
         'conv14_res2',
+        'enc_ln14_2',
         'conv7',
         'conv7_deep2',
+        'enc_ln7_1',
         'conv7_res1',
         # CBAM sublayers
         'cbam28_ca_dense1',
