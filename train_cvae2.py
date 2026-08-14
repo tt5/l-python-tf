@@ -52,7 +52,7 @@ RECON_LOSS_WEIGHT = 0.6
 PERCEPTUAL_MULTISCALE = True
 PERCEPTUAL_WARMUP_EPOCHS = 11
 PERCEPTUAL_START_WEIGHT = 0.001
-PERCEPTUAL_PEAK_WEIGHT = 3
+PERCEPTUAL_PEAK_WEIGHT = 2
 PERCEPTUAL_DECAY_EPOCHS = EPOCHS - PERCEPTUAL_WARMUP_EPOCHS
 PERCEPTUAL_END_WEIGHT = 0.4
 PERCEPTUAL_EXTRACTOR_PATH = Path(__file__).parent / "mnist2_model"
@@ -606,14 +606,15 @@ class CVAE(tf.keras.Model):
                 fake_input = tf.squeeze(reconstruction, -1)
                 real_feats = self.perceptual_extractor(real_input, training=False)
                 fake_feats = self.perceptual_extractor(fake_input, training=False)
-                perceptual_loss_conv28 = tf.reduce_mean(tf.reduce_sum(tf.square(real_feats[0] - fake_feats[0]), axis=-1))
-                perceptual_loss_conv14 = tf.reduce_mean(tf.reduce_sum(tf.square(real_feats[1] - fake_feats[1]), axis=-1))
-                perceptual_loss_conv7 = tf.reduce_mean(tf.reduce_sum(tf.square(real_feats[2] - fake_feats[2]), axis=-1))
+                perceptual_loss_conv28 = tf.reduce_mean(tf.square(real_feats[0] - fake_feats[0]))
+                perceptual_loss_conv14 = tf.reduce_mean(tf.square(real_feats[1] - fake_feats[1]))
+                perceptual_loss_conv7 = tf.reduce_mean(tf.square(real_feats[2] - fake_feats[2]))
 
             if PERCEPTUAL_MULTISCALE:
-                scale_losses = tf.stack([perceptual_loss_conv28, perceptual_loss_conv14, perceptual_loss_conv7], axis=-1)
+                scale_losses = tf.stack([perceptual_loss_conv28, perceptual_loss_conv14, perceptual_loss_conv7])
+                scale_losses = tf.expand_dims(scale_losses, 0)
                 scale_weights = self.perceptual_scale_weights(scale_losses)
-                perceptual_loss = tf.reduce_sum(scale_weights * scale_losses, axis=-1)
+                perceptual_loss = tf.squeeze(tf.reduce_sum(scale_weights * scale_losses, axis=-1))
             else:
                 perceptual_loss = perceptual_loss_conv28 + perceptual_loss_conv14 + perceptual_loss_conv7
 
@@ -658,18 +659,19 @@ class CVAE(tf.keras.Model):
             fake_input = tf.squeeze(reconstruction, -1)
             real_feats = self.perceptual_extractor(real_input, training=False)
             fake_feats = self.perceptual_extractor(fake_input, training=False)
-            perceptual_loss_conv28 = tf.reduce_mean(tf.reduce_sum(tf.square(real_feats[0] - fake_feats[0]), axis=-1))
-            perceptual_loss_conv14 = tf.reduce_mean(tf.reduce_sum(tf.square(real_feats[1] - fake_feats[1]), axis=-1))
-            perceptual_loss_conv7 = tf.reduce_mean(tf.reduce_sum(tf.square(real_feats[2] - fake_feats[2]), axis=-1))
+            perceptual_loss_conv28 = tf.reduce_mean(tf.square(real_feats[0] - fake_feats[0]))
+            perceptual_loss_conv14 = tf.reduce_mean(tf.square(real_feats[1] - fake_feats[1]))
+            perceptual_loss_conv7 = tf.reduce_mean(tf.square(real_feats[2] - fake_feats[2]))
         else:
             perceptual_loss_conv28 = tf.constant(0.0)
             perceptual_loss_conv14 = tf.constant(0.0)
             perceptual_loss_conv7 = tf.constant(0.0)
 
         if PERCEPTUAL_MULTISCALE:
-            scale_losses = tf.stack([perceptual_loss_conv28, perceptual_loss_conv14, perceptual_loss_conv7], axis=-1)
+            scale_losses = tf.stack([perceptual_loss_conv28, perceptual_loss_conv14, perceptual_loss_conv7])
+            scale_losses = tf.expand_dims(scale_losses, 0)
             scale_weights = self.perceptual_scale_weights(scale_losses)
-            perceptual_loss = tf.reduce_sum(scale_weights * scale_losses, axis=-1)
+            perceptual_loss = tf.squeeze(tf.reduce_sum(scale_weights * scale_losses, axis=-1))
         else:
             perceptual_loss = perceptual_loss_conv28 + perceptual_loss_conv14 + perceptual_loss_conv7
 
@@ -702,11 +704,7 @@ def build_perceptual_extractor():
     fine_layer = base.get_layer(name='conv14_pre').output
     coarse_layer = base.get_layer(name='conv7').output
 
-    gap_conv28 = tf.keras.layers.GlobalAveragePooling2D(name='perceptual_gap_conv28')(conv28_layer)
-    gap_fine = tf.keras.layers.GlobalAveragePooling2D(name='perceptual_gap_conv14')(fine_layer)
-    gap_coarse = tf.keras.layers.GlobalAveragePooling2D(name='perceptual_gap_conv7')(coarse_layer)
-
-    extractor = tf.keras.Model(inputs=base.input, outputs=[gap_conv28, gap_fine, gap_coarse], name='perceptual_extractor')
+    extractor = tf.keras.Model(inputs=base.input, outputs=[conv28_layer, fine_layer, coarse_layer], name='perceptual_extractor')
     return extractor
 
 
