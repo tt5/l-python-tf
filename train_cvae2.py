@@ -296,6 +296,7 @@ def build_encoder():
     gate14 = tf.keras.layers.MaxPooling2D(2)(gate14)
     x = gate14 * x14_main + (1.0 - gate14) * x14_alt
 
+    x14 = x
     x14_pre = x14
     x14 = label_cross_attention(x14, label_input, 64, L2_REG)
     film_gamma14, film_beta14 = make_film(64)(label_input)
