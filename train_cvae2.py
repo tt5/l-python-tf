@@ -329,27 +329,29 @@ def build_encoder():
 
     # ── Latent head: progressive fusion ──────────────────────────
     # x: 7x7x128, x14: 14x14x64, x28: 28x28x32
-    fused = tf.keras.layers.Add(name='enc_add7')([x7_main, x7_alt])
-    fused = tf.keras.layers.Conv2D(128, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_fuse7')(fused)
-    fused = tf.keras.layers.LayerNormalization(name='enc_fuse7_ln')(fused)
-    x7 = fused  # save for direct skip
+    gate7 = tf.keras.layers.GlobalAveragePooling2D()(x14_block_out)
+    gate7 = tf.keras.layers.Dense(1, activation='sigmoid', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc7_skip_gate')(gate7)
+    gate7 = tf.keras.layers.Reshape((1, 1, 1))(gate7)
+    x7 = gate7 * x7_main + (1.0 - gate7) * x7_alt
+    x7 = tf.keras.layers.Conv2D(128, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_fuse7')(x7)
+    x7 = tf.keras.layers.LayerNormalization(name='enc_fuse7_ln')(x7)
 
     # 7x7 -> 14x14
-    fused = tf.keras.layers.UpSampling2D(2, name='enc_up7_14')(fused)
+    x7 = tf.keras.layers.UpSampling2D(2, name='enc_up7_14')(x7)
     x14_proj = tf.keras.layers.Conv2D(128, 1, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_proj14')(x14)
-    fused = tf.keras.layers.Add()([fused, x14_proj])
-    fused = tf.keras.layers.Conv2D(128, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_fuse14')(fused)
-    fused = tf.keras.layers.LayerNormalization(name='enc_fuse14_ln')(fused)
+    x7 = tf.keras.layers.Add()([x7, x14_proj])
+    x7 = tf.keras.layers.Conv2D(128, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_fuse14')(x7)
+    x7 = tf.keras.layers.LayerNormalization(name='enc_fuse14_ln')(x7)
 
     # 14x14 -> 28x28
-    fused = tf.keras.layers.UpSampling2D(2, name='enc_up14_28')(fused)
+    x7 = tf.keras.layers.UpSampling2D(2, name='enc_up14_28')(x7)
     x28_proj = tf.keras.layers.Conv2D(128, 1, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_proj28')(x28)
-    fused = tf.keras.layers.Add()([fused, x28_proj])
-    fused = tf.keras.layers.Conv2D(128, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_fuse28')(fused)
-    fused = tf.keras.layers.LayerNormalization(name='enc_fuse28_ln')(fused)
+    x7 = tf.keras.layers.Add()([x7, x28_proj])
+    x7 = tf.keras.layers.Conv2D(128, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_fuse28')(x7)
+    x7 = tf.keras.layers.LayerNormalization(name='enc_fuse28_ln')(x7)
 
     # Pool to vector
-    x = tf.keras.layers.GlobalAveragePooling2D(name='enc_gap_fused')(fused)
+    x = tf.keras.layers.GlobalAveragePooling2D(name='enc_gap_fused')(x7)
 
     # Direct skip from original 7x7 features
     x_direct = tf.keras.layers.Flatten(name='enc_flat_direct')(x7)
