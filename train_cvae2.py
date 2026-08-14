@@ -249,6 +249,7 @@ def build_encoder():
     x28_alt_res = x28_alt
     x28_alt = tf.keras.layers.SeparableConv2D(32, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv28')(x28_alt)
     x28_alt = tf.keras.layers.SeparableConv2D(32, 3, padding='same', activation=None, kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv28_second')(x28_alt)
+    x28_alt = tf.keras.layers.LayerNormalization(name='enc_ln28_2')(x28_alt)
     x28_alt = tf.keras.layers.Add()([x28_alt, x28_alt_res])
     x28_alt = tf.keras.layers.Activation('relu')(x28_alt)
     x28_alt = tf.keras.layers.SpatialDropout2D(SPATIAL_DROPOUT)(x28_alt)
@@ -285,7 +286,7 @@ def build_encoder():
     x14_alt = tf.keras.layers.Activation('relu')(x14_alt)
     x14_alt_res2 = x14_alt
     x14_alt = tf.keras.layers.SeparableConv2D(64, 3, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv14_res2')(x14_alt)
-    x14_alt = tf.keras.layers.LayerNormalization(name='enc_ln14_1')(x14_alt)
+    x14_alt = tf.keras.layers.LayerNormalization(name='enc_ln14_2')(x14_alt)
     x14_alt = tf.keras.layers.Add()([x14_alt, x14_alt_res2])
     x14_alt = tf.keras.layers.Activation('relu')(x14_alt)
     x14_alt = tf.keras.layers.SpatialDropout2D(SPATIAL_DROPOUT)(x14_alt)
