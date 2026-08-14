@@ -61,8 +61,8 @@ TV_WARMUP_EPOCHS = 30
 TV_START_WEIGHT = 0.07
 TV_PEAK_WEIGHT = 0.2
 TV_DECAY_EPOCHS = EPOCHS - TV_WARMUP_EPOCHS
-TV_END_WEIGHT = 0.01
-LOG_NAME = "train_gen2"
+TV_END_WEIGHT = 0.1
+LOG_NAME = "train_gen2b"
 
 def load_pbm(path):
     """Load a P4 PBM file and return a 2D numpy array of 0/1 float32."""
