@@ -27,7 +27,7 @@ PBM_DIR = args.data_dir
 
 # ─── Hyperparameters ──────────────────────────────────────────────
 LATENT_DIM = 256
-EPOCHS = 22
+EPOCHS = 24
 BATCH_SIZE = 128
 FREEZE_EPOCHS = 1
 NUM_CLASSES = None  # derived from data + low_conf
@@ -38,7 +38,7 @@ KL_START_WEIGHT = 0.02
 KL_WEIGHT = 0.45
 KL_DECAY_EPOCHS = EPOCHS - KL_WARMUP_EPOCHS
 KL_WEIGHT_END = 0.1
-LEARNING_RATE = 0.0004
+LEARNING_RATE = 0.0006
 LR_WARMUP_EPOCHS = 5
 LR_START = 0.0002
 LR_DECAY_EPOCHS = EPOCHS - LR_WARMUP_EPOCHS
@@ -61,7 +61,7 @@ TV_START_WEIGHT = 0.07
 TV_PEAK_WEIGHT = 0.25
 TV_DECAY_EPOCHS = EPOCHS - TV_WARMUP_EPOCHS
 TV_END_WEIGHT = 0.2
-LOG_NAME = "train_gen2b"
+LOG_NAME = "train_gen2"
 
 def load_pbm(path):
     """Load a P4 PBM file and return a 2D numpy array of 0/1 float32."""
@@ -383,27 +383,13 @@ def build_generator():
     latent_input = tf.keras.layers.Input(shape=(LATENT_DIM,), name="latent_input")
     label_input = tf.keras.layers.Input(shape=(NUM_CLASSES,), name="label_input")
 
-    # Shared class embedding (single extraction, distributed across scales)
-    class_emb = tf.keras.layers.Dense(64, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="gen_class_emb")(label_input)
-    class_emb = tf.keras.layers.Dropout(DENSE_DROPOUT, name="gen_class_emb_drop")(class_emb)
+    # Class conditioning via direct label input at each scale
 
     # Direct expansion: latent -> 7x7 spatial features, no discard
     x = tf.keras.layers.Dense(7 * 7 * 128, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(latent_input)
     x = tf.keras.layers.Reshape((7, 7, 128))(x)
-    x = tf.keras.layers.SpatialDropout2D(SPATIAL_DROPOUT)(x)
+    # ── 7x7 block ───────────────────────────────────────────────
     skip7 = x
-    x7_pre = x
-
-    # FiLM at 7x7 on full spatial tensor
-    gamma7 = tf.keras.layers.Dense(128, kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="gen_film7_scale")(class_emb)
-    beta7 = tf.keras.layers.Dense(128, kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="gen_film7_offset")(class_emb)
-    gamma7 = tf.keras.layers.Reshape((1, 1, 128))(gamma7)
-    beta7 = tf.keras.layers.Reshape((1, 1, 128))(beta7)
-    x = x * (1.0 + gamma7) + beta7
-    x = tf.keras.layers.Add()([
-        x,
-        tf.keras.layers.Conv2D(128, 1, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x7_pre),
-    ])
 
     # 7x7 block: 128 channels
     x7_res = x
@@ -421,6 +407,7 @@ def build_generator():
     se7 = tf.keras.layers.Dense(128, activation='sigmoid', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(se7)
     x = tf.keras.layers.Multiply()([x, se7])
 
+    # ── 14x14 block ──────────────────────────────────────────────
     x = tf.keras.layers.Conv2DTranspose(64, 4, strides=2, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = tf.keras.layers.Conv2D(64, 3, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = tf.keras.layers.LayerNormalization(center=True, scale=True)(x)
@@ -440,8 +427,7 @@ def build_generator():
     channels14 = 64
     x14_pre = x
     x = label_cross_attention(x, label_input, channels14, L2_REG)
-    scale = tf.keras.layers.Dense(channels14, kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="gen_film14_scale")(class_emb)
-    offset = tf.keras.layers.Dense(channels14, kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="gen_film14_offset")(class_emb)
+    scale, offset = make_film(channels14)(label_input)
     scale = tf.keras.layers.Reshape((1, 1, channels14))(scale)
     offset = tf.keras.layers.Reshape((1, 1, channels14))(offset)
     x = x * (1.0 + scale) + offset
@@ -458,6 +444,8 @@ def build_generator():
 
     skip14 = x
     x = tf.keras.layers.SpatialDropout2D(SPATIAL_DROPOUT)(x)
+
+    # ── 28x28 block ──────────────────────────────────────────────
     x = tf.keras.layers.Conv2DTranspose(32, 4, strides=2, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = tf.keras.layers.Conv2D(32, 3, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = tf.keras.layers.LayerNormalization(center=True, scale=True)(x)
@@ -472,7 +460,7 @@ def build_generator():
     x = tf.keras.layers.Add()([x, skip14_up])
     x = tf.keras.layers.LayerNormalization(center=True, scale=True)(x)
 
-    # 28x28 block: 64 -> 32 channels
+    # 28x28 refinement: 32 channels
     x = tf.keras.layers.Conv2D(32, 3, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
 
     # Progressive upsampling of skip7 toward 28x28: 7x7 -> 14x14 -> 28x28
@@ -496,8 +484,7 @@ def build_generator():
     channels28 = 32
     x28_pre = x
     x = label_cross_attention(x28_pre, label_input, channels28, L2_REG)
-    scale = tf.keras.layers.Dense(channels28, kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="gen_film28_scale")(class_emb)
-    offset = tf.keras.layers.Dense(channels28, kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="gen_film28_offset")(class_emb)
+    scale, offset = make_film(channels28)(label_input)
     scale = tf.keras.layers.Reshape((1, 1, channels28))(scale)
     offset = tf.keras.layers.Reshape((1, 1, channels28))(offset)
     x = x * (1.0 + scale) + offset
