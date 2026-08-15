@@ -27,7 +27,7 @@ PBM_DIR = args.data_dir
 
 # ─── Hyperparameters ──────────────────────────────────────────────
 LATENT_DIM = 256
-EPOCHS = 24
+EPOCHS = 26
 BATCH_SIZE = 128
 FREEZE_EPOCHS = 1
 NUM_CLASSES = None  # derived from data + low_conf
@@ -40,28 +40,28 @@ KL_DECAY_EPOCHS = EPOCHS - KL_WARMUP_EPOCHS
 KL_WEIGHT_END = 0.1
 LEARNING_RATE = 0.0006
 LR_WARMUP_EPOCHS = 5
-LR_START = 0.0002
+LR_START = 0.0001
 LR_DECAY_EPOCHS = EPOCHS - LR_WARMUP_EPOCHS
-LR_END = 0.000002
+LR_END = 0.00001
 L2_REG = 0.00001
 KL_FREE_BITS = 0.0
 SPATIAL_DROPOUT = 0.3
 DENSE_DROPOUT = 0.3
 AUGMENT = True
-RECON_LOSS_WEIGHT = 0.6
+RECON_LOSS_WEIGHT = 1.0
 PERCEPTUAL_MULTISCALE = True
 PERCEPTUAL_WARMUP_EPOCHS = 11
-PERCEPTUAL_START_WEIGHT = 0.001
-PERCEPTUAL_PEAK_WEIGHT = 2
+PERCEPTUAL_START_WEIGHT = 0.01
+PERCEPTUAL_PEAK_WEIGHT = 1
 PERCEPTUAL_DECAY_EPOCHS = EPOCHS - PERCEPTUAL_WARMUP_EPOCHS
-PERCEPTUAL_END_WEIGHT = 0.4
+PERCEPTUAL_END_WEIGHT = 0.5
 PERCEPTUAL_EXTRACTOR_PATH = Path(__file__).parent / "mnist2_model"
-TV_WARMUP_EPOCHS = 25
-TV_START_WEIGHT = 0.07
+TV_WARMUP_EPOCHS = 5
+TV_START_WEIGHT = 0.08
 TV_PEAK_WEIGHT = 0.25
 TV_DECAY_EPOCHS = EPOCHS - TV_WARMUP_EPOCHS
-TV_END_WEIGHT = 0.2
-LOG_NAME = "train_gen2"
+TV_END_WEIGHT = 0.25
+LOG_NAME = "train_gen2b"
 
 def load_pbm(path):
     """Load a P4 PBM file and return a 2D numpy array of 0/1 float32."""
@@ -191,7 +191,8 @@ def label_cross_attention(spatial, label_input, channels, l2_reg):
 
 def make_film(channels):
     def film_fn(label):
-        emb = tf.keras.layers.Dense(16, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(label)
+        emb_dim = max(16, channels // 4)
+        emb = tf.keras.layers.Dense(emb_dim, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(label)
         emb = tf.keras.layers.Dropout(DENSE_DROPOUT)(emb)
         gamma = tf.keras.layers.Dense(channels, kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(emb)
         beta = tf.keras.layers.Dense(channels, kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(emb)
@@ -388,6 +389,16 @@ def build_generator():
     # Direct expansion: latent -> 7x7 spatial features, no discard
     x = tf.keras.layers.Dense(7 * 7 * 128, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(latent_input)
     x = tf.keras.layers.Reshape((7, 7, 128))(x)
+    x = tf.keras.layers.LayerNormalization()(x)
+
+    # 7x7 stem: stabilize expanded features before residual block
+    x = tf.keras.layers.Conv2D(128, 3, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
+    x = tf.keras.layers.LayerNormalization()(x)
+    x = tf.keras.layers.Activation("relu")(x)
+
+    # Class conditioning at 7x7
+    x = label_cross_attention(x, label_input, 128, L2_REG)
+
     # ── 7x7 block ───────────────────────────────────────────────
     skip7 = x
 
@@ -419,6 +430,7 @@ def build_generator():
     # Spatial learned gating on skip path from shared label conditioning
     skip7_gate = tf.keras.layers.Conv2D(1, 3, padding='same', activation='sigmoid', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(skip7_up)
     skip7_up = skip7_up * skip7_gate
+    skip7_up = tf.keras.layers.LayerNormalization(center=True, scale=True)(skip7_up)
 
     x = tf.keras.layers.Add()([x, skip7_up])
     x = tf.keras.layers.LayerNormalization(center=True, scale=True)(x)
@@ -456,6 +468,7 @@ def build_generator():
 
     skip14_gate = tf.keras.layers.Conv2D(1, 3, padding='same', activation='sigmoid', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(skip14_up)
     skip14_up = skip14_up * skip14_gate
+    skip14_up = tf.keras.layers.LayerNormalization(center=True, scale=True)(skip14_up)
 
     x = tf.keras.layers.Add()([x, skip14_up])
     x = tf.keras.layers.LayerNormalization(center=True, scale=True)(x)
