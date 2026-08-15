@@ -27,7 +27,7 @@ PBM_DIR = args.data_dir
 
 # ─── Hyperparameters ──────────────────────────────────────────────
 LATENT_DIM = 256
-EPOCHS = 150
+EPOCHS = 22
 BATCH_SIZE = 128
 FREEZE_EPOCHS = 1
 NUM_CLASSES = None  # derived from data + low_conf
@@ -38,8 +38,8 @@ KL_START_WEIGHT = 0.02
 KL_WEIGHT = 0.45
 KL_DECAY_EPOCHS = EPOCHS - KL_WARMUP_EPOCHS
 KL_WEIGHT_END = 0.1
-LEARNING_RATE = 0.0003
-LR_WARMUP_EPOCHS = 10
+LEARNING_RATE = 0.0004
+LR_WARMUP_EPOCHS = 5
 LR_START = 0.0002
 LR_DECAY_EPOCHS = EPOCHS - LR_WARMUP_EPOCHS
 LR_END = 0.000002
@@ -61,7 +61,7 @@ TV_START_WEIGHT = 0.07
 TV_PEAK_WEIGHT = 0.25
 TV_DECAY_EPOCHS = EPOCHS - TV_WARMUP_EPOCHS
 TV_END_WEIGHT = 0.2
-LOG_NAME = "train_gen2"
+LOG_NAME = "train_gen2b"
 
 def load_pbm(path):
     """Load a P4 PBM file and return a 2D numpy array of 0/1 float32."""
@@ -361,20 +361,16 @@ def build_encoder():
     x_direct = tf.keras.layers.LayerNormalization(name='enc_direct_ln')(x_direct)
     x_direct = tf.keras.layers.Dropout(DENSE_DROPOUT, name='enc_direct_drop')(x_direct)
     x = tf.keras.layers.Dense(256, kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_main_proj')(x)
-    gate = tf.keras.layers.Concatenate(name='enc_direct_gate_in')([x, x_direct])
-    gate = tf.keras.layers.Dense(1, activation='sigmoid', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_direct_gate')(gate)
-    x = gate * x + (1.0 - gate) * x_direct
 
     label_proj = tf.keras.layers.Dense(128, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_label_proj")(label_input)
-    label_proj = tf.keras.layers.Dropout(DENSE_DROPOUT, name="enc_label_drop")(label_proj)
 
-    x = tf.keras.layers.Concatenate(name="enc_concat")([x, label_proj])
-    x = tf.keras.layers.Dense(256, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_dense256")(x)
-    x = tf.keras.layers.LayerNormalization(name="enc_ln256_1")(x)
-    x = tf.keras.layers.Dropout(DENSE_DROPOUT, name="enc_drop256")(x)
-    x = tf.keras.layers.Dense(256, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_dense256_2")(x)
-    x = tf.keras.layers.LayerNormalization(name="enc_ln256_3")(x)
-    x = tf.keras.layers.Dropout(DENSE_DROPOUT, name="enc_drop256_2")(x)
+    x = tf.keras.layers.Concatenate(name="enc_concat")([x, x_direct, label_proj])
+    x = tf.keras.layers.Dense(512, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_fuse_proj")(x)
+    x = tf.keras.layers.LayerNormalization(name="enc_ln512_1")(x)
+    x = tf.keras.layers.Dropout(DENSE_DROPOUT, name="enc_drop512")(x)
+    x = tf.keras.layers.Dense(256, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_dense512")(x)
+    x = tf.keras.layers.LayerNormalization(name="enc_ln512_2")(x)
+    x = tf.keras.layers.Dropout(DENSE_DROPOUT, name="enc_drop512_2")(x)
 
     z_mean = tf.keras.layers.Dense(LATENT_DIM, name="z_mean", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     z_log_var = tf.keras.layers.Dense(LATENT_DIM, name="z_log_var", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
@@ -391,22 +387,23 @@ def build_generator():
     class_emb = tf.keras.layers.Dense(64, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="gen_class_emb")(label_input)
     class_emb = tf.keras.layers.Dropout(DENSE_DROPOUT, name="gen_class_emb_drop")(class_emb)
 
-    # Concatenate latent and label for initial expansion
-    z = tf.keras.layers.Dense(64, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(latent_input)
-    z = tf.keras.layers.Dropout(DENSE_DROPOUT)(z)
-    x = tf.keras.layers.Concatenate()([z, class_emb])
-    x = tf.keras.layers.Dense(256, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
-    x = tf.keras.layers.LayerNormalization()(x)
-    # Channel attention over the 256-D bottleneck
-    attn = tf.keras.layers.Dense(256 // 4, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
-    attn = tf.keras.layers.Dense(256, activation="sigmoid", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="gen_latent_attn")(attn)
-    x = x * attn
-    x = tf.keras.layers.Dense(7 * 7 * 128, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
-    x = tf.keras.layers.LayerNormalization()(x)
-    x = tf.keras.layers.Dropout(DENSE_DROPOUT)(x)
+    # Direct expansion: latent -> 7x7 spatial features, no discard
+    x = tf.keras.layers.Dense(7 * 7 * 128, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(latent_input)
     x = tf.keras.layers.Reshape((7, 7, 128))(x)
     x = tf.keras.layers.SpatialDropout2D(SPATIAL_DROPOUT)(x)
     skip7 = x
+    x7_pre = x
+
+    # FiLM at 7x7 on full spatial tensor
+    gamma7 = tf.keras.layers.Dense(128, kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="gen_film7_scale")(class_emb)
+    beta7 = tf.keras.layers.Dense(128, kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="gen_film7_offset")(class_emb)
+    gamma7 = tf.keras.layers.Reshape((1, 1, 128))(gamma7)
+    beta7 = tf.keras.layers.Reshape((1, 1, 128))(beta7)
+    x = x * (1.0 + gamma7) + beta7
+    x = tf.keras.layers.Add()([
+        x,
+        tf.keras.layers.Conv2D(128, 1, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x7_pre),
+    ])
 
     # 7x7 block: 128 channels
     x7_res = x
