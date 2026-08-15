@@ -822,15 +822,15 @@ def main():
     encoder = build_encoder()
     copied_layer_names = copy_mnist2_weights_to_encoder(encoder)
     fusion_frozen = [
-        # progressive fusion
-        'enc_fuse7',
-        'enc_fuse7_ln',
-        'enc_proj14',
-        'enc_fuse14',
-        'enc_fuse14_ln',
-        'enc_proj28',
-        'enc_fuse28',
-        'enc_fuse28_ln',
+        ## progressive fusion
+        #'enc_fuse7',
+        #'enc_fuse7_ln',
+        #'enc_proj14',
+        #'enc_fuse14',
+        #'enc_fuse14_ln',
+        #'enc_proj28',
+        #'enc_fuse28',
+        #'enc_fuse28_ln',
         # alt path conv / res blocks
         'conv28',
         'conv28_second',
