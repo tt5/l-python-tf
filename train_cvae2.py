@@ -27,7 +27,7 @@ PBM_DIR = args.data_dir
 
 # ─── Hyperparameters ──────────────────────────────────────────────
 LATENT_DIM = 256
-EPOCHS = 28
+EPOCHS = 30
 BATCH_SIZE = 128
 FREEZE_EPOCHS = 1
 NUM_CLASSES = None  # derived from data + low_conf
@@ -40,24 +40,26 @@ KL_DECAY_EPOCHS = EPOCHS - KL_WARMUP_EPOCHS
 KL_WEIGHT_END = 0.1
 LEARNING_RATE = 0.0006
 LR_WARMUP_EPOCHS = 5
-LR_START = 0.0001
+LR_START = 0.0002
 LR_DECAY_EPOCHS = EPOCHS - LR_WARMUP_EPOCHS
-LR_END = 0.00001
-L2_REG = 0.00001
+LR_END = 0.000005
+L2_REG = 0.000006
 KL_FREE_BITS = 0.0
 SPATIAL_DROPOUT = 0.3
 DENSE_DROPOUT = 0.3
+GEN_SPATIAL_DROPOUT = 0.2
+GEN_DENSE_DROPOUT = 0.2
 AUGMENT = True
 RECON_LOSS_WEIGHT = 1.0
 PERCEPTUAL_MULTISCALE = True
-PERCEPTUAL_WARMUP_EPOCHS = 11
-PERCEPTUAL_START_WEIGHT = 0.01
-PERCEPTUAL_PEAK_WEIGHT = 1
+PERCEPTUAL_WARMUP_EPOCHS = 5
+PERCEPTUAL_START_WEIGHT = 0.02
+PERCEPTUAL_PEAK_WEIGHT = 2
 PERCEPTUAL_DECAY_EPOCHS = EPOCHS - PERCEPTUAL_WARMUP_EPOCHS
 PERCEPTUAL_END_WEIGHT = 0.5
 PERCEPTUAL_EXTRACTOR_PATH = Path(__file__).parent / "mnist2_model"
 TV_WARMUP_EPOCHS = 5
-TV_START_WEIGHT = 0.08
+TV_START_WEIGHT = 0.2
 TV_PEAK_WEIGHT = 0.25
 TV_DECAY_EPOCHS = EPOCHS - TV_WARMUP_EPOCHS
 TV_END_WEIGHT = 0.25
@@ -181,7 +183,6 @@ def label_cross_attention(spatial, label_input, channels, l2_reg):
 
     scores = tf.matmul(q, tf.expand_dims(k, -1)) / tf.sqrt(tf.cast(channels, tf.float32))
     attn = tf.nn.softmax(scores, axis=1)
-    attn = tf.keras.layers.Dropout(DENSE_DROPOUT)(attn)
 
     ctx = attn * tf.expand_dims(v, 1)
     ctx = tf.reshape(ctx, [B, H, W, channels])
@@ -189,12 +190,15 @@ def label_cross_attention(spatial, label_input, channels, l2_reg):
 
     return tf.keras.layers.Add()([spatial, ctx])
 
-def make_film(channels):
+def make_film(channels, emb=None):
     def film_fn(label):
-        emb_dim = max(16, channels // 4)
-        emb = tf.keras.layers.Dense(emb_dim, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(label)
-        gamma = tf.keras.layers.Dense(channels, kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(emb)
-        beta = tf.keras.layers.Dense(channels, kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(emb)
+        if emb is not None:
+            shared_emb = emb
+        else:
+            emb_dim = max(16, channels // 4)
+            shared_emb = tf.keras.layers.Dense(emb_dim, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(label)
+        gamma = tf.keras.layers.Dense(channels, kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(shared_emb)
+        beta = tf.keras.layers.Dense(channels, kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(shared_emb)
         gamma = tf.keras.layers.Reshape((1, 1, channels))(gamma)
         beta = tf.keras.layers.Reshape((1, 1, channels))(beta)
         return gamma, beta
@@ -384,6 +388,8 @@ def build_generator():
     label_input = tf.keras.layers.Input(shape=(NUM_CLASSES,), name="label_input")
 
     # Class conditioning via direct label input at each scale
+    label_emb = tf.keras.layers.Dense(64, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="gen_label_emb")(label_input)
+    label_emb = tf.keras.layers.Dropout(GEN_DENSE_DROPOUT, name="gen_label_emb_drop")(label_emb)
 
     # Direct expansion: latent -> 7x7 spatial features, no discard
     x = tf.keras.layers.Dense(7 * 7 * 128, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(latent_input)
@@ -396,7 +402,12 @@ def build_generator():
     x = tf.keras.layers.Activation("relu")(x)
 
     # Class conditioning at 7x7
+    x7_pre = x
     x = label_cross_attention(x, label_input, 128, L2_REG)
+    x = tf.keras.layers.Add()([
+        x,
+        tf.keras.layers.Conv2D(128, 1, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x7_pre),
+    ])
 
     # ── 7x7 block ───────────────────────────────────────────────
     skip7 = x
@@ -422,7 +433,7 @@ def build_generator():
     x = tf.keras.layers.Conv2D(64, 3, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = tf.keras.layers.LayerNormalization(center=True, scale=True)(x)
     x = tf.keras.layers.Activation("relu")(x)
-    x = tf.keras.layers.SpatialDropout2D(SPATIAL_DROPOUT)(x)
+    x = tf.keras.layers.SpatialDropout2D(GEN_SPATIAL_DROPOUT)(x)
     skip7_up = tf.keras.layers.Conv2DTranspose(64, 4, strides=2, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(skip7)
     skip7_up = tf.keras.layers.Conv2D(64, 1, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(skip7_up)
 
@@ -438,7 +449,7 @@ def build_generator():
     channels14 = 64
     x14_pre = x
     x = label_cross_attention(x, label_input, channels14, L2_REG)
-    scale, offset = make_film(channels14)(label_input)
+    scale, offset = make_film(channels14, emb=label_emb)(label_input)
     scale = tf.keras.layers.Reshape((1, 1, channels14))(scale)
     offset = tf.keras.layers.Reshape((1, 1, channels14))(offset)
     x = x * (1.0 + scale) + offset
@@ -454,14 +465,14 @@ def build_generator():
     ])
 
     skip14 = x
-    x = tf.keras.layers.SpatialDropout2D(SPATIAL_DROPOUT)(x)
+    x = tf.keras.layers.SpatialDropout2D(GEN_SPATIAL_DROPOUT)(x)
 
     # ── 28x28 block ──────────────────────────────────────────────
     x = tf.keras.layers.Conv2DTranspose(32, 4, strides=2, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = tf.keras.layers.Conv2D(32, 3, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = tf.keras.layers.LayerNormalization(center=True, scale=True)(x)
     x = tf.keras.layers.Activation("relu")(x)
-    x = tf.keras.layers.SpatialDropout2D(SPATIAL_DROPOUT)(x)
+    x = tf.keras.layers.SpatialDropout2D(GEN_SPATIAL_DROPOUT)(x)
     skip14_up = tf.keras.layers.Conv2DTranspose(32, 4, strides=2, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(skip14)
     skip14_up = tf.keras.layers.Conv2D(32, 1, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(skip14_up)
 
@@ -478,7 +489,7 @@ def build_generator():
     channels28 = 32
     x28_pre = x
     x = label_cross_attention(x28_pre, label_input, channels28, L2_REG)
-    scale, offset = make_film(channels28)(label_input)
+    scale, offset = make_film(channels28, emb=label_emb)(label_input)
     scale = tf.keras.layers.Reshape((1, 1, channels28))(scale)
     offset = tf.keras.layers.Reshape((1, 1, channels28))(offset)
     x = x * (1.0 + scale) + offset
@@ -492,7 +503,7 @@ def build_generator():
         x,
         tf.keras.layers.Conv2D(32, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x28_pre),
     ])
-    x = tf.keras.layers.SpatialDropout2D(SPATIAL_DROPOUT)(x)
+    x = tf.keras.layers.SpatialDropout2D(GEN_SPATIAL_DROPOUT)(x)
 
     # post-FiLM refinement at 28x28 before the final 1x1
     x28_refine = tf.keras.layers.Conv2D(32, 3, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
