@@ -356,15 +356,13 @@ def build_encoder():
 
     # Pool to vector
     x = tf.keras.layers.GlobalAveragePooling2D(name='enc_gap_fused')(x7)
+    x = tf.keras.layers.Dense(256, kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_main_proj')(x)
 
     # Direct skip from original 7x7 features
     x_direct = tf.keras.layers.Flatten(name='enc_flat_direct')(x7)
     x_direct = tf.keras.layers.Dense(512, kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_direct_proj1')(x_direct)
     x_direct = tf.keras.layers.LayerNormalization(name='enc_direct_ln1')(x_direct)
     x_direct = tf.keras.layers.Dense(256, kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_direct_proj')(x_direct)
-    x_direct = tf.keras.layers.LayerNormalization(name='enc_direct_ln')(x_direct)
-    x_direct = tf.keras.layers.Dropout(DENSE_DROPOUT, name='enc_direct_drop')(x_direct)
-    x = tf.keras.layers.Dense(256, kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_main_proj')(x)
 
     label_proj = tf.keras.layers.Dense(128, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_label_proj")(label_input)
 
