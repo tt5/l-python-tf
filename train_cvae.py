@@ -32,7 +32,8 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--num-classes", type=int, default=NUM_CLASSES)
 parser.add_argument("--epochs", type=int, default=EPOCHS)
 parser.add_argument("--batch-size", type=int, default=BATCH_SIZE)
-parser.add_argument("--max-samples-per-class", type=int, default=None, help="Maximum samples per class")
+parser.add_argument("--max-samples-per-class", type=int, default=None, help="Maximum samples per class to load from disk")
+parser.add_argument("--samples-per-epoch-per-class", type=int, default=None, help="Random subset size per class each epoch")
 parser.add_argument("--pbm-dir", type=str, default=None, help="Load P4 PBM images from this directory instead of .npy")
 args = parser.parse_args()
 
@@ -40,6 +41,7 @@ NUM_CLASSES = args.num_classes
 EPOCHS = args.epochs
 BATCH_SIZE = args.batch_size
 MAX_SAMPLES_PER_CLASS = args.max_samples_per_class
+SAMPLES_PER_EPOCH_PER_CLASS = args.samples_per_epoch_per_class
 PBM_DIR = Path(args.pbm_dir) if args.pbm_dir else None
 
 PROGRESSIVE_EPOCHS = 3 # Phase 1: 14x14
@@ -572,10 +574,57 @@ class VAE(keras.Model):
 
 
 # ─── Train ────────────────────────────────────────────────────────
+class CVAESequence(tf.keras.utils.Sequence):
+    def __init__(self, images, labels, batch_size, samples_per_epoch_per_class=None):
+        self.images = images
+        self.labels = labels
+        self.batch_size = batch_size
+        self.samples_per_epoch_per_class = samples_per_epoch_per_class
+
+        # Handle one-hot labels
+        if len(labels.shape) == 2 and labels.shape[1] > 1:
+            label_indices = np.argmax(labels, axis=1)
+        else:
+            label_indices = np.array(labels)
+
+        self.class_indices = {}
+        for idx, label in enumerate(label_indices):
+            self.class_indices.setdefault(int(label), []).append(idx)
+        self.classes = sorted(self.class_indices.keys())
+        self.full_indices = np.arange(len(images))
+        self._sample_indices()
+
+    def _sample_indices(self):
+        if self.samples_per_epoch_per_class is not None and self.samples_per_epoch_per_class > 0:
+            sampled_indices = []
+            for cls in self.classes:
+                cls_idx = np.array(self.class_indices[cls])
+                n_sample = min(self.samples_per_epoch_per_class, len(cls_idx))
+                sampled = np.random.choice(cls_idx, size=n_sample, replace=False)
+                sampled_indices.extend(sampled)
+            self.indices = np.array(sampled_indices)
+        else:
+            self.indices = self.full_indices.copy()
+        np.random.shuffle(self.indices)
+
+    def __len__(self):
+        return len(self.indices) // self.batch_size
+
+    def __getitem__(self, idx):
+        batch_idx = self.indices[idx * self.batch_size:(idx + 1) * self.batch_size]
+        return self.images[batch_idx], self.labels[batch_idx]
+
+    def on_epoch_end(self):
+        self._sample_indices()
+
+
 encoder = build_encoder()
 generator = build_generator()
 vae = VAE(encoder, generator)
 vae.compile(optimizer=keras.optimizers.Adam(LR))
+
+train_seq = CVAESequence(x_train, y_train, BATCH_SIZE, samples_per_epoch_per_class=SAMPLES_PER_EPOCH_PER_CLASS)
+val_seq = CVAESequence(x_test, y_test, BATCH_SIZE, samples_per_epoch_per_class=None)
 
 # ─── Best Epoch Logger ─────────────────────────────────────────────
 class BestEpochLogger(keras.callbacks.Callback):
@@ -702,13 +751,16 @@ vae_14.compile(optimizer=keras.optimizers.Adam(PHA1_LR))
 # Use train_step_14 which skips perceptual loss
 vae_14.train_step = vae_14.train_step_14
 
+train_seq_14 = CVAESequence(x_train_14, y_train, BATCH_SIZE, samples_per_epoch_per_class=SAMPLES_PER_EPOCH_PER_CLASS)
+val_seq_14 = CVAESequence(x_test_14, y_test, BATCH_SIZE, samples_per_epoch_per_class=None)
+
 callbacks_14 = [
     keras.callbacks.EarlyStopping(monitor='val_recon_loss', patience=10, restore_best_weights=True),
     BestEpochLogger(vae_14),
     keras.callbacks.TensorBoard(log_dir=LOG_NAME_PHA1, histogram_freq=1),
 ]
 
-history1 = vae_14.fit(x_train_14, y_train, validation_data=(x_test_14, y_test),
+history1 = vae_14.fit(train_seq_14, validation_data=val_seq_14,
                       epochs=PROGRESSIVE_EPOCHS, batch_size=BATCH_SIZE, callbacks=callbacks_14, verbose=2)
 
 # Transfer weights from 14×14 model to 28×28 model
@@ -760,8 +812,8 @@ for v in frozen_weights:
     v._trainable = False
 vae.compile(optimizer=keras.optimizers.Adam(LR))
 history2_frozen = vae.fit(
-    x_train, y_train,
-    validation_data=(x_test, y_test),
+    train_seq,
+    validation_data=val_seq,
     epochs=min(freeze_epochs_end, EPOCHS),
     batch_size=BATCH_SIZE,
     callbacks=callbacks,
@@ -775,8 +827,8 @@ for v in frozen_weights:
     v._trainable = True
 vae.compile(optimizer=keras.optimizers.Adam(LR))
 history2 = vae.fit(
-    x_train, y_train,
-    validation_data=(x_test, y_test),
+    train_seq,
+    validation_data=val_seq,
     epochs=EPOCHS,
     batch_size=BATCH_SIZE,
     callbacks=callbacks,
