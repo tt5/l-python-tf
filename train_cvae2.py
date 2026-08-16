@@ -27,7 +27,7 @@ PBM_DIR = args.data_dir
 
 # ─── Hyperparameters ──────────────────────────────────────────────
 LATENT_DIM = 256
-EPOCHS = 31
+EPOCHS = 33
 BATCH_SIZE = 128
 FREEZE_EPOCHS = 1
 NUM_CLASSES = None  # derived from data + low_conf
@@ -54,7 +54,7 @@ RECON_LOSS_WEIGHT = 1.0
 PERCEPTUAL_MULTISCALE = True
 PERCEPTUAL_WARMUP_EPOCHS = 5
 PERCEPTUAL_START_WEIGHT = 0.02
-PERCEPTUAL_PEAK_WEIGHT = 2
+PERCEPTUAL_PEAK_WEIGHT = 2000
 PERCEPTUAL_DECAY_EPOCHS = EPOCHS - PERCEPTUAL_WARMUP_EPOCHS
 PERCEPTUAL_END_WEIGHT = 0.5
 PERCEPTUAL_EXTRACTOR_PATH = Path(__file__).parent / "mnist2_model"
@@ -63,7 +63,7 @@ TV_START_WEIGHT = 0.2
 TV_PEAK_WEIGHT = 0.25
 TV_DECAY_EPOCHS = EPOCHS - TV_WARMUP_EPOCHS
 TV_END_WEIGHT = 0.25
-LOG_NAME = "train_gen2"
+LOG_NAME = "train_gen2b"
 
 def load_pbm(path):
     """Load a P4 PBM file and return a 2D numpy array of 0/1 float32."""
@@ -822,30 +822,30 @@ def main():
         'conv28',
         'conv28_second',
         'enc_ln28_2',
-        'conv14_pre',
-        'conv14_res1',
-        'conv14_res2',
-        'enc_ln14_2',
-        'conv7',
-        'conv7_deep2',
-        'enc_ln7_1',
-        'conv7_res1',
+        #'conv14_pre',
+        #'conv14_res1',
+        #'conv14_res2',
+        #'enc_ln14_2',
+        #'conv7',
+        #'conv7_deep2',
+        #'enc_ln7_1',
+        #'conv7_res1',
         # CBAM sublayers
         'cbam28_ca_dense1',
         'cbam28_ca_dense2',
         'cbam28_sa_conv1',
         'cbam28_sa_conv2',
         'cbam28_ln',
-        'cbam14_ca_dense1',
-        'cbam14_ca_dense2',
-        'cbam14_sa_conv1',
-        'cbam14_sa_conv2',
-        'cbam14_ln',
-        'cbam7_ca_dense1',
-        'cbam7_ca_dense2',
-        'cbam7_sa_conv1',
-        'cbam7_sa_conv2',
-        'cbam7_ln',
+        #'cbam14_ca_dense1',
+        #'cbam14_ca_dense2',
+        #'cbam14_sa_conv1',
+        #'cbam14_sa_conv2',
+        #'cbam14_ln',
+        #'cbam7_ca_dense1',
+        #'cbam7_ca_dense2',
+        #'cbam7_sa_conv1',
+        #'cbam7_sa_conv2',
+        #'cbam7_ln',
     ]
     frozen = [name for name in copied_layer_names if name in fusion_frozen]
     for name in frozen:

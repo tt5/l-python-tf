@@ -10,6 +10,7 @@ Usage:
 
 import numpy as np
 import os
+import argparse
 from pathlib import Path
 import tensorflow as tf
 from tensorflow import keras
@@ -26,6 +27,19 @@ PHA1_LATENT_DIM = 64
 EPOCHS = 90
 BATCH_SIZE = 128
 NUM_CLASSES = 5
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--num-classes", type=int, default=NUM_CLASSES)
+parser.add_argument("--epochs", type=int, default=EPOCHS)
+parser.add_argument("--batch-size", type=int, default=BATCH_SIZE)
+parser.add_argument("--max-samples-per-class", type=int, default=None, help="Maximum samples per class")
+args = parser.parse_args()
+
+NUM_CLASSES = args.num_classes
+EPOCHS = args.epochs
+BATCH_SIZE = args.batch_size
+MAX_SAMPLES_PER_CLASS = args.max_samples_per_class
+
 PROGRESSIVE_EPOCHS = 3 # Phase 1: 14x14
 LR = 0.001
 LR_WARMUP_START = 0.000005
@@ -57,18 +71,36 @@ PHA1_KL_WARMUP_EPOCHS = 1
 PHA1_KL_WARMUP_START = 0.0000001
 PHA1_KL_WEIGHT_START = 0.01
 PHA1_INFO_NCE_WEIGHT = 0.0
-LOG_NAME = 'logs/gen1b'
-LOG_NAME_PHA1 = 'logs/gen1b/phase1'
+LOG_NAME = 'logs/gen1'
+LOG_NAME_PHA1 = 'logs/gen1/phase1'
 
 # ─── Data ──────────────────────────────────────────────────────────
 def load_data_cvae():
     (x_train, y_train), (x_test, y_test) = load_data(DATA_DIR, NUM_CLASSES, flip_pixels=7*28)
+    if MAX_SAMPLES_PER_CLASS is not None and MAX_SAMPLES_PER_CLASS > 0:
+        mask_train = np.zeros(len(x_train), dtype=bool)
+        mask_test = np.zeros(len(x_test), dtype=bool)
+        for c in range(NUM_CLASSES - 1):
+            idx_tr = np.where(y_train == c)[0]
+            idx_te = np.where(y_test == c)[0]
+            take_tr = min(MAX_SAMPLES_PER_CLASS, len(idx_tr))
+            take_te = min(MAX_SAMPLES_PER_CLASS, len(idx_te))
+            mask_train[idx_tr[:take_tr]] = True
+            mask_test[idx_te[:take_te]] = True
+        x_train, y_train = x_train[mask_train], y_train[mask_train]
+        x_test, y_test = x_test[mask_test], y_test[mask_test]
+        train_perm = np.random.permutation(len(x_train))
+        test_perm = np.random.permutation(len(x_test))
+        x_train, y_train = x_train[train_perm], y_train[train_perm]
+        x_test, y_test = x_test[test_perm], y_test[test_perm]
     y_train = keras.utils.to_categorical(y_train, NUM_CLASSES)
     y_test = keras.utils.to_categorical(y_test, NUM_CLASSES)
+    print(f"Using {len(x_train)} train / {len(x_test)} test samples")
     return x_train, y_train, x_test, y_test
 
 
 x_train, y_train, x_test, y_test = load_data_cvae()
+
 
 # ─── Resize helper for progressive growing ─────────────────────────
 def resize_images(images, target_size):
