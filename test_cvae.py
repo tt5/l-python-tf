@@ -98,4 +98,22 @@ for c in range(NUM_CLASSES - 1):
     accuracy = (preds == c).mean()
     print(f"  Class {c}: {accuracy*100:.1f}% correctly classified ({int((preds == c).sum())}/{n_samples})")
 
+# ─── Synthetic last-class evaluation ─────────────────────────────────
+print(f"\n─── Synthetic class evaluation (generated on-the-fly) ───")
+synthetic_label = NUM_CLASSES - 1
+flip_pixels = 7 * 28
+pixel_indices = np.arange(28 * 28)
+images = []
+for _ in range(SAMPLES_PER_CLASS):
+    sample = np.zeros((28, 28), dtype=np.float32)
+    flips = np.random.choice(pixel_indices, size=np.random.randint(3, flip_pixels), replace=False)
+    sample.reshape(-1)[flips] = 1.0
+    images.append(sample)
+images = np.array(images).reshape(-1, 28, 28, 1).astype(np.float32)
+
+preds = cls_session.run([cls_output_name], {cls_input_name: images})[0]
+preds = preds.argmax(axis=1)
+accuracy = (preds == synthetic_label).mean()
+print(f"  Class {synthetic_label}: {accuracy*100:.1f}% correctly classified ({int((preds == synthetic_label).sum())}/{SAMPLES_PER_CLASS})")
+
 print("\nDone!")
