@@ -40,7 +40,7 @@ EARLY_STOP_PATIENCE = 100
 GAUSSIAN_NOISE = 0.00002
 GAUSSIAN_NOISE_DECAY_EPOCHS = EPOCHS
 GAUSSIAN_NOISE_END = 0.000001
-LOG_DIR = "logs/cls1"
+LOG_DIR = "logs/cls1b"
 
 
 AUGMENT = True  # On-the-fly augmentation: random rotate/transpose

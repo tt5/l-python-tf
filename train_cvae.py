@@ -33,12 +33,14 @@ parser.add_argument("--num-classes", type=int, default=NUM_CLASSES)
 parser.add_argument("--epochs", type=int, default=EPOCHS)
 parser.add_argument("--batch-size", type=int, default=BATCH_SIZE)
 parser.add_argument("--max-samples-per-class", type=int, default=None, help="Maximum samples per class")
+parser.add_argument("--pbm-dir", type=str, default=None, help="Load P4 PBM images from this directory instead of .npy")
 args = parser.parse_args()
 
 NUM_CLASSES = args.num_classes
 EPOCHS = args.epochs
 BATCH_SIZE = args.batch_size
 MAX_SAMPLES_PER_CLASS = args.max_samples_per_class
+PBM_DIR = Path(args.pbm_dir) if args.pbm_dir else None
 
 PROGRESSIVE_EPOCHS = 3 # Phase 1: 14x14
 LR = 0.001
@@ -76,7 +78,7 @@ LOG_NAME_PHA1 = 'logs/gen1/phase1'
 
 # ─── Data ──────────────────────────────────────────────────────────
 def load_data_cvae():
-    (x_train, y_train), (x_test, y_test) = load_data(DATA_DIR, NUM_CLASSES, flip_pixels=7*28, max_samples_per_class=MAX_SAMPLES_PER_CLASS)
+    (x_train, y_train), (x_test, y_test) = load_data(DATA_DIR, NUM_CLASSES, flip_pixels=7*28, max_samples_per_class=MAX_SAMPLES_PER_CLASS, pbm_dir=PBM_DIR)
     y_train = keras.utils.to_categorical(y_train, NUM_CLASSES)
     y_test = keras.utils.to_categorical(y_test, NUM_CLASSES)
     return x_train, y_train, x_test, y_test
