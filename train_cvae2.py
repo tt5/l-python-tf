@@ -372,9 +372,6 @@ def build_encoder():
     x = tf.keras.layers.Dense(512, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_fuse_proj")(x)
     x = tf.keras.layers.LayerNormalization(name="enc_ln512_1")(x)
     x = tf.keras.layers.Dropout(DENSE_DROPOUT, name="enc_drop512")(x)
-    x = tf.keras.layers.Dense(256, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_dense512")(x)
-    x = tf.keras.layers.LayerNormalization(name="enc_ln512_2")(x)
-    x = tf.keras.layers.Dropout(DENSE_DROPOUT, name="enc_drop512_2")(x)
 
     z_mean = tf.keras.layers.Dense(LATENT_DIM, name="z_mean", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     z_log_var = tf.keras.layers.Dense(LATENT_DIM, name="z_log_var", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
