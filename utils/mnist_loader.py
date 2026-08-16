@@ -10,7 +10,7 @@ import numpy as np
 import tensorflow.keras as keras
 
 
-def load_data(data_dir, num_classes=6, flip_pixels=2, image_shape=(28, 28, 1), randomized=True, split_ratio=0.8):
+def load_data(data_dir, num_classes=6, flip_pixels=2, image_shape=(28, 28, 1), randomized=True, split_ratio=0.8, max_samples_per_class=None):
     """Load class 0..num_classes-2 from ``data_dir`` and synthesize one extra class.
 
     Parameters
@@ -29,6 +29,8 @@ def load_data(data_dir, num_classes=6, flip_pixels=2, image_shape=(28, 28, 1), r
         Apply per-image random pixel flips for the two synthesized classes.
     split_ratio : float
         Fraction of each class to use for training, remainder for testing.
+    max_samples_per_class : int or None
+        If set, load at most this many samples per class before splitting.
 
     Returns
     -------
@@ -46,6 +48,8 @@ def load_data(data_dir, num_classes=6, flip_pixels=2, image_shape=(28, 28, 1), r
         files = sorted(data_dir.glob(f"class_{c}/*.npy"))
         if not files:
             raise ValueError(f"No .npy files in {data_dir / f'class_{c}'}")
+        if max_samples_per_class is not None and max_samples_per_class > 0:
+            files = files[:max_samples_per_class]
         split_idx = int(len(files) * split_ratio)
         train_files = files[:split_idx]
         test_files = files[split_idx:]

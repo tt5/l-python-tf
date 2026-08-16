@@ -76,26 +76,9 @@ LOG_NAME_PHA1 = 'logs/gen1/phase1'
 
 # ─── Data ──────────────────────────────────────────────────────────
 def load_data_cvae():
-    (x_train, y_train), (x_test, y_test) = load_data(DATA_DIR, NUM_CLASSES, flip_pixels=7*28)
-    if MAX_SAMPLES_PER_CLASS is not None and MAX_SAMPLES_PER_CLASS > 0:
-        mask_train = np.zeros(len(x_train), dtype=bool)
-        mask_test = np.zeros(len(x_test), dtype=bool)
-        for c in range(NUM_CLASSES - 1):
-            idx_tr = np.where(y_train == c)[0]
-            idx_te = np.where(y_test == c)[0]
-            take_tr = min(MAX_SAMPLES_PER_CLASS, len(idx_tr))
-            take_te = min(MAX_SAMPLES_PER_CLASS, len(idx_te))
-            mask_train[idx_tr[:take_tr]] = True
-            mask_test[idx_te[:take_te]] = True
-        x_train, y_train = x_train[mask_train], y_train[mask_train]
-        x_test, y_test = x_test[mask_test], y_test[mask_test]
-        train_perm = np.random.permutation(len(x_train))
-        test_perm = np.random.permutation(len(x_test))
-        x_train, y_train = x_train[train_perm], y_train[train_perm]
-        x_test, y_test = x_test[test_perm], y_test[test_perm]
+    (x_train, y_train), (x_test, y_test) = load_data(DATA_DIR, NUM_CLASSES, flip_pixels=7*28, max_samples_per_class=MAX_SAMPLES_PER_CLASS)
     y_train = keras.utils.to_categorical(y_train, NUM_CLASSES)
     y_test = keras.utils.to_categorical(y_test, NUM_CLASSES)
-    print(f"Using {len(x_train)} train / {len(x_test)} test samples")
     return x_train, y_train, x_test, y_test
 
 
