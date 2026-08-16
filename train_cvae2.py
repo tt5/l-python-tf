@@ -27,7 +27,7 @@ PBM_DIR = args.data_dir
 
 # ─── Hyperparameters ──────────────────────────────────────────────
 LATENT_DIM = 256
-EPOCHS = 30
+EPOCHS = 31
 BATCH_SIZE = 128
 FREEZE_EPOCHS = 1
 NUM_CLASSES = None  # derived from data + low_conf
@@ -592,6 +592,9 @@ class CVAE(tf.keras.Model):
                 perceptual_loss_conv28 = tf.reduce_mean(tf.square(real_feats[0] - fake_feats[0]))
                 perceptual_loss_conv14 = tf.reduce_mean(tf.square(real_feats[1] - fake_feats[1]))
                 perceptual_loss_conv7 = tf.reduce_mean(tf.square(real_feats[2] - fake_feats[2]))
+                perceptual_loss_conv28 = perceptual_loss_conv28 / tf.cast(tf.shape(real_feats[0])[1] * tf.shape(real_feats[0])[2], tf.float32)
+                perceptual_loss_conv14 = perceptual_loss_conv14 / tf.cast(tf.shape(real_feats[1])[1] * tf.shape(real_feats[1])[2], tf.float32)
+                perceptual_loss_conv7 = perceptual_loss_conv7 / tf.cast(tf.shape(real_feats[2])[1] * tf.shape(real_feats[2])[2], tf.float32)
 
             if PERCEPTUAL_MULTISCALE:
                 scale_losses = tf.stack([perceptual_loss_conv28, perceptual_loss_conv14, perceptual_loss_conv7])
@@ -645,6 +648,9 @@ class CVAE(tf.keras.Model):
             perceptual_loss_conv28 = tf.reduce_mean(tf.square(real_feats[0] - fake_feats[0]))
             perceptual_loss_conv14 = tf.reduce_mean(tf.square(real_feats[1] - fake_feats[1]))
             perceptual_loss_conv7 = tf.reduce_mean(tf.square(real_feats[2] - fake_feats[2]))
+            perceptual_loss_conv28 = perceptual_loss_conv28 / tf.cast(tf.shape(real_feats[0])[1] * tf.shape(real_feats[0])[2], tf.float32)
+            perceptual_loss_conv14 = perceptual_loss_conv14 / tf.cast(tf.shape(real_feats[1])[1] * tf.shape(real_feats[1])[2], tf.float32)
+            perceptual_loss_conv7 = perceptual_loss_conv7 / tf.cast(tf.shape(real_feats[2])[1] * tf.shape(real_feats[2])[2], tf.float32)
         else:
             perceptual_loss_conv28 = tf.constant(0.0)
             perceptual_loss_conv14 = tf.constant(0.0)
