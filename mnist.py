@@ -52,6 +52,7 @@ parser.add_argument("--num-classes", type=int, default=NUM_CLASSES)
 parser.add_argument("--epochs", type=int, default=EPOCHS)
 parser.add_argument("--batch-size", type=int, default=BATCH_SIZE)
 parser.add_argument("--max-samples-per-class", type=int, default=None, help="Maximum samples per class")
+parser.add_argument("--samples-per-epoch-per-class", type=int, default=None, help="Random subset size per class each epoch")
 parser.add_argument("--pbm-dir", type=str, default=None, help="Load P4 PBM images from this directory instead of .npy")
 args = parser.parse_args()
 
@@ -59,26 +60,49 @@ NUM_CLASSES = args.num_classes
 EPOCHS = args.epochs
 BATCH_SIZE = args.batch_size
 MAX_SAMPLES_PER_CLASS = args.max_samples_per_class
+SAMPLES_PER_EPOCH_PER_CLASS = args.samples_per_epoch_per_class
 PBM_DIR = Path(args.pbm_dir) if args.pbm_dir else None
 
 
 class AugmentGenerator(tf.keras.utils.Sequence):
     """Data generator with on-the-fly rotation (0/90/180/270) and transpose."""
-    def __init__(self, images, labels, batch_size, augment=True):
+    def __init__(self, images, labels, batch_size, augment=True, samples_per_epoch_per_class=None):
         self.images = images
         self.labels = labels
         self.batch_size = batch_size
         self.augment = augment
-        self.indices = np.arange(len(images))
-    
+        self.samples_per_epoch_per_class = samples_per_epoch_per_class
+
+        # Group indices by class for per-class subset sampling
+        self.class_indices = {}
+        for idx, label in enumerate(labels):
+            self.class_indices.setdefault(int(label), []).append(idx)
+        self.classes = sorted(self.class_indices.keys())
+
+        self.full_indices = np.arange(len(images))
+        self._sample_indices()
+
+    def _sample_indices(self):
+        if self.samples_per_epoch_per_class is not None and self.samples_per_epoch_per_class > 0:
+            sampled_indices = []
+            for cls in self.classes:
+                cls_idx = np.array(self.class_indices[cls])
+                n_sample = min(self.samples_per_epoch_per_class, len(cls_idx))
+                sampled = np.random.choice(cls_idx, size=n_sample, replace=False)
+                sampled_indices.extend(sampled)
+            self.indices = np.array(sampled_indices)
+        else:
+            self.indices = self.full_indices.copy()
+        np.random.shuffle(self.indices)
+
     def __len__(self):
-        return len(self.images) // self.batch_size
-    
+        return len(self.indices) // self.batch_size
+
     def __getitem__(self, idx):
         batch_idx = self.indices[idx * self.batch_size:(idx + 1) * self.batch_size]
         images = self.images[batch_idx].copy()
         labels = self.labels[batch_idx]
-        
+
         if self.augment:
             for i in range(len(images)):
                 k = np.random.randint(0, 4)  # 0-3 rotations
@@ -86,11 +110,11 @@ class AugmentGenerator(tf.keras.utils.Sequence):
                     images[i] = np.rot90(images[i], k=k)
                 if np.random.random() < 0.5:
                     images[i] = np.transpose(images[i], (1, 0, 2))
-        
+
         return images, labels
-    
+
     def on_epoch_end(self):
-        np.random.shuffle(self.indices)
+        self._sample_indices()
 
 
 # ─── Load dataset ──────────────────────────────────────────────────
@@ -374,7 +398,7 @@ callbacks = [
 ]
 
 if AUGMENT:
-    train_gen = AugmentGenerator(x_train, y_train, BATCH_SIZE, augment=True)
+    train_gen = AugmentGenerator(x_train, y_train, BATCH_SIZE, augment=True, samples_per_epoch_per_class=SAMPLES_PER_EPOCH_PER_CLASS)
     model.fit(train_gen, epochs=EPOCHS, validation_data=(x_test, y_test), callbacks=callbacks)
 else:
     model.fit(x_train, y_train, epochs=EPOCHS, batch_size=BATCH_SIZE, validation_data=(x_test, y_test), callbacks=callbacks)
