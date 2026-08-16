@@ -73,8 +73,8 @@ PHA1_KL_WARMUP_EPOCHS = 1
 PHA1_KL_WARMUP_START = 0.0000001
 PHA1_KL_WEIGHT_START = 0.01
 PHA1_INFO_NCE_WEIGHT = 0.0
-LOG_NAME = 'logs/gen1'
-LOG_NAME_PHA1 = 'logs/gen1/phase1'
+LOG_NAME = 'logs/gen1b'
+LOG_NAME_PHA1 = 'logs/gen1b/phase1'
 
 # ─── Data ──────────────────────────────────────────────────────────
 def load_data_cvae():
