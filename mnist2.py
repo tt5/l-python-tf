@@ -37,7 +37,7 @@ except Exception:
             return super()._resource_apply_sparse(grad, var, indices, apply_state)
 
 DEFAULT_PBM_DIR = Path(__file__).resolve().parent / "../../telephonegame/data/pbm"
-TB_LOG_DIR = Path(__file__).resolve().parent / "logs" / "mnist2b"
+TB_LOG_DIR = Path(__file__).resolve().parent / "logs" / "mnist2"
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--data-dir", type=Path, default=DEFAULT_PBM_DIR, help="PBM data directory")
@@ -329,7 +329,6 @@ def main():
     c0 = L.Add()([c0, c0_res])
     c0 = L.Activation('relu')(c0)
     c0 = L.SpatialDropout2D(SPATIAL_DROPOUT)(c0)
-    c0 = L.Dropout(CONV_DROPOUT)(c0)
     c0 = L.Add()([c0, cbam_block(c0, name_prefix='cbam28')])
 
     # Conv block 1: 28x28 -> 14x14
@@ -345,14 +344,12 @@ def main():
     c1 = L.Add()([c1, c1_res2])
     c1 = L.Activation('relu')(c1)
     c1 = L.SpatialDropout2D(SPATIAL_DROPOUT)(c1)
-    c1 = L.Dropout(CONV_DROPOUT)(c1)
     c1 = L.Add()([c1, cbam_block(c1, name_prefix='cbam14')])
 
     # Conv block 2: 14x14 -> 7x7
     c2 = L.SeparableConv2D(128, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv7')(c1)
     c2 = L.MaxPooling2D(2)(c2)
     c2 = L.SpatialDropout2D(SPATIAL_DROPOUT)(c2)
-    c2 = L.Dropout(CONV_DROPOUT)(c2)
     c2 = L.Add()([c2, cbam_block(c2, name_prefix='cbam7')])
 
     # Conv block 3: 7x7 → 7x7 (no pooling)
