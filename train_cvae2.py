@@ -22,8 +22,12 @@ DEFAULT_PBM_DIR = Path(__file__).resolve().parent / "../../telephonegame/data/pb
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--data-dir", type=Path, default=DEFAULT_PBM_DIR, help="PBM data directory")
+parser.add_argument("--max-samples-per-class", type=int, default=None, help="Maximum samples per class to load")
+parser.add_argument("--samples-per-epoch-per-class", type=int, default=None, help="Random subset size per class each epoch")
 args, _ = parser.parse_known_args()
 PBM_DIR = args.data_dir
+MAX_SAMPLES_PER_CLASS = args.max_samples_per_class
+SAMPLES_PER_EPOCH_PER_CLASS = args.samples_per_epoch_per_class
 
 # ─── Hyperparameters ──────────────────────────────────────────────
 LATENT_DIM = 256
@@ -99,6 +103,58 @@ def upscale(grid, dst_h, dst_w):
             out[r_start:r_end, c_start:c_end] = grid[r, c]
     return out
 
+class SamplePerEpochSequence(tf.keras.utils.Sequence):
+    """Per-epoch per-class subset sampler over fixed arrays."""
+    def __init__(self, images, labels, batch_size, samples_per_epoch_per_class=None):
+        self.images = images
+        self.labels = labels
+        self.batch_size = batch_size
+        self.samples_per_epoch_per_class = samples_per_epoch_per_class
+        self.class_indices = {}
+        for idx, label in enumerate(labels):
+            self.class_indices.setdefault(int(label), []).append(idx)
+        self.classes = sorted(self.class_indices.keys())
+        self.full_indices = np.arange(len(images))
+        self._sample_indices()
+
+    def _sample_indices(self):
+        if self.samples_per_epoch_per_class is not None and self.samples_per_epoch_per_class > 0:
+            sampled_indices = []
+            for cls in self.classes:
+                cls_idx = np.array(self.class_indices[cls])
+                n_sample = min(self.samples_per_epoch_per_class, len(cls_idx))
+                sampled = np.random.choice(cls_idx, size=n_sample, replace=False)
+                sampled_indices.extend(sampled)
+            self.indices = np.array(sampled_indices)
+        else:
+            self.indices = self.full_indices.copy()
+        np.random.shuffle(self.indices)
+
+    def __len__(self):
+        return int(np.ceil(len(self.indices) / self.batch_size))
+
+    def __getitem__(self, idx):
+        batch_idx = self.indices[idx * self.batch_size:(idx + 1) * self.batch_size]
+        return self.images[batch_idx], self.labels[batch_idx]
+
+    def on_epoch_end(self):
+        self._sample_indices()
+
+
+def limit_samples_per_class(x, y, max_samples_per_class):
+    """If max_samples_per_class is set, truncate each class to that count."""
+    if max_samples_per_class is None:
+        return x, y
+    keep = []
+    for cls in range(y.shape[1]):
+        idx = np.where(np.argmax(y, axis=1) == cls)[0]
+        idx = idx[:max_samples_per_class]
+        keep.append(idx)
+    keep = np.concatenate(keep)
+    np.random.shuffle(keep)
+    return x[keep], y[keep]
+
+
 def load_dataset():
     """Load all PBM images and labels."""
     files = sorted(PBM_DIR.glob("*.pbm"))
@@ -141,6 +197,9 @@ def load_dataset():
 
     # One-hot encode labels
     labels_oh = tf.keras.utils.to_categorical(labels, NUM_CLASSES)
+
+    # Optional per-class cap
+    images, labels_oh = limit_samples_per_class(images, labels_oh, MAX_SAMPLES_PER_CLASS)
 
     # Shuffle
     np.random.seed(42)
@@ -937,8 +996,13 @@ def main():
 
     print(f"\nTraining CVAE for {EPOCHS} epochs with {len(copied_layer_names)} transferred layers frozen...")
     cvae.compile(optimizer=optimizer)
+
+    if SAMPLES_PER_EPOCH_PER_CLASS:
+        train_gen = SamplePerEpochSequence(x_train, y_train, BATCH_SIZE, samples_per_epoch_per_class=SAMPLES_PER_EPOCH_PER_CLASS)
+
     history = cvae.fit(
-        x_train, y_train,
+        train_gen if SAMPLES_PER_EPOCH_PER_CLASS else x_train,
+        y_train if SAMPLES_PER_EPOCH_PER_CLASS else None,
         validation_data=(x_test, y_test),
         epochs=EPOCHS,
         batch_size=BATCH_SIZE,
