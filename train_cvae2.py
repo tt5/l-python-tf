@@ -27,7 +27,7 @@ PBM_DIR = args.data_dir
 
 # ─── Hyperparameters ──────────────────────────────────────────────
 LATENT_DIM = 256
-EPOCHS = 33
+EPOCHS = 100
 BATCH_SIZE = 128
 FREEZE_EPOCHS = 1
 NUM_CLASSES = None  # derived from data + low_conf
@@ -38,28 +38,28 @@ KL_START_WEIGHT = 0.02
 KL_WEIGHT = 0.45
 KL_DECAY_EPOCHS = EPOCHS - KL_WARMUP_EPOCHS
 KL_WEIGHT_END = 0.1
-LEARNING_RATE = 0.0006
-LR_WARMUP_EPOCHS = 5
+LEARNING_RATE = 0.0005
+LR_WARMUP_EPOCHS = 4
 LR_START = 0.0002
 LR_DECAY_EPOCHS = EPOCHS - LR_WARMUP_EPOCHS
-LR_END = 0.000005
+LR_END = 0.00001
 L2_REG = 0.000006
 KL_FREE_BITS = 0.0
-SPATIAL_DROPOUT = 0.3
-DENSE_DROPOUT = 0.3
+SPATIAL_DROPOUT = 0.35
+DENSE_DROPOUT = 0.35
 GEN_SPATIAL_DROPOUT = 0.2
 GEN_DENSE_DROPOUT = 0.2
 AUGMENT = True
 RECON_LOSS_WEIGHT = 1.0
 PERCEPTUAL_MULTISCALE = True
 PERCEPTUAL_WARMUP_EPOCHS = 5
-PERCEPTUAL_START_WEIGHT = 0.02
-PERCEPTUAL_PEAK_WEIGHT = 2000
+PERCEPTUAL_START_WEIGHT = 0.0
+PERCEPTUAL_PEAK_WEIGHT = 1000
 PERCEPTUAL_DECAY_EPOCHS = EPOCHS - PERCEPTUAL_WARMUP_EPOCHS
-PERCEPTUAL_END_WEIGHT = 0.5
+PERCEPTUAL_END_WEIGHT = 0.0
 PERCEPTUAL_EXTRACTOR_PATH = Path(__file__).parent / "mnist2_model"
 TV_WARMUP_EPOCHS = 5
-TV_START_WEIGHT = 0.2
+TV_START_WEIGHT = 0.25
 TV_PEAK_WEIGHT = 0.25
 TV_DECAY_EPOCHS = EPOCHS - TV_WARMUP_EPOCHS
 TV_END_WEIGHT = 0.25
@@ -245,8 +245,6 @@ def build_encoder():
     x28_alt = tf.keras.layers.LayerNormalization(name='enc_ln28_2')(x28_alt)
     x28_alt = tf.keras.layers.Add()([x28_alt, x28_alt_res])
     x28_alt = tf.keras.layers.Activation('relu')(x28_alt)
-    x28_alt = tf.keras.layers.SpatialDropout2D(SPATIAL_DROPOUT)(x28_alt)
-    x28_alt = tf.keras.layers.Dropout(DENSE_DROPOUT)(x28_alt)
     x28_alt = tf.keras.layers.Add()([x28_alt, cbam_block(x28_alt, name_prefix='cbam28')])
 
 
@@ -291,8 +289,6 @@ def build_encoder():
     x14_alt = tf.keras.layers.LayerNormalization(name='enc_ln14_2')(x14_alt)
     x14_alt = tf.keras.layers.Add()([x14_alt, x14_alt_res2])
     x14_alt = tf.keras.layers.Activation('relu')(x14_alt)
-    x14_alt = tf.keras.layers.SpatialDropout2D(SPATIAL_DROPOUT)(x14_alt)
-    x14_alt = tf.keras.layers.Dropout(DENSE_DROPOUT)(x14_alt)
     x14_alt = tf.keras.layers.Add()([x14_alt, cbam_block(x14_alt, name_prefix='cbam14')])
     x14 = x14_alt
 
@@ -300,10 +296,11 @@ def build_encoder():
     gate14 = tf.keras.layers.MaxPooling2D(2)(gate14)
     x = gate14 * x14_main + (1.0 - gate14) * x14_alt
 
-    x14 = x
+    x14 = tf.keras.layers.LayerNormalization(name='enc_ln14_pre')(x)
     x14_pre = x14
     film_gamma14, film_beta14 = make_film(64)(label_input)
     x14 = x14 * (1.0 + film_gamma14) + film_beta14
+    x14 = tf.keras.layers.LayerNormalization(name='enc_ln14_film')(x14)
     x14 = tf.keras.layers.Add()([
         x14,
         tf.keras.layers.Conv2D(64, 1, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_skip14_1x1')(x14_pre),
@@ -317,8 +314,6 @@ def build_encoder():
 
     x7_alt = tf.keras.layers.SeparableConv2D(128, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv7')(x14)
     x7_alt = tf.keras.layers.MaxPooling2D(2)(x7_alt)
-    x7_alt = tf.keras.layers.SpatialDropout2D(SPATIAL_DROPOUT)(x7_alt)
-    x7_alt = tf.keras.layers.Dropout(DENSE_DROPOUT)(x7_alt)
     x7_alt = tf.keras.layers.Add()([x7_alt, cbam_block(x7_alt, name_prefix='cbam7')])
     x7_alt_shallow = x7_alt
     x7_alt = tf.keras.layers.SeparableConv2D(128, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv7_deep2')(x7_alt)
@@ -339,6 +334,7 @@ def build_encoder():
     gate7 = tf.keras.layers.Dense(128, activation='sigmoid', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc7_skip_gate')(gate7)
     gate7 = tf.keras.layers.Reshape((1, 1, 128))(gate7)
     x7 = gate7 * x7_main + (1.0 - gate7) * x7_alt
+    x7_gate_out = x7
 
     # 7x7 -> 14x14
     x7 = tf.keras.layers.UpSampling2D(2, name='enc_up7_14')(x7)
@@ -359,14 +355,13 @@ def build_encoder():
     x = tf.keras.layers.Dense(256, kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_main_proj')(x)
 
     # Direct skip from original 7x7 features
-    x_direct = tf.keras.layers.Flatten(name='enc_flat_direct')(x7)
+    x_direct = tf.keras.layers.Flatten(name='enc_flat_direct')(x7_gate_out)
     x_direct = tf.keras.layers.Dense(512, kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_direct_proj1')(x_direct)
     x_direct = tf.keras.layers.LayerNormalization(name='enc_direct_ln1')(x_direct)
     x_direct = tf.keras.layers.Dense(256, kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_direct_proj')(x_direct)
 
-    label_proj = tf.keras.layers.Dense(128, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_label_proj")(label_input)
 
-    x = tf.keras.layers.Concatenate(name="enc_concat")([x, x_direct, label_proj])
+    x = tf.keras.layers.Concatenate(name="enc_concat")([x, x_direct])
     x = tf.keras.layers.Dense(512, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_fuse_proj")(x)
     x = tf.keras.layers.LayerNormalization(name="enc_ln512_1")(x)
     x = tf.keras.layers.Dropout(DENSE_DROPOUT, name="enc_drop512")(x)
@@ -822,30 +817,30 @@ def main():
         'conv28',
         'conv28_second',
         'enc_ln28_2',
-        #'conv14_pre',
-        #'conv14_res1',
-        #'conv14_res2',
-        #'enc_ln14_2',
-        #'conv7',
-        #'conv7_deep2',
-        #'enc_ln7_1',
-        #'conv7_res1',
+        'conv14_pre',
+        'conv14_res1',
+        'conv14_res2',
+        'enc_ln14_2',
+        'conv7',
+        'conv7_deep2',
+        'enc_ln7_1',
+        'conv7_res1',
         # CBAM sublayers
         'cbam28_ca_dense1',
         'cbam28_ca_dense2',
         'cbam28_sa_conv1',
         'cbam28_sa_conv2',
         'cbam28_ln',
-        #'cbam14_ca_dense1',
-        #'cbam14_ca_dense2',
-        #'cbam14_sa_conv1',
-        #'cbam14_sa_conv2',
-        #'cbam14_ln',
-        #'cbam7_ca_dense1',
-        #'cbam7_ca_dense2',
-        #'cbam7_sa_conv1',
-        #'cbam7_sa_conv2',
-        #'cbam7_ln',
+        'cbam14_ca_dense1',
+        'cbam14_ca_dense2',
+        'cbam14_sa_conv1',
+        'cbam14_sa_conv2',
+        'cbam14_ln',
+        'cbam7_ca_dense1',
+        'cbam7_ca_dense2',
+        'cbam7_sa_conv1',
+        'cbam7_sa_conv2',
+        'cbam7_ln',
     ]
     frozen = [name for name in copied_layer_names if name in fusion_frozen]
     for name in frozen:

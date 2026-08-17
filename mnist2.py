@@ -46,7 +46,7 @@ PBM_DIR = args.data_dir
 IMG_SIZE = 22
 TARGET_SIZE = 28
 LOW_CONF_THRESHOLD = 0.6
-EPOCHS = 150
+EPOCHS = 50
 SPATIAL_DROPOUT = 0.35
 DENSE_DROPOUT = 0.45
 CONV_DROPOUT = 0.35  # dropout on intermediate conv feature maps (c0, c1, c2)
@@ -386,23 +386,23 @@ def main():
     up28 = L.LayerNormalization(name='enc_fuse28_ln')(up28)
 
     # Single pooled feature vector
-    x = L.GlobalAveragePooling2D()(up28)
+    x = L.GlobalAveragePooling2D(name='cls_gap')(up28)
 
-    d1 = L.Dense(256, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
-    d1 = L.Dropout(DENSE_DROPOUT)(d1)
-    p1 = L.Dense(256, kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
-    x = L.Add()([d1, p1])
-    x = L.LayerNormalization()(x)
-    x = L.Activation('relu')(x)
+    d1 = L.Dense(256, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='cls_block1_dense')(x)
+    d1 = L.Dropout(DENSE_DROPOUT, name='cls_block1_drop')(d1)
+    p1 = L.Dense(256, kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='cls_block1_proj')(x)
+    x = L.Add(name='cls_block1_add')([d1, p1])
+    x = L.LayerNormalization(name='cls_block1_ln')(x)
+    x = L.Activation('relu', name='cls_block1_act')(x)
     # 2nd residual connection
-    d2 = L.Dense(128, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
-    d2 = L.Dropout(DENSE_DROPOUT)(d2)
-    p2 = L.Dense(128, kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
-    x = L.Add()([d2, p2])
-    x = L.LayerNormalization()(x)
-    x = L.Activation('relu')(x)
+    d2 = L.Dense(128, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='cls_block2_dense')(x)
+    d2 = L.Dropout(DENSE_DROPOUT, name='cls_block2_drop')(d2)
+    p2 = L.Dense(128, kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='cls_block2_proj')(x)
+    x = L.Add(name='cls_block2_add')([d2, p2])
+    x = L.LayerNormalization(name='cls_block2_ln')(x)
+    x = L.Activation('relu', name='cls_block2_act')(x)
 
-    outputs = L.Dense(NUM_CLASSES)(x)
+    outputs = L.Dense(NUM_CLASSES, name='cls_logits')(x)
     model = tf.keras.Model(inputs=inputs, outputs=outputs)
 
     model.compile(optimizer=AdamW(clipnorm=1.0, weight_decay=1e-5, learning_rate=BASE_LR), loss=symmetric_cross_entropy(), metrics=['accuracy'])
