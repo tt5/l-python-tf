@@ -247,9 +247,21 @@ def build_encoder():
     x28_alt = tf.keras.layers.Activation('relu')(x28_alt)
     x28_alt = tf.keras.layers.Add()([x28_alt, cbam_block(x28_alt, name_prefix='cbam28')])
 
+    # Main path at 28x28
+    x28_main = image_input
+    x28_main = tf.keras.layers.Conv2D(32, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_main28_conv')(x28_main)
+    x28_main_res = x28_main
+    x28_main = tf.keras.layers.Conv2D(32, 3, padding='same', activation=None, kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_main28_second')(x28_main)
+    x28_main = tf.keras.layers.LayerNormalization(name='enc_main28_ln')(x28_main)
+    x28_main = tf.keras.layers.Add()([x28_main, x28_main_res])
+    x28_main = tf.keras.layers.Activation('relu')(x28_main)
+    x28_main = tf.keras.layers.SpatialDropout2D(SPATIAL_DROPOUT)(x28_main)
 
-    # ── 14x14 block ──────────────────────────────────────────────
-    x28 = x28_alt
+    # Channel gate mixing main/alt
+    gate28 = tf.keras.layers.GlobalAveragePooling2D()(x28_alt)
+    gate28 = tf.keras.layers.Dense(32, activation='sigmoid', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc28_skip_gate')(gate28)
+    gate28 = tf.keras.layers.Reshape((1, 1, 32))(gate28)
+    x28 = gate28 * x28_main + (1.0 - gate28) * x28_alt
     x28_block_out = x28
     x14_main = tf.keras.layers.Conv2D(64, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_main14_conv')(x28)
     x14_main = tf.keras.layers.MaxPooling2D(2)(x14_main)
