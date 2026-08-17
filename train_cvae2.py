@@ -477,12 +477,12 @@ def build_generator():
     x = tf.keras.layers.Multiply()([x, se7])
 
     # ── 14x14 block ──────────────────────────────────────────────
-    x = tf.keras.layers.Conv2DTranspose(64, 4, strides=2, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
+    x = tf.keras.layers.UpSampling2D(2)(x)
     x = tf.keras.layers.Conv2D(64, 3, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = tf.keras.layers.LayerNormalization(center=True, scale=True)(x)
     x = tf.keras.layers.Activation("relu")(x)
     x = tf.keras.layers.SpatialDropout2D(GEN_SPATIAL_DROPOUT)(x)
-    skip7_up = tf.keras.layers.Conv2DTranspose(64, 4, strides=2, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(skip7)
+    skip7_up = tf.keras.layers.UpSampling2D(2)(skip7)
     skip7_up = tf.keras.layers.Conv2D(64, 1, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(skip7_up)
 
     # Spatial learned gating on skip path from shared label conditioning
@@ -517,12 +517,12 @@ def build_generator():
     x = tf.keras.layers.SpatialDropout2D(GEN_SPATIAL_DROPOUT)(x)
 
     # ── 28x28 block ──────────────────────────────────────────────
-    x = tf.keras.layers.Conv2DTranspose(32, 4, strides=2, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
+    x = tf.keras.layers.UpSampling2D(2)(x)
     x = tf.keras.layers.Conv2D(32, 3, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = tf.keras.layers.LayerNormalization(center=True, scale=True)(x)
     x = tf.keras.layers.Activation("relu")(x)
     x = tf.keras.layers.SpatialDropout2D(GEN_SPATIAL_DROPOUT)(x)
-    skip14_up = tf.keras.layers.Conv2DTranspose(32, 4, strides=2, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(skip14)
+    skip14_up = tf.keras.layers.UpSampling2D(2)(skip14)
     skip14_up = tf.keras.layers.Conv2D(32, 1, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(skip14_up)
 
     skip14_gate = tf.keras.layers.Conv2D(1, 3, padding='same', activation='sigmoid', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(skip14_up)
