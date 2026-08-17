@@ -262,7 +262,19 @@ def build_encoder():
     gate28 = tf.keras.layers.Dense(32, activation='sigmoid', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc28_skip_gate')(gate28)
     gate28 = tf.keras.layers.Reshape((1, 1, 32))(gate28)
     x28 = gate28 * x28_main + (1.0 - gate28) * x28_alt
+
+    x28 = tf.keras.layers.LayerNormalization(name='enc_ln28_pre')(x28)
+    x28_pre = x28
+    film_gamma28, film_beta28 = make_film(32)(label_input)
+    x28 = x28 * (1.0 + film_gamma28) + film_beta28
+    x28 = tf.keras.layers.LayerNormalization(name='enc_ln28_film')(x28)
+    x28 = tf.keras.layers.Add()([
+        x28,
+        tf.keras.layers.Conv2D(32, 1, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_skip28_1x1')(x28_pre),
+    ])
+
     x28_block_out = x28
+
     x14_main = tf.keras.layers.Conv2D(64, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_main14_conv')(x28)
     x14_main = tf.keras.layers.MaxPooling2D(2)(x14_main)
     x14_main = tf.keras.layers.LayerNormalization(name='enc_main14_ln')(x14_main)
