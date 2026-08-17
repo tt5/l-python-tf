@@ -262,7 +262,6 @@ def build_encoder():
     x14_main = tf.keras.layers.LayerNormalization(name='enc_main14_res1_ln')(x14_main)
     x14_main = tf.keras.layers.Activation('relu')(x14_main)
     x14_main = tf.keras.layers.SpatialDropout2D(SPATIAL_DROPOUT)(x14_main)
-    x14_main = tf.keras.layers.Dropout(DENSE_DROPOUT)(x14_main)
 
     x14_main_res2 = x14_main
     x14_main = tf.keras.layers.Conv2D(64, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_main14_res2')(x14_main)
@@ -270,7 +269,6 @@ def build_encoder():
     x14_main = tf.keras.layers.LayerNormalization(name='enc_main14_res2_ln')(x14_main)
     x14_main = tf.keras.layers.Activation('relu')(x14_main)
     x14_main = tf.keras.layers.SpatialDropout2D(SPATIAL_DROPOUT)(x14_main)
-    x14_main = tf.keras.layers.Dropout(DENSE_DROPOUT)(x14_main)
 
     # SE block on main path
     se14 = tf.keras.layers.GlobalAveragePooling2D()(x14_main)
@@ -317,8 +315,6 @@ def build_encoder():
     x7_alt = tf.keras.layers.Add()([x7_alt, cbam_block(x7_alt, name_prefix='cbam7')])
     x7_alt_shallow = x7_alt
     x7_alt = tf.keras.layers.SeparableConv2D(128, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv7_deep2')(x7_alt)
-    x7_alt = tf.keras.layers.SpatialDropout2D(SPATIAL_DROPOUT)(x7_alt)
-    x7_alt = tf.keras.layers.Dropout(DENSE_DROPOUT)(x7_alt)
     x7_alt = tf.keras.layers.LayerNormalization(name='enc_ln7_1')(x7_alt)
     x7_alt_res = x7_alt
     x7_alt = tf.keras.layers.SeparableConv2D(128, 3, padding='same', activation=None, kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv7_res1')(x7_alt)
