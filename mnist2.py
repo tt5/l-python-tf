@@ -355,7 +355,6 @@ def main():
     # Conv block 3: 7x7 → 7x7 (no pooling)
     c3 = L.SeparableConv2D(128, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv7_deep2')(c2)
     c3 = L.SpatialDropout2D(SPATIAL_DROPOUT)(c3)
-    c3 = L.Dropout(DENSE_DROPOUT)(c3)
     c3 = L.LayerNormalization(name='enc_ln7_1')(c3)
     c3_res = c3
     c3 = L.SeparableConv2D(128, 3, padding='same', activation=None, kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv7_res1')(c3)
