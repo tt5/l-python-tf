@@ -27,7 +27,7 @@ PBM_DIR = args.data_dir
 
 # ─── Hyperparameters ──────────────────────────────────────────────
 LATENT_DIM = 256
-EPOCHS = 100
+EPOCHS = 110
 BATCH_SIZE = 128
 FREEZE_EPOCHS = 1
 NUM_CLASSES = None  # derived from data + low_conf
@@ -47,23 +47,23 @@ L2_REG = 0.000006
 KL_FREE_BITS = 0.0
 SPATIAL_DROPOUT = 0.35
 DENSE_DROPOUT = 0.35
-GEN_SPATIAL_DROPOUT = 0.2
-GEN_DENSE_DROPOUT = 0.2
+GEN_SPATIAL_DROPOUT = 0.3
+GEN_DENSE_DROPOUT = 0.3
 AUGMENT = True
 RECON_LOSS_WEIGHT = 1.0
 PERCEPTUAL_MULTISCALE = True
 PERCEPTUAL_WARMUP_EPOCHS = 5
 PERCEPTUAL_START_WEIGHT = 0.0
-PERCEPTUAL_PEAK_WEIGHT = 1000
+PERCEPTUAL_PEAK_WEIGHT = 1
 PERCEPTUAL_DECAY_EPOCHS = EPOCHS - PERCEPTUAL_WARMUP_EPOCHS
-PERCEPTUAL_END_WEIGHT = 0.0
+PERCEPTUAL_END_WEIGHT = 0.5
 PERCEPTUAL_EXTRACTOR_PATH = Path(__file__).parent / "mnist2_model"
 TV_WARMUP_EPOCHS = 5
-TV_START_WEIGHT = 0.25
-TV_PEAK_WEIGHT = 0.25
+TV_START_WEIGHT = 0.2
+TV_PEAK_WEIGHT = 0.2
 TV_DECAY_EPOCHS = EPOCHS - TV_WARMUP_EPOCHS
-TV_END_WEIGHT = 0.25
-LOG_NAME = "train_gen2"
+TV_END_WEIGHT = 0.2
+LOG_NAME = "train_gen2b"
 
 def load_pbm(path):
     """Load a P4 PBM file and return a 2D numpy array of 0/1 float32."""
@@ -357,12 +357,17 @@ def build_encoder():
     # Pool to vector
     x = tf.keras.layers.GlobalAveragePooling2D(name='enc_gap_fused')(x7)
     x = tf.keras.layers.Dense(256, kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_main_proj')(x)
+    x = tf.keras.layers.LayerNormalization(name='enc_main_ln')(x)
+    x = tf.keras.layers.Dropout(DENSE_DROPOUT, name='enc_main_drop')(x)
 
     # Direct skip from original 7x7 features
     x_direct = tf.keras.layers.Flatten(name='enc_flat_direct')(x7_gate_out)
     x_direct = tf.keras.layers.Dense(512, kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_direct_proj1')(x_direct)
     x_direct = tf.keras.layers.LayerNormalization(name='enc_direct_ln1')(x_direct)
+    x_direct = tf.keras.layers.Dropout(DENSE_DROPOUT, name='enc_direct_drop')(x_direct)
     x_direct = tf.keras.layers.Dense(256, kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_direct_proj')(x_direct)
+    x_direct = tf.keras.layers.LayerNormalization(name='enc_direct_ln2')(x_direct)
+    x_direct = tf.keras.layers.Dropout(DENSE_DROPOUT, name='enc_direct_drop2')(x_direct)
 
 
     x = tf.keras.layers.Concatenate(name="enc_concat")([x, x_direct])
