@@ -290,8 +290,9 @@ def build_encoder():
     x14_alt = tf.keras.layers.Add()([x14_alt, cbam_block(x14_alt, name_prefix='cbam14')])
     x14 = x14_alt
 
-    gate14 = tf.keras.layers.Conv2D(1, 3, padding='same', activation='sigmoid', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc14_skip_gate')(x28_block_out)
-    gate14 = tf.keras.layers.MaxPooling2D(2)(gate14)
+    gate14 = tf.keras.layers.GlobalAveragePooling2D()(x28_block_out)
+    gate14 = tf.keras.layers.Dense(64, activation='sigmoid', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc14_skip_gate')(gate14)
+    gate14 = tf.keras.layers.Reshape((1, 1, 64))(gate14)
     x = gate14 * x14_main + (1.0 - gate14) * x14_alt
 
     x14 = tf.keras.layers.LayerNormalization(name='enc_ln14_pre')(x)
