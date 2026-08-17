@@ -336,6 +336,10 @@ def build_encoder():
     x7 = gate7 * x7_main + (1.0 - gate7) * x7_alt
     x7_gate_out = x7
 
+    film_gamma7, film_beta7 = make_film(128)(label_input)
+    x7 = x7 * (1.0 + film_gamma7) + film_beta7
+    x7 = tf.keras.layers.LayerNormalization(name='enc_ln7_film')(x7)
+
     # 7x7 -> 14x14
     x7 = tf.keras.layers.UpSampling2D(2, name='enc_up7_14')(x7)
     x14_proj = tf.keras.layers.Conv2D(128, 1, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_proj14')(x14)
