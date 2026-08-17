@@ -488,6 +488,7 @@ def build_generator():
     # Spatial learned gating on skip path from shared label conditioning
     skip7_gate = tf.keras.layers.Conv2D(1, 3, padding='same', activation='sigmoid', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(skip7_up)
     skip7_up = skip7_up * skip7_gate
+    skip7_up = channel_attention(skip7_up, name_prefix='skip7_ca')
     skip7_up = tf.keras.layers.LayerNormalization(center=True, scale=True)(skip7_up)
 
     x = tf.keras.layers.Add()([x, skip7_up])
@@ -526,6 +527,7 @@ def build_generator():
 
     skip14_gate = tf.keras.layers.Conv2D(1, 3, padding='same', activation='sigmoid', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(skip14_up)
     skip14_up = skip14_up * skip14_gate
+    skip14_up = channel_attention(skip14_up, name_prefix='skip14_ca')
     skip14_up = tf.keras.layers.LayerNormalization(center=True, scale=True)(skip14_up)
 
     x = tf.keras.layers.Add()([x, skip14_up])
