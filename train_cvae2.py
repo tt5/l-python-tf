@@ -310,6 +310,27 @@ def build_encoder():
     x7_main = tf.keras.layers.MaxPooling2D(2)(x7_main)
     x7_main = tf.keras.layers.LayerNormalization(name='enc_main7_ln')(x7_main)
 
+    # Two residual conv blocks in main path
+    x7_main_res = x7_main
+    x7_main = tf.keras.layers.Conv2D(128, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_main7_res1')(x7_main)
+    x7_main = tf.keras.layers.Add()([x7_main, x7_main_res])
+    x7_main = tf.keras.layers.LayerNormalization(name='enc_main7_res1_ln')(x7_main)
+    x7_main = tf.keras.layers.Activation('relu')(x7_main)
+    x7_main = tf.keras.layers.SpatialDropout2D(SPATIAL_DROPOUT)(x7_main)
+
+    x7_main_res2 = x7_main
+    x7_main = tf.keras.layers.Conv2D(128, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_main7_res2')(x7_main)
+    x7_main = tf.keras.layers.Add()([x7_main, x7_main_res2])
+    x7_main = tf.keras.layers.LayerNormalization(name='enc_main7_res2_ln')(x7_main)
+    x7_main = tf.keras.layers.Activation('relu')(x7_main)
+    x7_main = tf.keras.layers.SpatialDropout2D(SPATIAL_DROPOUT)(x7_main)
+
+    # SE block on main path
+    se7 = tf.keras.layers.GlobalAveragePooling2D()(x7_main)
+    se7 = tf.keras.layers.Dense(128 // 4, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_se7_dense1')(se7)
+    se7 = tf.keras.layers.Dense(128, activation='sigmoid', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_se7_dense2')(se7)
+    x7_main = tf.keras.layers.Multiply()([x7_main, se7])
+
     x7_alt = tf.keras.layers.SeparableConv2D(128, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv7')(x14)
     x7_alt = tf.keras.layers.MaxPooling2D(2)(x7_alt)
     x7_alt = tf.keras.layers.Add()([x7_alt, cbam_block(x7_alt, name_prefix='cbam7')])
