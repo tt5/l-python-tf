@@ -36,8 +36,8 @@ except Exception:
                 grad = grad + tf.gather(self.weight_decay * var, indices)
             return super()._resource_apply_sparse(grad, var, indices, apply_state=apply_state)
 
-DEFAULT_PBM_DIR = Path(__file__).resolve().parent / "../../telephonegame/data/pbm2"
-TB_LOG_DIR = Path(__file__).resolve().parent / "logs" / "mnist3b"
+DEFAULT_PBM_DIR = Path(__file__).resolve().parent / "../../telephonegame/data2/pbm"
+TB_LOG_DIR = Path(__file__).resolve().parent / "logs" / "mnist3"
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--data-dir", type=Path, default=DEFAULT_PBM_DIR, help="PBM data directory")

@@ -18,7 +18,7 @@ import onnxruntime as ort
 import tensorflow as tf
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-DEFAULT_PBM_DIR = SCRIPT_DIR.parent.parent / "telephonegame" / "data" / "pbm2_test"
+DEFAULT_PBM_DIR = SCRIPT_DIR.parent.parent / "telephonegame" / "data2" / "pbm_test"
 DEFAULT_CLS_MODEL = SCRIPT_DIR / "mnist3_model.onnx"
 DEFAULT_GEN_MODEL = SCRIPT_DIR / "cvae3_generator.onnx"
 

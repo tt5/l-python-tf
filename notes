@@ -208,3 +208,14 @@ gradient accumulation
   Class 3: 100.0% correctly classified (1000/1000), avg confidence: 100.0%
   Class 4: 83.6% correctly classified (836/1000), avg confidence: 98.4%
   Class 5: 58.7% correctly classified (587/1000), avg confidence: 94.0%
+
+---
+3
+
+  Class digit_0: 100.0% correct (5000/5000), avg confidence: 100.0%
+  Class digit_1: 42.4% correct (2120/5000), avg confidence: 98.5%
+  Class digit_2: 69.7% correct (3485/5000), avg confidence: 96.4%
+  Class digit_3: 100.0% correct (5000/5000), avg confidence: 100.0%
+  Class digit_4: 0.0% correct (0/5000), avg confidence: 0.0%
+  Class digit_5: 88.7% correct (4435/5000), avg confidence: 99.0%
+  Class low_conf: 47.6% correct (2379/5000), avg confidence: 89.4%
