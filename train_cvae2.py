@@ -67,7 +67,7 @@ TV_START_WEIGHT = 0.2
 TV_PEAK_WEIGHT = 0.2
 TV_DECAY_EPOCHS = EPOCHS - TV_WARMUP_EPOCHS
 TV_END_WEIGHT = 0.2
-LOG_NAME = "train_gen2b"
+LOG_NAME = "train_gen2"
 
 def load_pbm(path):
     """Load a P4 PBM file and return a 2D numpy array of 0/1 float32."""
@@ -110,8 +110,13 @@ class SamplePerEpochSequence(tf.keras.utils.Sequence):
         self.labels = labels
         self.batch_size = batch_size
         self.samples_per_epoch_per_class = samples_per_epoch_per_class
+        # Accept either one-hot or scalar class labels for grouping
+        if len(labels.shape) == 2:
+            class_indices_arr = np.argmax(labels, axis=1)
+        else:
+            class_indices_arr = np.array(labels)
         self.class_indices = {}
-        for idx, label in enumerate(labels):
+        for idx, label in enumerate(class_indices_arr):
             self.class_indices.setdefault(int(label), []).append(idx)
         self.classes = sorted(self.class_indices.keys())
         self.full_indices = np.arange(len(images))
@@ -373,7 +378,7 @@ def build_encoder():
     x14_alt = tf.keras.layers.Add()([x14_alt, cbam_block(x14_alt, name_prefix='cbam14')])
     x14 = x14_alt
 
-    gate14 = tf.keras.layers.GlobalAveragePooling2D()(x28_block_out)
+    gate14 = tf.keras.layers.GlobalAveragePooling2D()(x14_alt)
     gate14 = tf.keras.layers.Dense(64, activation='sigmoid', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc14_skip_gate')(gate14)
     gate14 = tf.keras.layers.Reshape((1, 1, 64))(gate14)
     x = gate14 * x14_main + (1.0 - gate14) * x14_alt
@@ -431,7 +436,7 @@ def build_encoder():
 
     # ── Latent head: progressive fusion ──────────────────────────
     # x: 7x7x128, x14: 14x14x64, x28: 28x28x32
-    gate7 = tf.keras.layers.GlobalAveragePooling2D()(x14_block_out)
+    gate7 = tf.keras.layers.GlobalAveragePooling2D()(x7_alt)
     gate7 = tf.keras.layers.Dense(128, activation='sigmoid', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc7_skip_gate')(gate7)
     gate7 = tf.keras.layers.Reshape((1, 1, 128))(gate7)
     x7 = gate7 * x7_main + (1.0 - gate7) * x7_alt
@@ -1000,15 +1005,23 @@ def main():
     if SAMPLES_PER_EPOCH_PER_CLASS:
         train_gen = SamplePerEpochSequence(x_train, y_train, BATCH_SIZE, samples_per_epoch_per_class=SAMPLES_PER_EPOCH_PER_CLASS)
 
-    history = cvae.fit(
-        train_gen if SAMPLES_PER_EPOCH_PER_CLASS else x_train,
-        y_train if SAMPLES_PER_EPOCH_PER_CLASS else None,
-        validation_data=(x_test, y_test),
-        epochs=EPOCHS,
-        batch_size=BATCH_SIZE,
-        callbacks=[early_stopping, tensorboard_callback, kl_warmup, lr_warmup, perceptual_warmup, tv_warmup],
-        verbose=2,
-    )
+    if SAMPLES_PER_EPOCH_PER_CLASS:
+        history = cvae.fit(
+            train_gen,
+            validation_data=(x_test, y_test),
+            epochs=EPOCHS,
+            callbacks=[early_stopping, tensorboard_callback, kl_warmup, lr_warmup, perceptual_warmup, tv_warmup],
+            verbose=2,
+        )
+    else:
+        history = cvae.fit(
+            x_train, y_train,
+            validation_data=(x_test, y_test),
+            epochs=EPOCHS,
+            batch_size=BATCH_SIZE,
+            callbacks=[early_stopping, tensorboard_callback, kl_warmup, lr_warmup, perceptual_warmup, tv_warmup],
+            verbose=2,
+        )
 
     # ─── Save as ONNX ──────────────────────────────────────────────
     save_dir = Path(__file__).parent
