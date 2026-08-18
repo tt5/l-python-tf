@@ -29,23 +29,39 @@ def _load_pbm(path):
     return grid
 
 
-def load_data(data_dir, num_classes=6, flip_pixels=2, image_shape=(28, 28, 1), randomized=True, split_ratio=0.8, max_samples_per_class=None, pbm_dir=None):
-    """Load class 0..num_classes-2 from ``data_dir`` and synthesize one extra class.
+def _upscale_nearest(grid, dst_h, dst_w):
+    """Nearest-neighbor block upscale from `grid` to (dst_h, dst_w)."""
+    src_h, src_w = grid.shape
+    out = np.zeros((dst_h, dst_w), dtype=np.float32)
+    base_h, extra_h = divmod(dst_h, src_h)
+    base_w, extra_w = divmod(dst_w, src_w)
+    for r in range(src_h):
+        r_start = r * base_h + min(r, extra_h)
+        r_end = min(r_start + base_h + (1 if r < extra_h else 0), dst_h)
+        for c in range(src_w):
+            c_start = c * base_w + min(c, extra_w)
+            c_end = min(c_start + base_w + (1 if c < extra_w else 0), dst_w)
+            out[r_start:r_end, c_start:c_end] = grid[r, c]
+    return out
+
+
+def load_data(data_dir, num_classes=6, flip_pixels=2, image_shape=(28, 28, 1), randomized=True, split_ratio=0.8, max_samples_per_class=None, pbm_dir=None, synthetic_last_class=True):
+    """Load class 0..num_classes-1 from disk and optionally synthesize one extra class.
 
     Parameters
     ----------
     data_dir : pathlib.Path
         Directory that contains ``class_<c>/`` folders with ``*.npy`` samples.
     num_classes : int
-        Total number of classes. The last class is synthesized as
-        all-black.
+        Number of classes to load from disk when ``synthetic_last_class`` is True,
+        or total number of classes when it is False.
     flip_pixels : int
         Number of distinct pixel positions flipped in each synthesized image.
         0 disables the flip behavior.
     image_shape : tuple[int, int, int]
         Expected image spatial shape including channels.
     randomized : bool
-        Apply per-image random pixel flips for the two synthesized classes.
+        Apply per-image random pixel flips for the synthesized class.
     split_ratio : float
         Fraction of each class to use for training, remainder for testing.
     max_samples_per_class : int or None
@@ -53,6 +69,9 @@ def load_data(data_dir, num_classes=6, flip_pixels=2, image_shape=(28, 28, 1), r
     pbm_dir : pathlib.Path or None
         If set, load P4 PBM images from ``pbm_dir/class_<c>/*.pbm`` instead of
         ``data_dir`` ``.npy`` files.
+    synthetic_last_class : bool
+        If True, generate one additional class as all-black with random flips.
+        If False, load exactly ``num_classes`` classes from disk.
 
     Returns
     -------
@@ -65,8 +84,10 @@ def load_data(data_dir, num_classes=6, flip_pixels=2, image_shape=(28, 28, 1), r
     h, w, _ = image_shape
     x_train, y_train, x_test, y_test = [], [], [], []
     max_train, max_test = 0, 0
+    disk_classes = num_classes if not synthetic_last_class else num_classes - 1
+    last_label = num_classes - 1 if synthetic_last_class else None
 
-    for c in range(num_classes - 1):
+    for c in range(disk_classes):
         if pbm_dir is not None:
             files = sorted((pbm_dir / f"class_{c}").glob("*.pbm"))
             if not files:
@@ -79,13 +100,21 @@ def load_data(data_dir, num_classes=6, flip_pixels=2, image_shape=(28, 28, 1), r
 
             for f in train_files:
                 img = _load_pbm(f)
-                img = np.asarray(img).reshape(image_shape)
+                img = np.asarray(img)
+                h, w = image_shape[:2]
+                if img.shape != (h, w):
+                    img = _upscale_nearest(img, h, w)
+                img = img.reshape(image_shape)
                 img = (img > 0.5).astype(np.float32)
                 x_train.append(img)
                 y_train.append(c)
             for f in test_files:
                 img = _load_pbm(f)
-                img = np.asarray(img).reshape(image_shape)
+                img = np.asarray(img)
+                h, w = image_shape[:2]
+                if img.shape != (h, w):
+                    img = _upscale_nearest(img, h, w)
+                img = img.reshape(image_shape)
                 img = (img > 0.5).astype(np.float32)
                 x_test.append(img)
                 y_test.append(c)
@@ -116,30 +145,31 @@ def load_data(data_dir, num_classes=6, flip_pixels=2, image_shape=(28, 28, 1), r
         max_test = max(max_test, len(test_files))
         print(f"Class {c}: {len(train_files)} train, {len(test_files)} test")
 
-    pixel_indices = np.arange(h * w)
+    if synthetic_last_class:
+        pixel_indices = np.arange(h * w)
 
-    black = np.zeros(image_shape, dtype=np.float32)
-    label = num_classes - 1
-    for _ in range(max_train):
-        sample = black
-        if randomized and flip_pixels > 0:
-            sample = black.copy().reshape(-1)
-            flips = np.random.choice(pixel_indices, size=np.random.randint(3, flip_pixels), replace=False)
-            sample = sample.copy()
-            sample[flips] = 1 - sample[flips]
-            sample = sample.reshape(image_shape)
-        x_train.append(sample)
-        y_train.append(label)
-    for _ in range(max_test):
-        sample = black
-        if randomized and flip_pixels > 0:
-            sample = black.copy().reshape(-1)
-            flips = np.random.choice(pixel_indices, size=np.random.randint(3, flip_pixels), replace=False)
-            sample = sample.copy()
-            sample[flips] = 1 - sample[flips]
-            sample = sample.reshape(image_shape)
-        x_test.append(sample)
-        y_test.append(label)
+        black = np.zeros(image_shape, dtype=np.float32)
+        label = last_label
+        for _ in range(max_train):
+            sample = black
+            if randomized and flip_pixels > 0:
+                sample = black.copy().reshape(-1)
+                flips = np.random.choice(pixel_indices, size=np.random.randint(3, flip_pixels), replace=False)
+                sample = sample.copy()
+                sample[flips] = 1 - sample[flips]
+                sample = sample.reshape(image_shape)
+            x_train.append(sample)
+            y_train.append(label)
+        for _ in range(max_test):
+            sample = black
+            if randomized and flip_pixels > 0:
+                sample = black.copy().reshape(-1)
+                flips = np.random.choice(pixel_indices, size=np.random.randint(3, flip_pixels), replace=False)
+                sample = sample.copy()
+                sample[flips] = 1 - sample[flips]
+                sample = sample.reshape(image_shape)
+            x_test.append(sample)
+            y_test.append(label)
 
     x_train = np.array(x_train, dtype=np.float32).reshape(-1, *image_shape)
     x_test = np.array(x_test, dtype=np.float32).reshape(-1, *image_shape)

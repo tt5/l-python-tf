@@ -7,7 +7,7 @@ import onnxruntime as ort
 from pathlib import Path
 
 save_dir = Path(__file__).resolve().parent
-gen_session = ort.InferenceSession(str(save_dir / "cvae2_generator.onnx"))
+gen_session = ort.InferenceSession(str(save_dir / "cvae_generator.onnx"))
 gen_input_names = [inp.name for inp in gen_session.get_inputs()]
 gen_output_name = gen_session.get_outputs()[0].name
 

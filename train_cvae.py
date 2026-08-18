@@ -26,7 +26,7 @@ LATENT_DIM = 256
 PHA1_LATENT_DIM = 64
 EPOCHS = 90
 BATCH_SIZE = 128
-NUM_CLASSES = 5
+NUM_CLASSES = 6
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--num-classes", type=int, default=NUM_CLASSES)
@@ -75,8 +75,8 @@ PHA1_KL_WARMUP_EPOCHS = 1
 PHA1_KL_WARMUP_START = 0.0000001
 PHA1_KL_WEIGHT_START = 0.01
 PHA1_INFO_NCE_WEIGHT = 0.0
-LOG_NAME = 'logs/gen1b'
-LOG_NAME_PHA1 = 'logs/gen1b/phase1'
+LOG_NAME = 'logs/gen1'
+LOG_NAME_PHA1 = 'logs/gen1/phase1'
 
 # ─── Data ──────────────────────────────────────────────────────────
 def load_data_cvae():

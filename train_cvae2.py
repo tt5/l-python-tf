@@ -493,10 +493,19 @@ def build_encoder():
     x_direct = tf.keras.layers.Dropout(DENSE_DROPOUT, name='enc_direct_drop2')(x_direct)
 
 
-    x = tf.keras.layers.Concatenate(name="enc_concat")([x, x_direct])
-    x = tf.keras.layers.Dense(512, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_fuse_proj")(x)
-    x = tf.keras.layers.LayerNormalization(name="enc_ln512_1")(x)
-    x = tf.keras.layers.Dropout(DENSE_DROPOUT, name="enc_drop512")(x)
+    x = tf.keras.layers.Dense(256, kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_fuse_q")(x)
+    x_k = tf.keras.layers.Dense(256, kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_fuse_k")(x_direct)
+    x_v = tf.keras.layers.Dense(256, kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_fuse_v")(x_direct)
+    x_q = tf.keras.layers.Reshape((1, 256))(x)
+    x_k = tf.keras.layers.Reshape((1, 256))(x_k)
+    x_v = tf.keras.layers.Reshape((1, 256))(x_v)
+    attn = tf.linalg.matmul(x_q, x_k, transpose_b=True)
+    attn = attn / tf.sqrt(tf.cast(tf.shape(x_q)[-1], tf.float32))
+    attn = tf.nn.softmax(attn, axis=-1)
+    x = tf.linalg.matmul(attn, x_v)
+    x = tf.keras.layers.Reshape((256,), name="enc_fuse_flat")(x)
+    x = tf.keras.layers.LayerNormalization(name="enc_ln_fused")(x)
+    x = tf.keras.layers.Dropout(DENSE_DROPOUT, name="enc_drop_fused")(x)
 
     z_mean = tf.keras.layers.Dense(LATENT_DIM, name="z_mean", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     z_log_var = tf.keras.layers.Dense(LATENT_DIM, name="z_log_var", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
