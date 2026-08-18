@@ -26,7 +26,7 @@ LATENT_DIM = 256
 PHA1_LATENT_DIM = 64
 EPOCHS = 90
 BATCH_SIZE = 128
-NUM_CLASSES = 7
+NUM_CLASSES = 6
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--num-classes", type=int, default=NUM_CLASSES)
@@ -80,7 +80,7 @@ LOG_NAME_PHA1 = 'logs/gen1/phase1'
 
 # ─── Data ──────────────────────────────────────────────────────────
 def load_data_cvae():
-    (x_train, y_train), (x_test, y_test) = load_data(DATA_DIR, NUM_CLASSES, flip_pixels=7*28, max_samples_per_class=MAX_SAMPLES_PER_CLASS, pbm_dir=PBM_DIR)
+    (x_train, y_train), (x_test, y_test) = load_data(DATA_DIR, NUM_CLASSES, flip_pixels=7*28, max_samples_per_class=MAX_SAMPLES_PER_CLASS, pbm_dir=PBM_DIR, synthetic_last_class=False)
     y_train = keras.utils.to_categorical(y_train, NUM_CLASSES)
     y_test = keras.utils.to_categorical(y_test, NUM_CLASSES)
     return x_train, y_train, x_test, y_test
