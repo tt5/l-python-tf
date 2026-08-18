@@ -313,6 +313,7 @@ def build_encoder():
 
     # Main path at 28x28
     x28_main = image_input
+    x28_main = label_cross_attention(x28_main, label_input, 32, L2_REG)
     x28_main = tf.keras.layers.Conv2D(32, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_main28_conv')(x28_main)
     x28_main_res = x28_main
     x28_main = tf.keras.layers.Conv2D(32, 3, padding='same', activation=None, kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_main28_second')(x28_main)
@@ -321,8 +322,11 @@ def build_encoder():
     x28_main = tf.keras.layers.Activation('relu')(x28_main)
     x28_main = tf.keras.layers.SpatialDropout2D(SPATIAL_DROPOUT)(x28_main)
 
-    # Channel gate mixing main/alt
+    # Channel gate mixing main/alt, conditioned on label
     gate28 = tf.keras.layers.GlobalAveragePooling2D()(x28_alt)
+    label_proj28 = tf.keras.layers.Dense(32, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc28_label_proj')(label_input)
+    gate28 = tf.keras.layers.Concatenate()([gate28, label_proj28])
+    gate28 = tf.keras.layers.Dense(64, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc28_gate_hidden')(gate28)
     gate28 = tf.keras.layers.Dense(32, activation='sigmoid', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc28_skip_gate')(gate28)
     gate28 = tf.keras.layers.Reshape((1, 1, 32))(gate28)
     x28 = gate28 * x28_main + (1.0 - gate28) * x28_alt
@@ -379,6 +383,9 @@ def build_encoder():
     x14 = x14_alt
 
     gate14 = tf.keras.layers.GlobalAveragePooling2D()(x14_alt)
+    label_proj14 = tf.keras.layers.Dense(32, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc14_label_proj')(label_input)
+    gate14 = tf.keras.layers.Concatenate()([gate14, label_proj14])
+    gate14 = tf.keras.layers.Dense(64, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc14_gate_hidden')(gate14)
     gate14 = tf.keras.layers.Dense(64, activation='sigmoid', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc14_skip_gate')(gate14)
     gate14 = tf.keras.layers.Reshape((1, 1, 64))(gate14)
     x = gate14 * x14_main + (1.0 - gate14) * x14_alt
@@ -437,6 +444,9 @@ def build_encoder():
     # ── Latent head: progressive fusion ──────────────────────────
     # x: 7x7x128, x14: 14x14x64, x28: 28x28x32
     gate7 = tf.keras.layers.GlobalAveragePooling2D()(x7_alt)
+    label_proj7 = tf.keras.layers.Dense(32, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc7_label_proj')(label_input)
+    gate7 = tf.keras.layers.Concatenate()([gate7, label_proj7])
+    gate7 = tf.keras.layers.Dense(128, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc7_gate_hidden')(gate7)
     gate7 = tf.keras.layers.Dense(128, activation='sigmoid', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc7_skip_gate')(gate7)
     gate7 = tf.keras.layers.Reshape((1, 1, 128))(gate7)
     x7 = gate7 * x7_main + (1.0 - gate7) * x7_alt
