@@ -22,12 +22,16 @@ DEFAULT_PBM_DIR = Path(__file__).resolve().parent / "../../telephonegame/data/pb
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--data-dir", type=Path, default=DEFAULT_PBM_DIR, help="PBM data directory")
+parser.add_argument("--max-samples-per-class", type=int, default=None, help="Maximum samples per class to load")
+parser.add_argument("--samples-per-epoch-per-class", type=int, default=None, help="Random subset size per class each epoch")
 args, _ = parser.parse_known_args()
 PBM_DIR = args.data_dir
+MAX_SAMPLES_PER_CLASS = args.max_samples_per_class
+SAMPLES_PER_EPOCH_PER_CLASS = args.samples_per_epoch_per_class
 
 # ─── Hyperparameters ──────────────────────────────────────────────
 LATENT_DIM = 256
-EPOCHS = 33
+EPOCHS = 110
 BATCH_SIZE = 128
 FREEZE_EPOCHS = 1
 NUM_CLASSES = None  # derived from data + low_conf
@@ -38,32 +42,32 @@ KL_START_WEIGHT = 0.02
 KL_WEIGHT = 0.45
 KL_DECAY_EPOCHS = EPOCHS - KL_WARMUP_EPOCHS
 KL_WEIGHT_END = 0.1
-LEARNING_RATE = 0.0006
-LR_WARMUP_EPOCHS = 5
+LEARNING_RATE = 0.0005
+LR_WARMUP_EPOCHS = 4
 LR_START = 0.0002
 LR_DECAY_EPOCHS = EPOCHS - LR_WARMUP_EPOCHS
-LR_END = 0.000005
+LR_END = 0.00001
 L2_REG = 0.000006
 KL_FREE_BITS = 0.0
-SPATIAL_DROPOUT = 0.3
-DENSE_DROPOUT = 0.3
-GEN_SPATIAL_DROPOUT = 0.2
-GEN_DENSE_DROPOUT = 0.2
+SPATIAL_DROPOUT = 0.35
+DENSE_DROPOUT = 0.35
+GEN_SPATIAL_DROPOUT = 0.3
+GEN_DENSE_DROPOUT = 0.3
 AUGMENT = True
 RECON_LOSS_WEIGHT = 1.0
 PERCEPTUAL_MULTISCALE = True
 PERCEPTUAL_WARMUP_EPOCHS = 5
-PERCEPTUAL_START_WEIGHT = 0.02
-PERCEPTUAL_PEAK_WEIGHT = 2000
+PERCEPTUAL_START_WEIGHT = 0.0
+PERCEPTUAL_PEAK_WEIGHT = 1
 PERCEPTUAL_DECAY_EPOCHS = EPOCHS - PERCEPTUAL_WARMUP_EPOCHS
 PERCEPTUAL_END_WEIGHT = 0.5
 PERCEPTUAL_EXTRACTOR_PATH = Path(__file__).parent / "mnist2_model"
 TV_WARMUP_EPOCHS = 5
 TV_START_WEIGHT = 0.2
-TV_PEAK_WEIGHT = 0.25
+TV_PEAK_WEIGHT = 0.2
 TV_DECAY_EPOCHS = EPOCHS - TV_WARMUP_EPOCHS
-TV_END_WEIGHT = 0.25
-LOG_NAME = "train_gen2b"
+TV_END_WEIGHT = 0.2
+LOG_NAME = "train_gen2"
 
 def load_pbm(path):
     """Load a P4 PBM file and return a 2D numpy array of 0/1 float32."""
@@ -98,6 +102,63 @@ def upscale(grid, dst_h, dst_w):
             c_end = min(c_start + base_w + (1 if c < extra_w else 0), dst_w)
             out[r_start:r_end, c_start:c_end] = grid[r, c]
     return out
+
+class SamplePerEpochSequence(tf.keras.utils.Sequence):
+    """Per-epoch per-class subset sampler over fixed arrays."""
+    def __init__(self, images, labels, batch_size, samples_per_epoch_per_class=None):
+        self.images = images
+        self.labels = labels
+        self.batch_size = batch_size
+        self.samples_per_epoch_per_class = samples_per_epoch_per_class
+        # Accept either one-hot or scalar class labels for grouping
+        if len(labels.shape) == 2:
+            class_indices_arr = np.argmax(labels, axis=1)
+        else:
+            class_indices_arr = np.array(labels)
+        self.class_indices = {}
+        for idx, label in enumerate(class_indices_arr):
+            self.class_indices.setdefault(int(label), []).append(idx)
+        self.classes = sorted(self.class_indices.keys())
+        self.full_indices = np.arange(len(images))
+        self._sample_indices()
+
+    def _sample_indices(self):
+        if self.samples_per_epoch_per_class is not None and self.samples_per_epoch_per_class > 0:
+            sampled_indices = []
+            for cls in self.classes:
+                cls_idx = np.array(self.class_indices[cls])
+                n_sample = min(self.samples_per_epoch_per_class, len(cls_idx))
+                sampled = np.random.choice(cls_idx, size=n_sample, replace=False)
+                sampled_indices.extend(sampled)
+            self.indices = np.array(sampled_indices)
+        else:
+            self.indices = self.full_indices.copy()
+        np.random.shuffle(self.indices)
+
+    def __len__(self):
+        return int(np.ceil(len(self.indices) / self.batch_size))
+
+    def __getitem__(self, idx):
+        batch_idx = self.indices[idx * self.batch_size:(idx + 1) * self.batch_size]
+        return self.images[batch_idx], self.labels[batch_idx]
+
+    def on_epoch_end(self):
+        self._sample_indices()
+
+
+def limit_samples_per_class(x, y, max_samples_per_class):
+    """If max_samples_per_class is set, truncate each class to that count."""
+    if max_samples_per_class is None:
+        return x, y
+    keep = []
+    for cls in range(y.shape[1]):
+        idx = np.where(np.argmax(y, axis=1) == cls)[0]
+        idx = idx[:max_samples_per_class]
+        keep.append(idx)
+    keep = np.concatenate(keep)
+    np.random.shuffle(keep)
+    return x[keep], y[keep]
+
 
 def load_dataset():
     """Load all PBM images and labels."""
@@ -141,6 +202,9 @@ def load_dataset():
 
     # One-hot encode labels
     labels_oh = tf.keras.utils.to_categorical(labels, NUM_CLASSES)
+
+    # Optional per-class cap
+    images, labels_oh = limit_samples_per_class(images, labels_oh, MAX_SAMPLES_PER_CLASS)
 
     # Shuffle
     np.random.seed(42)
@@ -245,14 +309,40 @@ def build_encoder():
     x28_alt = tf.keras.layers.LayerNormalization(name='enc_ln28_2')(x28_alt)
     x28_alt = tf.keras.layers.Add()([x28_alt, x28_alt_res])
     x28_alt = tf.keras.layers.Activation('relu')(x28_alt)
-    x28_alt = tf.keras.layers.SpatialDropout2D(SPATIAL_DROPOUT)(x28_alt)
-    x28_alt = tf.keras.layers.Dropout(DENSE_DROPOUT)(x28_alt)
     x28_alt = tf.keras.layers.Add()([x28_alt, cbam_block(x28_alt, name_prefix='cbam28')])
 
+    # Main path at 28x28
+    x28_main = image_input
+    x28_main = label_cross_attention(x28_main, label_input, 32, L2_REG)
+    x28_main = tf.keras.layers.Conv2D(32, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_main28_conv')(x28_main)
+    x28_main_res = x28_main
+    x28_main = tf.keras.layers.Conv2D(32, 3, padding='same', activation=None, kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_main28_second')(x28_main)
+    x28_main = tf.keras.layers.LayerNormalization(name='enc_main28_ln')(x28_main)
+    x28_main = tf.keras.layers.Add()([x28_main, x28_main_res])
+    x28_main = tf.keras.layers.Activation('relu')(x28_main)
+    x28_main = tf.keras.layers.SpatialDropout2D(SPATIAL_DROPOUT)(x28_main)
 
-    # ── 14x14 block ──────────────────────────────────────────────
-    x28 = x28_alt
+    # Channel gate mixing main/alt, conditioned on label
+    gate28 = tf.keras.layers.GlobalAveragePooling2D()(x28_alt)
+    label_proj28 = tf.keras.layers.Dense(32, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc28_label_proj')(label_input)
+    gate28 = tf.keras.layers.Concatenate()([gate28, label_proj28])
+    gate28 = tf.keras.layers.Dense(64, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc28_gate_hidden')(gate28)
+    gate28 = tf.keras.layers.Dense(32, activation='sigmoid', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc28_skip_gate')(gate28)
+    gate28 = tf.keras.layers.Reshape((1, 1, 32))(gate28)
+    x28 = gate28 * x28_main + (1.0 - gate28) * x28_alt
+
+    x28 = tf.keras.layers.LayerNormalization(name='enc_ln28_pre')(x28)
+    x28_pre = x28
+    film_gamma28, film_beta28 = make_film(32)(label_input)
+    x28 = x28 * (1.0 + film_gamma28) + film_beta28
+    x28 = tf.keras.layers.LayerNormalization(name='enc_ln28_film')(x28)
+    x28 = tf.keras.layers.Add()([
+        x28,
+        tf.keras.layers.Conv2D(32, 1, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_skip28_1x1')(x28_pre),
+    ])
+
     x28_block_out = x28
+
     x14_main = tf.keras.layers.Conv2D(64, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_main14_conv')(x28)
     x14_main = tf.keras.layers.MaxPooling2D(2)(x14_main)
     x14_main = tf.keras.layers.LayerNormalization(name='enc_main14_ln')(x14_main)
@@ -264,7 +354,6 @@ def build_encoder():
     x14_main = tf.keras.layers.LayerNormalization(name='enc_main14_res1_ln')(x14_main)
     x14_main = tf.keras.layers.Activation('relu')(x14_main)
     x14_main = tf.keras.layers.SpatialDropout2D(SPATIAL_DROPOUT)(x14_main)
-    x14_main = tf.keras.layers.Dropout(DENSE_DROPOUT)(x14_main)
 
     x14_main_res2 = x14_main
     x14_main = tf.keras.layers.Conv2D(64, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_main14_res2')(x14_main)
@@ -272,7 +361,6 @@ def build_encoder():
     x14_main = tf.keras.layers.LayerNormalization(name='enc_main14_res2_ln')(x14_main)
     x14_main = tf.keras.layers.Activation('relu')(x14_main)
     x14_main = tf.keras.layers.SpatialDropout2D(SPATIAL_DROPOUT)(x14_main)
-    x14_main = tf.keras.layers.Dropout(DENSE_DROPOUT)(x14_main)
 
     # SE block on main path
     se14 = tf.keras.layers.GlobalAveragePooling2D()(x14_main)
@@ -291,19 +379,22 @@ def build_encoder():
     x14_alt = tf.keras.layers.LayerNormalization(name='enc_ln14_2')(x14_alt)
     x14_alt = tf.keras.layers.Add()([x14_alt, x14_alt_res2])
     x14_alt = tf.keras.layers.Activation('relu')(x14_alt)
-    x14_alt = tf.keras.layers.SpatialDropout2D(SPATIAL_DROPOUT)(x14_alt)
-    x14_alt = tf.keras.layers.Dropout(DENSE_DROPOUT)(x14_alt)
     x14_alt = tf.keras.layers.Add()([x14_alt, cbam_block(x14_alt, name_prefix='cbam14')])
     x14 = x14_alt
 
-    gate14 = tf.keras.layers.Conv2D(1, 3, padding='same', activation='sigmoid', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc14_skip_gate')(x28_block_out)
-    gate14 = tf.keras.layers.MaxPooling2D(2)(gate14)
+    gate14 = tf.keras.layers.GlobalAveragePooling2D()(x14_alt)
+    label_proj14 = tf.keras.layers.Dense(32, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc14_label_proj')(label_input)
+    gate14 = tf.keras.layers.Concatenate()([gate14, label_proj14])
+    gate14 = tf.keras.layers.Dense(64, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc14_gate_hidden')(gate14)
+    gate14 = tf.keras.layers.Dense(64, activation='sigmoid', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc14_skip_gate')(gate14)
+    gate14 = tf.keras.layers.Reshape((1, 1, 64))(gate14)
     x = gate14 * x14_main + (1.0 - gate14) * x14_alt
 
-    x14 = x
+    x14 = tf.keras.layers.LayerNormalization(name='enc_ln14_pre')(x)
     x14_pre = x14
     film_gamma14, film_beta14 = make_film(64)(label_input)
     x14 = x14 * (1.0 + film_gamma14) + film_beta14
+    x14 = tf.keras.layers.LayerNormalization(name='enc_ln14_film')(x14)
     x14 = tf.keras.layers.Add()([
         x14,
         tf.keras.layers.Conv2D(64, 1, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_skip14_1x1')(x14_pre),
@@ -315,15 +406,32 @@ def build_encoder():
     x7_main = tf.keras.layers.MaxPooling2D(2)(x7_main)
     x7_main = tf.keras.layers.LayerNormalization(name='enc_main7_ln')(x7_main)
 
+    # Two residual conv blocks in main path
+    x7_main_res = x7_main
+    x7_main = tf.keras.layers.Conv2D(128, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_main7_res1')(x7_main)
+    x7_main = tf.keras.layers.Add()([x7_main, x7_main_res])
+    x7_main = tf.keras.layers.LayerNormalization(name='enc_main7_res1_ln')(x7_main)
+    x7_main = tf.keras.layers.Activation('relu')(x7_main)
+    x7_main = tf.keras.layers.SpatialDropout2D(SPATIAL_DROPOUT)(x7_main)
+
+    x7_main_res2 = x7_main
+    x7_main = tf.keras.layers.Conv2D(128, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_main7_res2')(x7_main)
+    x7_main = tf.keras.layers.Add()([x7_main, x7_main_res2])
+    x7_main = tf.keras.layers.LayerNormalization(name='enc_main7_res2_ln')(x7_main)
+    x7_main = tf.keras.layers.Activation('relu')(x7_main)
+    x7_main = tf.keras.layers.SpatialDropout2D(SPATIAL_DROPOUT)(x7_main)
+
+    # SE block on main path
+    se7 = tf.keras.layers.GlobalAveragePooling2D()(x7_main)
+    se7 = tf.keras.layers.Dense(128 // 4, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_se7_dense1')(se7)
+    se7 = tf.keras.layers.Dense(128, activation='sigmoid', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_se7_dense2')(se7)
+    x7_main = tf.keras.layers.Multiply()([x7_main, se7])
+
     x7_alt = tf.keras.layers.SeparableConv2D(128, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv7')(x14)
     x7_alt = tf.keras.layers.MaxPooling2D(2)(x7_alt)
-    x7_alt = tf.keras.layers.SpatialDropout2D(SPATIAL_DROPOUT)(x7_alt)
-    x7_alt = tf.keras.layers.Dropout(DENSE_DROPOUT)(x7_alt)
     x7_alt = tf.keras.layers.Add()([x7_alt, cbam_block(x7_alt, name_prefix='cbam7')])
     x7_alt_shallow = x7_alt
     x7_alt = tf.keras.layers.SeparableConv2D(128, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv7_deep2')(x7_alt)
-    x7_alt = tf.keras.layers.SpatialDropout2D(SPATIAL_DROPOUT)(x7_alt)
-    x7_alt = tf.keras.layers.Dropout(DENSE_DROPOUT)(x7_alt)
     x7_alt = tf.keras.layers.LayerNormalization(name='enc_ln7_1')(x7_alt)
     x7_alt_res = x7_alt
     x7_alt = tf.keras.layers.SeparableConv2D(128, 3, padding='same', activation=None, kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv7_res1')(x7_alt)
@@ -335,10 +443,25 @@ def build_encoder():
 
     # ── Latent head: progressive fusion ──────────────────────────
     # x: 7x7x128, x14: 14x14x64, x28: 28x28x32
-    gate7 = tf.keras.layers.GlobalAveragePooling2D()(x14_block_out)
+    gate7 = tf.keras.layers.GlobalAveragePooling2D()(x7_alt)
+    label_proj7 = tf.keras.layers.Dense(32, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc7_label_proj')(label_input)
+    gate7 = tf.keras.layers.Concatenate()([gate7, label_proj7])
+    gate7 = tf.keras.layers.Dense(128, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc7_gate_hidden')(gate7)
     gate7 = tf.keras.layers.Dense(128, activation='sigmoid', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc7_skip_gate')(gate7)
     gate7 = tf.keras.layers.Reshape((1, 1, 128))(gate7)
     x7 = gate7 * x7_main + (1.0 - gate7) * x7_alt
+    x7 = tf.keras.layers.LayerNormalization(name='enc_ln7_pre')(x7)
+
+    x7_pre = x7
+    film_gamma7, film_beta7 = make_film(128)(label_input)
+    x7 = x7 * (1.0 + film_gamma7) + film_beta7
+    x7 = tf.keras.layers.LayerNormalization(name='enc_ln7_film')(x7)
+    x7 = tf.keras.layers.Add()([
+        x7,
+        tf.keras.layers.Conv2D(128, 1, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_skip7_1x1')(x7_pre),
+    ])
+
+    x7_gate_out = x7
 
     # 7x7 -> 14x14
     x7 = tf.keras.layers.UpSampling2D(2, name='enc_up7_14')(x7)
@@ -357,19 +480,32 @@ def build_encoder():
     # Pool to vector
     x = tf.keras.layers.GlobalAveragePooling2D(name='enc_gap_fused')(x7)
     x = tf.keras.layers.Dense(256, kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_main_proj')(x)
+    x = tf.keras.layers.LayerNormalization(name='enc_main_ln')(x)
+    x = tf.keras.layers.Dropout(DENSE_DROPOUT, name='enc_main_drop')(x)
 
     # Direct skip from original 7x7 features
-    x_direct = tf.keras.layers.Flatten(name='enc_flat_direct')(x7)
+    x_direct = tf.keras.layers.Flatten(name='enc_flat_direct')(x7_gate_out)
     x_direct = tf.keras.layers.Dense(512, kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_direct_proj1')(x_direct)
     x_direct = tf.keras.layers.LayerNormalization(name='enc_direct_ln1')(x_direct)
+    x_direct = tf.keras.layers.Dropout(DENSE_DROPOUT, name='enc_direct_drop')(x_direct)
     x_direct = tf.keras.layers.Dense(256, kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_direct_proj')(x_direct)
+    x_direct = tf.keras.layers.LayerNormalization(name='enc_direct_ln2')(x_direct)
+    x_direct = tf.keras.layers.Dropout(DENSE_DROPOUT, name='enc_direct_drop2')(x_direct)
 
-    label_proj = tf.keras.layers.Dense(128, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_label_proj")(label_input)
 
-    x = tf.keras.layers.Concatenate(name="enc_concat")([x, x_direct, label_proj])
-    x = tf.keras.layers.Dense(512, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_fuse_proj")(x)
-    x = tf.keras.layers.LayerNormalization(name="enc_ln512_1")(x)
-    x = tf.keras.layers.Dropout(DENSE_DROPOUT, name="enc_drop512")(x)
+    x = tf.keras.layers.Dense(256, kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_fuse_q")(x)
+    x_k = tf.keras.layers.Dense(256, kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_fuse_k")(x_direct)
+    x_v = tf.keras.layers.Dense(256, kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_fuse_v")(x_direct)
+    x_q = tf.keras.layers.Reshape((1, 256))(x)
+    x_k = tf.keras.layers.Reshape((1, 256))(x_k)
+    x_v = tf.keras.layers.Reshape((1, 256))(x_v)
+    attn = tf.linalg.matmul(x_q, x_k, transpose_b=True)
+    attn = attn / tf.sqrt(tf.cast(tf.shape(x_q)[-1], tf.float32))
+    attn = tf.nn.softmax(attn, axis=-1)
+    x = tf.linalg.matmul(attn, x_v)
+    x = tf.keras.layers.Reshape((256,), name="enc_fuse_flat")(x)
+    x = tf.keras.layers.LayerNormalization(name="enc_ln_fused")(x)
+    x = tf.keras.layers.Dropout(DENSE_DROPOUT, name="enc_drop_fused")(x)
 
     z_mean = tf.keras.layers.Dense(LATENT_DIM, name="z_mean", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     z_log_var = tf.keras.layers.Dense(LATENT_DIM, name="z_log_var", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
@@ -424,17 +560,18 @@ def build_generator():
     x = tf.keras.layers.Multiply()([x, se7])
 
     # ── 14x14 block ──────────────────────────────────────────────
-    x = tf.keras.layers.Conv2DTranspose(64, 4, strides=2, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
+    x = tf.keras.layers.UpSampling2D(2)(x)
     x = tf.keras.layers.Conv2D(64, 3, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = tf.keras.layers.LayerNormalization(center=True, scale=True)(x)
     x = tf.keras.layers.Activation("relu")(x)
     x = tf.keras.layers.SpatialDropout2D(GEN_SPATIAL_DROPOUT)(x)
-    skip7_up = tf.keras.layers.Conv2DTranspose(64, 4, strides=2, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(skip7)
+    skip7_up = tf.keras.layers.UpSampling2D(2)(skip7)
     skip7_up = tf.keras.layers.Conv2D(64, 1, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(skip7_up)
 
     # Spatial learned gating on skip path from shared label conditioning
     skip7_gate = tf.keras.layers.Conv2D(1, 3, padding='same', activation='sigmoid', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(skip7_up)
     skip7_up = skip7_up * skip7_gate
+    skip7_up = channel_attention(skip7_up, name_prefix='skip7_ca')
     skip7_up = tf.keras.layers.LayerNormalization(center=True, scale=True)(skip7_up)
 
     x = tf.keras.layers.Add()([x, skip7_up])
@@ -463,16 +600,17 @@ def build_generator():
     x = tf.keras.layers.SpatialDropout2D(GEN_SPATIAL_DROPOUT)(x)
 
     # ── 28x28 block ──────────────────────────────────────────────
-    x = tf.keras.layers.Conv2DTranspose(32, 4, strides=2, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
+    x = tf.keras.layers.UpSampling2D(2)(x)
     x = tf.keras.layers.Conv2D(32, 3, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = tf.keras.layers.LayerNormalization(center=True, scale=True)(x)
     x = tf.keras.layers.Activation("relu")(x)
     x = tf.keras.layers.SpatialDropout2D(GEN_SPATIAL_DROPOUT)(x)
-    skip14_up = tf.keras.layers.Conv2DTranspose(32, 4, strides=2, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(skip14)
+    skip14_up = tf.keras.layers.UpSampling2D(2)(skip14)
     skip14_up = tf.keras.layers.Conv2D(32, 1, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(skip14_up)
 
     skip14_gate = tf.keras.layers.Conv2D(1, 3, padding='same', activation='sigmoid', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(skip14_up)
     skip14_up = skip14_up * skip14_gate
+    skip14_up = channel_attention(skip14_up, name_prefix='skip14_ca')
     skip14_up = tf.keras.layers.LayerNormalization(center=True, scale=True)(skip14_up)
 
     x = tf.keras.layers.Add()([x, skip14_up])
@@ -822,30 +960,30 @@ def main():
         'conv28',
         'conv28_second',
         'enc_ln28_2',
-        #'conv14_pre',
-        #'conv14_res1',
-        #'conv14_res2',
-        #'enc_ln14_2',
-        #'conv7',
-        #'conv7_deep2',
-        #'enc_ln7_1',
-        #'conv7_res1',
+        'conv14_pre',
+        'conv14_res1',
+        'conv14_res2',
+        'enc_ln14_2',
+        'conv7',
+        'conv7_deep2',
+        'enc_ln7_1',
+        'conv7_res1',
         # CBAM sublayers
         'cbam28_ca_dense1',
         'cbam28_ca_dense2',
         'cbam28_sa_conv1',
         'cbam28_sa_conv2',
         'cbam28_ln',
-        #'cbam14_ca_dense1',
-        #'cbam14_ca_dense2',
-        #'cbam14_sa_conv1',
-        #'cbam14_sa_conv2',
-        #'cbam14_ln',
-        #'cbam7_ca_dense1',
-        #'cbam7_ca_dense2',
-        #'cbam7_sa_conv1',
-        #'cbam7_sa_conv2',
-        #'cbam7_ln',
+        'cbam14_ca_dense1',
+        'cbam14_ca_dense2',
+        'cbam14_sa_conv1',
+        'cbam14_sa_conv2',
+        'cbam14_ln',
+        'cbam7_ca_dense1',
+        'cbam7_ca_dense2',
+        'cbam7_sa_conv1',
+        'cbam7_sa_conv2',
+        'cbam7_ln',
     ]
     frozen = [name for name in copied_layer_names if name in fusion_frozen]
     for name in frozen:
@@ -882,14 +1020,27 @@ def main():
 
     print(f"\nTraining CVAE for {EPOCHS} epochs with {len(copied_layer_names)} transferred layers frozen...")
     cvae.compile(optimizer=optimizer)
-    history = cvae.fit(
-        x_train, y_train,
-        validation_data=(x_test, y_test),
-        epochs=EPOCHS,
-        batch_size=BATCH_SIZE,
-        callbacks=[early_stopping, tensorboard_callback, kl_warmup, lr_warmup, perceptual_warmup, tv_warmup],
-        verbose=2,
-    )
+
+    if SAMPLES_PER_EPOCH_PER_CLASS:
+        train_gen = SamplePerEpochSequence(x_train, y_train, BATCH_SIZE, samples_per_epoch_per_class=SAMPLES_PER_EPOCH_PER_CLASS)
+
+    if SAMPLES_PER_EPOCH_PER_CLASS:
+        history = cvae.fit(
+            train_gen,
+            validation_data=(x_test, y_test),
+            epochs=EPOCHS,
+            callbacks=[early_stopping, tensorboard_callback, kl_warmup, lr_warmup, perceptual_warmup, tv_warmup],
+            verbose=2,
+        )
+    else:
+        history = cvae.fit(
+            x_train, y_train,
+            validation_data=(x_test, y_test),
+            epochs=EPOCHS,
+            batch_size=BATCH_SIZE,
+            callbacks=[early_stopping, tensorboard_callback, kl_warmup, lr_warmup, perceptual_warmup, tv_warmup],
+            verbose=2,
+        )
 
     # ─── Save as ONNX ──────────────────────────────────────────────
     save_dir = Path(__file__).parent
