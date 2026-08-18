@@ -18,7 +18,7 @@ from tensorflow.keras import layers
 import numpy as np
 from pathlib import Path
 
-from utils.mnist_loader import load_data
+from utils.loader2 import load_classes
 
 # ─── Config ────────────────────────────────────────────────────────
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "synthetic" / "data"
@@ -50,8 +50,13 @@ LR_WARMUP_START = 0.000005
 LR_WARMUP_EPOCHS = 2
 LR_DECAY_EPOCHS = EPOCHS - LR_WARMUP_EPOCHS
 LR_END = 0.0001
-PIXEL_LOSS_WEIGHT = 0.8
-PERCEPTUAL_LOSS_WEIGHT = 0.2
+PIXEL_LOSS_WEIGHT = 1.0
+PERCEPTUAL_MULTISCALE = True
+PERCEPTUAL_WARMUP_EPOCHS = 5
+PERCEPTUAL_START_WEIGHT = 0.0
+PERCEPTUAL_PEAK_WEIGHT = 1.0
+PERCEPTUAL_DECAY_EPOCHS = EPOCHS - PERCEPTUAL_WARMUP_EPOCHS
+PERCEPTUAL_END_WEIGHT = 0.5
 INFO_NCE_WEIGHT = 0.0
 TEMPERATURE = 1.0
 DROPOUT = 0.35
@@ -75,12 +80,12 @@ PHA1_KL_WARMUP_EPOCHS = 1
 PHA1_KL_WARMUP_START = 0.0000001
 PHA1_KL_WEIGHT_START = 0.01
 PHA1_INFO_NCE_WEIGHT = 0.0
-LOG_NAME = 'logs/gen1'
-LOG_NAME_PHA1 = 'logs/gen1/phase1'
+LOG_NAME = 'logs/gen1b'
+LOG_NAME_PHA1 = 'logs/gen1b/phase1'
 
 # ─── Data ──────────────────────────────────────────────────────────
 def load_data_cvae():
-    (x_train, y_train), (x_test, y_test) = load_data(DATA_DIR, NUM_CLASSES, flip_pixels=7*28, max_samples_per_class=MAX_SAMPLES_PER_CLASS, pbm_dir=PBM_DIR, synthetic_last_class=False)
+    (x_train, y_train), (x_test, y_test) = load_classes(PBM_DIR, NUM_CLASSES, max_samples_per_class=MAX_SAMPLES_PER_CLASS)
     y_train = keras.utils.to_categorical(y_train, NUM_CLASSES)
     y_test = keras.utils.to_categorical(y_test, NUM_CLASSES)
     return x_train, y_train, x_test, y_test
@@ -382,44 +387,21 @@ def build_generator():
     return keras.Model([z, lbl], x, name="generator")
 
 
-# ─── Perceptual Loss Feature Extractor (Multi-layer) ───────────────
-def build_feature_extractor():
-    """Use the trained MNIST classifier as fixed semantic multi-layer feature extractor."""
-    mnist_path = Path(__file__).resolve().parent / "mnist_model"
+# ─── Perceptual Loss Feature Extractor (Multi-scale) ───────────────
+def build_perceptual_extractor():
+    """Load frozen mnist2 classifier and build a 3-scale feature extractor."""
+    mnist_path = Path(__file__).resolve().parent / "mnist2_model"
     if not mnist_path.exists():
         raise FileNotFoundError(f"Required perceptual backbone not found: {mnist_path}")
-    custom_objects={'loss_fn': lambda y_true, y_pred: keras.losses.categorical_crossentropy(y_true, y_pred)}
-    cls_model = keras.models.load_model(str(mnist_path), custom_objects=custom_objects)
-    # Fixed semantic points: 28x28, 14x14, 7x7, and dense-style pool features
-    layer_names = [
-        'percept_c0',
-        'percept_c1',
-        'percept_c2',
-        'percept_c3',
-        'pool7',
-        'pool14',
-        'pool28',
-    ]
-    feature_layers = []
-    for name in layer_names:
-        try:
-            layer = cls_model.get_layer(name)
-            feature_layers.append(layer.output)
-        except ValueError:
-            pass
-    if not feature_layers:
-        # Fallback: use multi-layer conv extraction if custom named layers are unavailable
-        for layer in cls_model.layers:
-            if isinstance(layer, (layers.Conv2D, layers.SeparableConv2D)):
-                feature_layers.append(layer.output)
-    pooled = []
-    for f in feature_layers:
-        if len(f.shape) == 4:
-            pooled.append(layers.GlobalAveragePooling2D()(f))
-        else:
-            pooled.append(f)
-    feat_model = keras.Model(cls_model.input, pooled, name="feature_extractor")
-    return feat_model
+    base = tf.keras.models.load_model(str(mnist_path), compile=False)
+    base.trainable = False
+
+    conv28_layer = base.get_layer(name='conv28').output
+    fine_layer = base.get_layer(name='conv14_pre').output
+    coarse_layer = base.get_layer(name='conv7').output
+
+    extractor = tf.keras.Model(inputs=base.input, outputs=[conv28_layer, fine_layer, coarse_layer], name='perceptual_extractor')
+    return extractor
 
 
 # ─── VAE Model ────────────────────────────────────────────────────
@@ -428,14 +410,24 @@ class VAE(keras.Model):
         super().__init__(**kwargs)
         self.encoder = encoder
         self.generator = generator
-        self.feature_extractor = build_feature_extractor()
-        # Freeze feature extractor weights
-        self.feature_extractor.trainable = False
+        self.perceptual_extractor = build_perceptual_extractor()
+        self.perceptual_extractor.trainable = False
         self.total_loss_tracker = keras.metrics.Mean(name="total_loss")
         self.recon_loss_tracker = keras.metrics.Mean(name="recon_loss")
         self.kl_loss_tracker = keras.metrics.Mean(name="kl_loss")
+        self.perceptual_loss_tracker = keras.metrics.Mean(name="perceptual_loss")
+        self.perceptual_conv28_loss_tracker = keras.metrics.Mean(name="perceptual_conv28_loss")
+        self.perceptual_conv14_loss_tracker = keras.metrics.Mean(name="perceptual_conv14_loss")
+        self.perceptual_conv7_loss_tracker = keras.metrics.Mean(name="perceptual_conv7_loss")
         self.kl_weight_tracker = keras.metrics.Mean(name="kl_weight")
         self.epoch_tracker = tf.Variable(0, trainable=False, dtype=tf.int32)
+        self.perceptual_weight = float(PERCEPTUAL_START_WEIGHT)
+        self.perceptual_scale_weights = keras.Sequential([
+            keras.layers.Dense(16, activation="relu", kernel_regularizer=keras.regularizers.l2(L2_REG)),
+            keras.layers.Dense(3, activation="softmax", kernel_regularizer=keras.regularizers.l2(L2_REG), name="perceptual_scale_weights"),
+        ], name="perceptual_scale_weights")
+        # Eagerly build so trainable_weights exists even if Phase 1 skips perceptual loss
+        self.perceptual_scale_weights(tf.zeros((1, 3)))
 
     def on_epoch_begin(self, epoch, logs=None):
         self.epoch_tracker.assign(epoch)
@@ -444,10 +436,8 @@ class VAE(keras.Model):
         epoch = tf.cast(self.epoch_tracker, tf.float32)
         warmup_epochs = tf.cast(LR_WARMUP_EPOCHS, tf.float32)
         decay_epochs = tf.cast(LR_DECAY_EPOCHS, tf.float32)
-        # Warmup phase
         warmup_progress = epoch / warmup_epochs
         warmup_lr = LR_WARMUP_START + (LR - LR_WARMUP_START) * tf.minimum(1.0, warmup_progress)
-        # Decay phase (linear)
         decay_epoch = epoch - warmup_epochs
         decay_progress = tf.minimum(1.0, decay_epoch / decay_epochs)
         decay_lr = LR + (LR_END - LR) * decay_progress
@@ -467,9 +457,6 @@ class VAE(keras.Model):
         decay_epoch = kl_epoch - warmup_epochs
         decay_progress = tf.clip_by_value(decay_epoch / decay_epochs, 0.0, 1.0)
         decay_weight = mid + (end - mid) * decay_progress
-        # Phase 1 (kl_epoch < 0): constant start
-        # Phase 2 (0 <= kl_epoch < warmup): warmup
-        # Phase 3 (kl_epoch >= warmup): decay
         is_phase1 = tf.cast(kl_epoch < zero, tf.float32)
         is_phase2 = tf.cast(tf.logical_and(kl_epoch >= zero, kl_epoch < warmup_epochs), tf.float32)
         is_phase3 = tf.cast(kl_epoch >= warmup_epochs, tf.float32)
@@ -477,7 +464,16 @@ class VAE(keras.Model):
 
     @property
     def metrics(self):
-        return [self.total_loss_tracker, self.recon_loss_tracker, self.kl_loss_tracker, self.kl_weight_tracker]
+        return [
+            self.total_loss_tracker,
+            self.recon_loss_tracker,
+            self.kl_loss_tracker,
+            self.perceptual_loss_tracker,
+            self.perceptual_conv28_loss_tracker,
+            self.perceptual_conv14_loss_tracker,
+            self.perceptual_conv7_loss_tracker,
+            self.kl_weight_tracker,
+        ]
 
     def train_step(self, data):
         images, labels = data
@@ -492,42 +488,42 @@ class VAE(keras.Model):
             z_mean, z_log_var, z = self.encoder([images, labels])
             reconstruction = self.generator([z, labels])
 
-            # Pixel-level reconstruction loss (BCE)
-            # Resize target to match reconstruction size (no-op if same size)
             target = tf.image.resize(images, tf.shape(reconstruction)[1:3])
             pixel_loss = tf.reduce_mean(tf.reduce_sum(
                 keras.losses.binary_crossentropy(target, reconstruction), axis=(1, 2)))
 
-            # KL divergence
             kl_loss = -0.5 * tf.reduce_mean(tf.reduce_sum(
                 1 + z_log_var - tf.square(z_mean) - tf.exp(z_log_var), axis=1))
 
-            # InfoNCE: ensure encoder utilizes latent space
-            # For each batch, compute pairwise similarities
             batch_size = tf.shape(z)[0]
             z_norm = tf.math.l2_normalize(z, axis=1)
-            # Similarity matrix: [batch, batch]
             sim_matrix = tf.matmul(z_norm, z_norm, transpose_b=True) / TEMPERATURE
-            # Labels: diagonal (positive pairs)
             labels_ce = tf.range(batch_size)
             info_nce_loss = tf.reduce_mean(
                 tf.nn.sparse_softmax_cross_entropy_with_logits(labels=labels_ce, logits=sim_matrix))
 
-            # Perceptual loss (multi-layer feature-level)
-            real_features = self.feature_extractor(images)
-            fake_features = self.feature_extractor(reconstruction)
-            perceptual_loss = 0.0
-            count = 0
-            for rf, ff in zip(real_features, fake_features):
-                diff = tf.reduce_mean(tf.square(rf - ff))
-                n = tf.cast(tf.size(rf), tf.float32)
-                perceptual_loss += diff / n
-                count += 1
-            perceptual_loss /= tf.maximum(tf.cast(count, tf.float32), 1.0)
+            perceptual_loss_conv28 = tf.constant(0.0)
+            perceptual_loss_conv14 = tf.constant(0.0)
+            perceptual_loss_conv7 = tf.constant(0.0)
+            if self.perceptual_extractor is not None:
+                real_input = tf.squeeze(images, -1)
+                fake_input = tf.squeeze(reconstruction, -1)
+                real_feats = self.perceptual_extractor(real_input, training=False)
+                fake_feats = self.perceptual_extractor(fake_input, training=False)
+                perceptual_loss_conv28 = tf.reduce_mean(tf.square(real_feats[0] - fake_feats[0]))
+                perceptual_loss_conv14 = tf.reduce_mean(tf.square(real_feats[1] - fake_feats[1]))
+                perceptual_loss_conv7 = tf.reduce_mean(tf.square(real_feats[2] - fake_feats[2]))
+                perceptual_loss_conv28 = perceptual_loss_conv28 / tf.cast(tf.shape(real_feats[0])[1] * tf.shape(real_feats[0])[2], tf.float32)
+                perceptual_loss_conv14 = perceptual_loss_conv14 / tf.cast(tf.shape(real_feats[1])[1] * tf.shape(real_feats[1])[2], tf.float32)
+                perceptual_loss_conv7 = perceptual_loss_conv7 / tf.cast(tf.shape(real_feats[2])[1] * tf.shape(real_feats[2])[2], tf.float32)
 
-            # Combined loss
+            scale_losses = tf.stack([perceptual_loss_conv28, perceptual_loss_conv14, perceptual_loss_conv7])
+            scale_losses = tf.expand_dims(scale_losses, 0)
+            scale_weights = self.perceptual_scale_weights(scale_losses)
+            perceptual_loss = tf.squeeze(tf.reduce_sum(scale_weights * scale_losses, axis=-1))
+
             total_loss = (PIXEL_LOSS_WEIGHT * pixel_loss +
-                          PERCEPTUAL_LOSS_WEIGHT * perceptual_loss +
+                          float(self.perceptual_weight) * perceptual_loss +
                           kl_weight * kl_loss +
                           INFO_NCE_WEIGHT * info_nce_loss)
 
@@ -538,12 +534,17 @@ class VAE(keras.Model):
         self.recon_loss_tracker.update_state(pixel_loss)
         self.kl_loss_tracker.update_state(kl_loss)
         self.kl_weight_tracker.update_state(kl_weight)
+        self.perceptual_loss_tracker.update_state(perceptual_loss)
+        self.perceptual_conv28_loss_tracker.update_state(perceptual_loss_conv28)
+        self.perceptual_conv14_loss_tracker.update_state(perceptual_loss_conv14)
+        self.perceptual_conv7_loss_tracker.update_state(perceptual_loss_conv7)
         return {m.name: m.result() for m in self.metrics}
 
     def test_step(self, data):
         images, labels = data
         z_mean, z_log_var, z = self.encoder([images, labels])
         reconstruction = self.generator([z, labels])
+
         target = tf.image.resize(images, tf.shape(reconstruction)[1:3])
         pixel_loss = tf.reduce_mean(tf.reduce_sum(
             keras.losses.binary_crossentropy(target, reconstruction), axis=(1, 2)))
@@ -556,20 +557,39 @@ class VAE(keras.Model):
         labels_ce = tf.range(batch_size)
         info_nce_loss = tf.reduce_mean(
             tf.nn.sparse_softmax_cross_entropy_with_logits(labels=labels_ce, logits=sim_matrix))
-        real_features = self.feature_extractor(images)
-        fake_features = self.feature_extractor(reconstruction)
-        perceptual_loss = tf.reduce_mean([
-            tf.reduce_mean(tf.square(rf - ff))
-            for rf, ff in zip(real_features, fake_features)
-        ])
+
+        perceptual_loss_conv28 = tf.constant(0.0)
+        perceptual_loss_conv14 = tf.constant(0.0)
+        perceptual_loss_conv7 = tf.constant(0.0)
+        if self.perceptual_extractor is not None:
+            real_input = tf.squeeze(images, -1)
+            fake_input = tf.squeeze(reconstruction, -1)
+            real_feats = self.perceptual_extractor(real_input, training=False)
+            fake_feats = self.perceptual_extractor(fake_input, training=False)
+            perceptual_loss_conv28 = tf.reduce_mean(tf.square(real_feats[0] - fake_feats[0]))
+            perceptual_loss_conv14 = tf.reduce_mean(tf.square(real_feats[1] - fake_feats[1]))
+            perceptual_loss_conv7 = tf.reduce_mean(tf.square(real_feats[2] - fake_feats[2]))
+            perceptual_loss_conv28 = perceptual_loss_conv28 / tf.cast(tf.shape(real_feats[0])[1] * tf.shape(real_feats[0])[2], tf.float32)
+            perceptual_loss_conv14 = perceptual_loss_conv14 / tf.cast(tf.shape(real_feats[1])[1] * tf.shape(real_feats[1])[2], tf.float32)
+            perceptual_loss_conv7 = perceptual_loss_conv7 / tf.cast(tf.shape(real_feats[2])[1] * tf.shape(real_feats[2])[2], tf.float32)
+
+        scale_losses = tf.stack([perceptual_loss_conv28, perceptual_loss_conv14, perceptual_loss_conv7])
+        scale_losses = tf.expand_dims(scale_losses, 0)
+        scale_weights = self.perceptual_scale_weights(scale_losses)
+        perceptual_loss = tf.squeeze(tf.reduce_sum(scale_weights * scale_losses, axis=-1))
+
         total_loss = (PIXEL_LOSS_WEIGHT * pixel_loss +
-                      PERCEPTUAL_LOSS_WEIGHT * perceptual_loss +
+                      float(self.perceptual_weight) * perceptual_loss +
                       kl_weight * kl_loss +
                       INFO_NCE_WEIGHT * info_nce_loss)
         self.total_loss_tracker.update_state(total_loss)
         self.recon_loss_tracker.update_state(pixel_loss)
         self.kl_loss_tracker.update_state(kl_loss)
         self.kl_weight_tracker.update_state(kl_weight)
+        self.perceptual_loss_tracker.update_state(perceptual_loss)
+        self.perceptual_conv28_loss_tracker.update_state(perceptual_loss_conv28)
+        self.perceptual_conv14_loss_tracker.update_state(perceptual_loss_conv14)
+        self.perceptual_conv7_loss_tracker.update_state(perceptual_loss_conv7)
         return {m.name: m.result() for m in self.metrics}
 
 
@@ -660,11 +680,31 @@ class GeneratorCheckpoint(keras.callbacks.Callback):
             print(f"  Saved best generator (val_loss: {current_loss:.4f})")
 
 
+class PerceptualWarmup(keras.callbacks.Callback):
+    def __init__(self, vae_model, warmup_epochs, start_weight, peak_weight, decay_epochs, end_weight):
+        self.vae = vae_model
+        self.warmup_epochs = warmup_epochs
+        self.start_weight = start_weight
+        self.peak_weight = peak_weight
+        self.decay_epochs = decay_epochs
+        self.end_weight = end_weight
+
+    def on_epoch_begin(self, epoch, logs=None):
+        if epoch < self.warmup_epochs:
+            weight = self.start_weight + (self.peak_weight - self.start_weight) * (epoch / max(1, self.warmup_epochs - 1))
+        elif epoch < self.warmup_epochs + self.decay_epochs:
+            t = (epoch - self.warmup_epochs) / max(1, self.decay_epochs - 1)
+            weight = self.peak_weight + (self.end_weight - self.peak_weight) * t
+        else:
+            weight = self.end_weight
+        self.vae.perceptual_weight = float(weight)
+
 
 callbacks = [
     keras.callbacks.EarlyStopping(monitor='val_recon_loss', patience=90, restore_best_weights=True),
     GeneratorCheckpoint(generator, best_generator_path),
     BestEpochLogger(vae),
+    PerceptualWarmup(vae, PERCEPTUAL_WARMUP_EPOCHS, PERCEPTUAL_START_WEIGHT, PERCEPTUAL_PEAK_WEIGHT, PERCEPTUAL_DECAY_EPOCHS, PERCEPTUAL_END_WEIGHT),
     keras.callbacks.TensorBoard(log_dir=LOG_NAME, histogram_freq=1),
 ]
 
