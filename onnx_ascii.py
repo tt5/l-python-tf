@@ -7,7 +7,7 @@ import onnxruntime as ort
 from pathlib import Path
 
 save_dir = Path(__file__).resolve().parent
-gen_session = ort.InferenceSession(str(save_dir / "cvae2_generator.onnx"))
+gen_session = ort.InferenceSession(str(save_dir / "cvae_generator.onnx"))
 gen_input_names = [inp.name for inp in gen_session.get_inputs()]
 gen_output_name = gen_session.get_outputs()[0].name
 
@@ -29,7 +29,7 @@ gen_images = gen_session.run([gen_output_name], gen_inputs)[0][0, :, :, 0]
 if gen_images.max() > 1.0:
     gen_images = gen_images / 255.0
 
-#img = (gen_images > 0.5).astype(np.float32)
+img = (gen_images > 0.5).astype(np.float32)
 img = gen_images
 
 chars = " .:-=+*#%@"

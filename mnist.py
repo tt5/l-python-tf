@@ -33,12 +33,12 @@ GRAD_NORM_TARGET = 1.0
 DROPOUT_START = 0.45
 DROPOUT_END = 0.25
 DROPOUT = DROPOUT_START
-SPATIAL_DROPOUT = 0.3
+SPATIAL_DROPOUT = 0.2
 DENSE_SIZE = 640
 L2_DECAY = 0.00001
 GCE_Q = 0.3
-EARLY_STOP_PATIENCE = 100
-GAUSSIAN_NOISE = 0.00005
+EARLY_STOP_PATIENCE = 10
+GAUSSIAN_NOISE = 0.00006
 GAUSSIAN_NOISE_DECAY_EPOCHS = 20
 GAUSSIAN_NOISE_END = 0.0
 LOG_DIR = "logs/cls1b"
@@ -168,7 +168,6 @@ c0 = L.SeparableConv2D(64, 3, padding='same', activation=None, kernel_regularize
 c0 = L.LayerNormalization()(c0)
 c0 = L.Add()([c0, c0_res])
 c0 = L.Activation('relu')(c0)
-c0 = L.Dropout(DROPOUT)(c0)
 c0 = L.SpatialDropout2D(SPATIAL_DROPOUT)(c0)
 c0 = L.Add()([c0, cbam_block(c0)])
 
@@ -179,7 +178,6 @@ c1 = L.LayerNormalization()(c1)
 skip_28_to_14 = L.Conv2D(96, 1, strides=2, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_DECAY))(c0)
 c1 = L.Add()([c1, skip_28_to_14])
 c1 = L.Activation('relu')(c1)
-c1 = L.Dropout(DROPOUT)(c1)
 c1 = L.SpatialDropout2D(SPATIAL_DROPOUT)(c1)
 c1 = L.Add()([c1, cbam_block(c1)])
 
@@ -190,7 +188,6 @@ c2 = L.LayerNormalization()(c2)
 skip_14_to_7 = L.Conv2D(128, 1, strides=2, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_DECAY))(c1)
 c2 = L.Add()([c2, skip_14_to_7])
 c2 = L.Activation('relu')(c2)
-c2 = L.Dropout(DROPOUT)(c2)
 c2 = L.SpatialDropout2D(SPATIAL_DROPOUT)(c2)
 c2 = L.Add()([c2, cbam_block(c2)])
 
@@ -200,7 +197,6 @@ c3 = L.SeparableConv2D(128, 3, padding='same', activation=None, kernel_regulariz
 c3 = L.LayerNormalization()(c3)
 c3 = L.Add()([c3, c3_res])
 c3 = L.Activation('relu')(c3)
-c3 = L.Dropout(DROPOUT)(c3)
 c3 = L.SpatialDropout2D(SPATIAL_DROPOUT)(c3)
 c3 = L.LayerNormalization()(c3)
 

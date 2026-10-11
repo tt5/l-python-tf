@@ -26,7 +26,7 @@ LATENT_DIM = 256
 PHA1_LATENT_DIM = 64
 EPOCHS = 90
 BATCH_SIZE = 128
-NUM_CLASSES = 6
+NUM_CLASSES = 5
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--num-classes", type=int, default=NUM_CLASSES)
@@ -54,6 +54,24 @@ PIXEL_LOSS_WEIGHT = 0.8
 PERCEPTUAL_LOSS_WEIGHT = 0.2
 INFO_NCE_WEIGHT = 0.0
 TEMPERATURE = 1.0
+# Foreground weight for pixel BCE. Sparse classes (e.g. class 4, ~12.6%
+# foreground) are dominated by background under plain BCE, which drags
+# the generator output below the 0.5 threshold. (1-fg)/fg ~= 7 balances
+# the positive/negative contributions at the measured coverage.
+PIXEL_POS_WEIGHT = 7.0
+
+
+def weighted_pixel_loss(target, reconstruction):
+    """Foreground-weighted pixel BCE.
+
+    keras binary_crossentropy returns shape [B,H,W] (the channel axis is
+    squeezed), while `target` is [B,H,W,1] -- so the weights are squeezed
+    to match before multiplying.
+    """
+    bce = keras.losses.binary_crossentropy(target, reconstruction)
+    t = tf.squeeze(target, axis=-1)
+    pixel_weights = t * PIXEL_POS_WEIGHT + (1.0 - t)
+    return tf.reduce_mean(tf.reduce_sum(bce * pixel_weights, axis=(1, 2)))
 DROPOUT = 0.35
 SPATIAL_DROPOUT = 0.35
 L2_REG = 0.00006
@@ -278,7 +296,14 @@ def build_generator_14():
     x = layers.Add()([x, skip_7_up])
     x = layers.Activation("relu")(x)
 
-    x = layers.Conv2D(1, 3, padding="same", activation="sigmoid", dtype="float32", name="conv2d_9")(x)
+    # Per-class output scale+shift (kept consistent with 28x28 generator;
+    # layer name conv2d_9 preserved for weight transfer).
+    logits = layers.Conv2D(1, 3, padding="same", activation=None, dtype="float32", name="conv2d_9")(x)
+    out_scale = layers.Dense(1)(lbl)
+    out_shift = layers.Dense(1)(lbl)
+    out_scale = layers.Reshape((1, 1, 1))(out_scale)
+    out_shift = layers.Reshape((1, 1, 1))(out_shift)
+    x = layers.Activation("sigmoid")(logits * out_scale + out_shift)
     return keras.Model([z, lbl], x, name="generator_14")
 
 
@@ -378,7 +403,14 @@ def build_generator():
     x = layers.Activation("relu")(x)
     x = layers.Dropout(DROPOUT)(x)
 
-    x = layers.Conv2D(1, 3, padding="same", activation="sigmoid", dtype="float32")(x)
+    # Per-class output scale+shift: lets sparse classes reach high
+    # activation instead of collapsing into a narrow sub-0.5 band.
+    logits = layers.Conv2D(1, 3, padding="same", activation=None, dtype="float32")(x)
+    out_scale = layers.Dense(1)(lbl)
+    out_shift = layers.Dense(1)(lbl)
+    out_scale = layers.Reshape((1, 1, 1))(out_scale)
+    out_shift = layers.Reshape((1, 1, 1))(out_shift)
+    x = layers.Activation("sigmoid")(logits * out_scale + out_shift)
     return keras.Model([z, lbl], x, name="generator")
 
 
@@ -492,11 +524,11 @@ class VAE(keras.Model):
             z_mean, z_log_var, z = self.encoder([images, labels])
             reconstruction = self.generator([z, labels])
 
-            # Pixel-level reconstruction loss (BCE)
+            # Pixel-level reconstruction loss (BCE), foreground-weighted so
+            # sparse classes aren't dominated by background pixels.
             # Resize target to match reconstruction size (no-op if same size)
             target = tf.image.resize(images, tf.shape(reconstruction)[1:3])
-            pixel_loss = tf.reduce_mean(tf.reduce_sum(
-                keras.losses.binary_crossentropy(target, reconstruction), axis=(1, 2)))
+            pixel_loss = weighted_pixel_loss(target, reconstruction)
 
             # KL divergence
             kl_loss = -0.5 * tf.reduce_mean(tf.reduce_sum(
@@ -545,8 +577,7 @@ class VAE(keras.Model):
         z_mean, z_log_var, z = self.encoder([images, labels])
         reconstruction = self.generator([z, labels])
         target = tf.image.resize(images, tf.shape(reconstruction)[1:3])
-        pixel_loss = tf.reduce_mean(tf.reduce_sum(
-            keras.losses.binary_crossentropy(target, reconstruction), axis=(1, 2)))
+        pixel_loss = weighted_pixel_loss(target, reconstruction)
         kl_loss = -0.5 * tf.reduce_mean(tf.reduce_sum(
             1 + z_log_var - tf.square(z_mean) - tf.exp(z_log_var), axis=1))
         kl_weight = self.get_kl_weight()
@@ -662,7 +693,7 @@ class GeneratorCheckpoint(keras.callbacks.Callback):
 
 
 callbacks = [
-    keras.callbacks.EarlyStopping(monitor='val_recon_loss', patience=90, restore_best_weights=True),
+    keras.callbacks.EarlyStopping(monitor='val_recon_loss', patience=10, restore_best_weights=True),
     GeneratorCheckpoint(generator, best_generator_path),
     BestEpochLogger(vae),
     keras.callbacks.TensorBoard(log_dir=LOG_NAME, histogram_freq=1),
@@ -701,8 +732,7 @@ class VAE14(VAE):
             z_mean, z_log_var, z = self.encoder([images, labels])
             reconstruction = self.generator([z, labels])
             target = tf.image.resize(images, tf.shape(reconstruction)[1:3])
-            pixel_loss = tf.reduce_mean(tf.reduce_sum(
-                keras.losses.binary_crossentropy(target, reconstruction), axis=(1, 2)))
+            pixel_loss = weighted_pixel_loss(target, reconstruction)
             kl_loss = -0.5 * tf.reduce_mean(tf.reduce_sum(
                 1 + z_log_var - tf.square(z_mean) - tf.exp(z_log_var), axis=1))
             batch_size = tf.shape(z)[0]
@@ -732,8 +762,7 @@ class VAE14(VAE):
         z_mean, z_log_var, z = self.encoder([images, labels])
         reconstruction = self.generator([z, labels])
         target = tf.image.resize(images, tf.shape(reconstruction)[1:3])
-        pixel_loss = tf.reduce_mean(tf.reduce_sum(
-            keras.losses.binary_crossentropy(target, reconstruction), axis=(1, 2)))
+        pixel_loss = weighted_pixel_loss(target, reconstruction)
         kl_loss = -0.5 * tf.reduce_mean(tf.reduce_sum(
             1 + z_log_var - tf.square(z_mean) - tf.exp(z_log_var), axis=1))
         epoch = tf.cast(self.epoch_tracker, tf.float32)
