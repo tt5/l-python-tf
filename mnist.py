@@ -21,7 +21,7 @@ np.set_printoptions(linewidth=np.inf)
 
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "synthetic" / "data"
 NUM_CLASSES = 5
-EPOCHS = 22
+EPOCHS = 35
 BATCH_SIZE = 128
 BASE_LR = 0.00005
 GRAD_ADAPTIVE_MIN_LR = 0.0000014
@@ -38,10 +38,10 @@ DENSE_SIZE = 640
 L2_DECAY = 0.00001
 GCE_Q = 0.3
 EARLY_STOP_PATIENCE = 100
-GAUSSIAN_NOISE = 0.00002
-GAUSSIAN_NOISE_DECAY_EPOCHS = EPOCHS
-GAUSSIAN_NOISE_END = 0.000001
-LOG_DIR = "logs/cls1"
+GAUSSIAN_NOISE = 0.00005
+GAUSSIAN_NOISE_DECAY_EPOCHS = 20
+GAUSSIAN_NOISE_END = 0.0
+LOG_DIR = "logs/cls1b"
 
 
 AUGMENT = True  # On-the-fly augmentation: random rotate/transpose
