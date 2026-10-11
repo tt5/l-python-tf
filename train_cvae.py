@@ -24,8 +24,8 @@ from utils.mnist_loader import load_data
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "synthetic" / "data"
 LATENT_DIM = 256
 PHA1_LATENT_DIM = 64
-EPOCHS = 90
-BATCH_SIZE = 128
+EPOCHS = 100
+BATCH_SIZE = 256
 NUM_CLASSES = 5
 
 parser = argparse.ArgumentParser()
@@ -44,7 +44,7 @@ MAX_SAMPLES_PER_CLASS = args.max_samples_per_class
 SAMPLES_PER_EPOCH_PER_CLASS = args.samples_per_epoch_per_class
 PBM_DIR = Path(args.pbm_dir) if args.pbm_dir else None
 
-PROGRESSIVE_EPOCHS = 3 # Phase 1: 14x14
+PROGRESSIVE_EPOCHS = 4 # Phase 1: 14x14
 LR = 0.001
 LR_WARMUP_START = 0.000005
 LR_WARMUP_EPOCHS = 2

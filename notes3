@@ -1,0 +1,2 @@
+python mnist.py --samples-per-epoch-per-class 8000
+python train_cvae.py --samples-per-epoch-per-class 10000
