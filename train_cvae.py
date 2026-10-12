@@ -337,10 +337,25 @@ def build_generator():
     # FiLM helper: produce scale (gamma) and shift (beta) from label
     def make_film(channels):
         def film_fn(label):
-            gamma = layers.Dense(channels, activation="sigmoid")(label)  # [0, 1] range
+            gamma = layers.Dense(channels, activation="sigmoid")(label)
             beta = layers.Dense(channels)(label)
             return gamma, beta
         return film_fn
+
+    # Label-conditioned spatial attention with real spatial context (CBAM-style).
+    # Channel-pool (avg+max) + broadcast label -> kxk conv -> sigmoid gate.
+    # The kxk kernel gives each pixel's gate neighborhood context (unlike the
+    # old 1x1 per-pixel gate); the label makes the gate class-specific.
+    def label_spatial_attention(x, lbl, k):
+        avg = tf.reduce_mean(x, axis=-1, keepdims=True)
+        mx = tf.reduce_max(x, axis=-1, keepdims=True)
+        pooled = layers.Concatenate()([avg, mx])                  # (B,H,W,2)
+        h = int(x.shape[1])
+        lbl_map = layers.Reshape((1, 1, NUM_CLASSES))(lbl)
+        lbl_map = layers.UpSampling2D(size=h, interpolation="nearest")(lbl_map)
+        att_in = layers.Concatenate()([pooled, lbl_map])          # (B,H,W,2+NC)
+        att = layers.Conv2D(1, k, padding="same", activation="sigmoid")(att_in)
+        return layers.Multiply()([x, att])
 
     # Initial projection
     x = layers.Dense(7 * 7 * 128, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(z)
@@ -354,15 +369,6 @@ def build_generator():
     beta7 = layers.Reshape((1, 1, 128))(beta7)
     x = layers.Multiply()([x, gamma7])
     x = layers.Add()([x, beta7])
-    # SE attention on initial projection
-    se_init = layers.GlobalAveragePooling2D()(x)
-    se_init = layers.Dense(128 // 4, activation="relu")(se_init)
-    se_init = layers.Dense(128, activation="sigmoid")(se_init)
-    se_init = layers.Reshape((1, 1, 128))(se_init)
-    x = layers.Multiply()([x, se_init])
-    # Spatial attention before conv
-    sa_init = layers.Conv2D(1, 1, activation='sigmoid')(x)
-    x = layers.Multiply()([x, sa_init])
 
     # 7x7 → 14x14
     x = layers.Conv2D(128, 3, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
@@ -372,15 +378,12 @@ def build_generator():
     beta7c = layers.Reshape((1, 1, 128))(beta7c)
     x = layers.Multiply()([x, gamma7c])
     x = layers.Add()([x, beta7c])
-    # SE attention 7x7
+    # SE at the 7x7 bottleneck (one consolidated; high channels + semantic)
     se7 = layers.GlobalAveragePooling2D()(x)
     se7 = layers.Dense(128 // 4, activation="relu")(se7)
     se7 = layers.Dense(128, activation="sigmoid")(se7)
     se7 = layers.Reshape((1, 1, 128))(se7)
     x = layers.Multiply()([x, se7])
-    # Spatial attention 7x7
-    sa7 = layers.Conv2D(1, 1, activation='sigmoid')(x)
-    x = layers.Multiply()([x, sa7])
     x = upsample(x, [14, 14])
     # Skip saved at the BEGINNING of the 14x14 scale (freshest features,
     # before the conv/FiLM/attention stack processes them)
@@ -392,9 +395,8 @@ def build_generator():
     beta14 = layers.Reshape((1, 1, 128))(beta14)
     x = layers.Multiply()([x, gamma14])
     x = layers.Add()([x, beta14])
-    # Spatial attention before residual
-    sa14_pre = layers.Conv2D(1, 1, activation='sigmoid')(x)
-    x = layers.Multiply()([x, sa14_pre])
+    # Label-conditioned spatial attention at 14x14 (k=5, real spatial context)
+    x = label_spatial_attention(x, lbl, k=5)
     # Residual: project skip_7 to 14x14 and add
     skip_7_up = upsample(skip_7, [14, 14])
     x = layers.Add()([x, skip_7_up])
@@ -408,15 +410,9 @@ def build_generator():
     beta28 = layers.Reshape((1, 1, 64))(beta28)
     x = layers.Multiply()([x, gamma28])
     x = layers.Add()([x, beta28])
-    # SE attention 14x14
-    se14 = layers.GlobalAveragePooling2D()(x)
-    se14 = layers.Dense(64 // 4, activation="relu")(se14)
-    se14 = layers.Dense(64, activation="sigmoid")(se14)
-    se14 = layers.Reshape((1, 1, 64))(se14)
-    x = layers.Multiply()([x, se14])
-    # Spatial attention 14x14
-    sa14 = layers.Conv2D(1, 1, activation='sigmoid')(x)
-    x = layers.Multiply()([x, sa14])
+    # Label-conditioned spatial attention at 28x28 (k=7, real spatial context).
+    # No SE here (redundant with the output conv's per-pixel selection).
+    x = label_spatial_attention(x, lbl, k=7)
     x = upsample(x, [28, 28])
     x = layers.Conv2D(64, 3, padding="same", activation="relu")(x)
     skip_14_up = upsample(skip_14, [28, 28])
