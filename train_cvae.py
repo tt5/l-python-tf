@@ -93,8 +93,8 @@ PHA1_KL_WARMUP_EPOCHS = 1
 PHA1_KL_WARMUP_START = 0.0000001
 PHA1_KL_WEIGHT_START = 0.01
 PHA1_INFO_NCE_WEIGHT = 0.0
-LOG_NAME = 'logs/gen1'
-LOG_NAME_PHA1 = 'logs/gen1/phase1'
+LOG_NAME = 'logs/gen1b'
+LOG_NAME_PHA1 = 'logs/gen1b/phase1'
 
 # ─── Data ──────────────────────────────────────────────────────────
 def load_data_cvae():
@@ -184,9 +184,13 @@ def build_encoder():
     fine = layers.Dense(256, activation="relu",
                         kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(fine)
 
-    # Bottleneck: main 7x7 path + fine 14x14 path + label
-    x = layers.Flatten()(c3)
-    x = layers.Concatenate()([x, fine, lbl])
+    # Bottleneck: balance the two paths so the fine detail isn't drowned out.
+    # Main 7x7 path compressed 12544 -> 256 to match the fine path's 256, so
+    # each contributes ~equally to the latent instead of fine being ~2%.
+    main = layers.Flatten()(c3)
+    main = layers.Dense(256, activation="relu",
+                        kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(main)
+    x = layers.Concatenate()([main, fine, lbl])
     x = layers.LayerNormalization()(x)
     x = layers.Dense(640, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = layers.Dropout(DROPOUT)(x)
