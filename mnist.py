@@ -45,6 +45,7 @@ LOG_DIR = "logs/cls1b"
 
 
 AUGMENT = True  # On-the-fly augmentation: random rotate/transpose
+TRANSLATION = 2  # max pixels of random zero-fill translation per axis
 
 
 parser = argparse.ArgumentParser()
@@ -110,6 +111,18 @@ class AugmentGenerator(tf.keras.utils.Sequence):
                     images[i] = np.rot90(images[i], k=k)
                 if np.random.random() < 0.5:
                     images[i] = np.transpose(images[i], (1, 0, 2))
+                # small random translation (zero-fill) for position invariance
+                tx = np.random.randint(-TRANSLATION, TRANSLATION + 1)
+                ty = np.random.randint(-TRANSLATION, TRANSLATION + 1)
+                if tx != 0 or ty != 0:
+                    h, w = images[i].shape[:2]
+                    shifted = np.zeros_like(images[i])
+                    sy1, sy2 = max(0, -ty), min(h, h - ty)
+                    sx1, sx2 = max(0, -tx), min(w, w - tx)
+                    dy1, dy2 = max(0, ty), min(h, h + ty)
+                    dx1, dx2 = max(0, tx), min(w, w + tx)
+                    shifted[dy1:dy2, dx1:dx2] = images[i][sy1:sy2, sx1:sx2]
+                    images[i] = shifted
 
         return images, labels
 

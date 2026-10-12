@@ -44,21 +44,21 @@ MAX_SAMPLES_PER_CLASS = args.max_samples_per_class
 SAMPLES_PER_EPOCH_PER_CLASS = args.samples_per_epoch_per_class
 PBM_DIR = Path(args.pbm_dir) if args.pbm_dir else None
 
-PROGRESSIVE_EPOCHS = 7 # Phase 1: 14x14
+PROGRESSIVE_EPOCHS = 9 # Phase 1: 14x14
 LR = 0.001
 LR_WARMUP_START = 0.000005
 LR_WARMUP_EPOCHS = 2
 LR_DECAY_EPOCHS = EPOCHS - LR_WARMUP_EPOCHS
 LR_END = 0.0001
 PIXEL_LOSS_WEIGHT = 0.8
-PERCEPTUAL_LOSS_WEIGHT = 0.2
-INFO_NCE_WEIGHT = 0.0
+PERCEPTUAL_LOSS_WEIGHT = 0.25
+INFO_NCE_WEIGHT = 0.01
 TEMPERATURE = 1.0
 # Foreground weight for pixel BCE. Sparse classes (e.g. class 4, ~12.6%
 # foreground) are dominated by background under plain BCE, which drags
 # the generator output below the 0.5 threshold. (1-fg)/fg ~= 7 balances
 # the positive/negative contributions at the measured coverage.
-PIXEL_POS_WEIGHT = 3.0
+PIXEL_POS_WEIGHT = 2.0
 
 
 def weighted_pixel_loss(target, reconstruction):
@@ -73,26 +73,26 @@ def weighted_pixel_loss(target, reconstruction):
     pixel_weights = t * PIXEL_POS_WEIGHT + (1.0 - t)
     return tf.reduce_mean(tf.reduce_sum(bce * pixel_weights, axis=(1, 2)))
 DROPOUT = 0.3
-SPATIAL_DROPOUT = 0.3
+SPATIAL_DROPOUT = 0.1
 L2_REG = 0.00005
 # Phase 2 KL schedule (configurable start)
 PHA2_KL_WARMUP_START = 0.0003
 PHA2_KL_WEIGHT_START = 0.5
-PHA2_KL_WEIGHT_TARGET = 0.2
+PHA2_KL_WEIGHT_TARGET = 0.1
 PHA2_KL_WARMUP_EPOCHS = 5
 PHA2_KL_DECAY_EPOCHS = EPOCHS
-PHA2_TRANSFER_FREEZE_EPOCHS = 1
+PHA2_TRANSFER_FREEZE_EPOCHS = 2
 # Phase 1 (14x14) specific config
 PHA1_LR = 0.0003
-PHA1_LR_WARMUP_START = 0.0000001
+PHA1_LR_WARMUP_START = 0.000001
 PHA1_LR_WARMUP_EPOCHS = 2
-PHA1_LR_END = 0.00005
+PHA1_LR_END = 0.0001
 PHA1_LR_DECAY_EPOCHS = PROGRESSIVE_EPOCHS - PHA1_LR_WARMUP_EPOCHS
 PHA1_PIXEL_LOSS_WEIGHT = 1.0
 PHA1_KL_WARMUP_EPOCHS = 1
 PHA1_KL_WARMUP_START = 0.0000001
 PHA1_KL_WEIGHT_START = 0.01
-PHA1_INFO_NCE_WEIGHT = 0.0
+PHA1_INFO_NCE_WEIGHT = 0.01
 LOG_NAME = 'logs/gen1b'
 LOG_NAME_PHA1 = 'logs/gen1b/phase1'
 
