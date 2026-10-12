@@ -44,7 +44,7 @@ MAX_SAMPLES_PER_CLASS = args.max_samples_per_class
 SAMPLES_PER_EPOCH_PER_CLASS = args.samples_per_epoch_per_class
 PBM_DIR = Path(args.pbm_dir) if args.pbm_dir else None
 
-PROGRESSIVE_EPOCHS = 6 # Phase 1: 14x14
+PROGRESSIVE_EPOCHS = 7 # Phase 1: 14x14
 LR = 0.001
 LR_WARMUP_START = 0.000005
 LR_WARMUP_EPOCHS = 2
@@ -72,9 +72,9 @@ def weighted_pixel_loss(target, reconstruction):
     t = tf.squeeze(target, axis=-1)
     pixel_weights = t * PIXEL_POS_WEIGHT + (1.0 - t)
     return tf.reduce_mean(tf.reduce_sum(bce * pixel_weights, axis=(1, 2)))
-DROPOUT = 0.35
-SPATIAL_DROPOUT = 0.35
-L2_REG = 0.00006
+DROPOUT = 0.3
+SPATIAL_DROPOUT = 0.3
+L2_REG = 0.00005
 # Phase 2 KL schedule (configurable start)
 PHA2_KL_WARMUP_START = 0.0003
 PHA2_KL_WEIGHT_START = 0.5
