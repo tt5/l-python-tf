@@ -93,8 +93,8 @@ PHA1_KL_WARMUP_EPOCHS = 1
 PHA1_KL_WARMUP_START = 0.0000001
 PHA1_KL_WEIGHT_START = 0.01
 PHA1_INFO_NCE_WEIGHT = 0.0
-LOG_NAME = 'logs/gen1b'
-LOG_NAME_PHA1 = 'logs/gen1b/phase1'
+LOG_NAME = 'logs/gen1'
+LOG_NAME_PHA1 = 'logs/gen1/phase1'
 
 # ─── Data ──────────────────────────────────────────────────────────
 def load_data_cvae():
@@ -323,6 +323,9 @@ def build_generator():
     # Initial projection
     x = layers.Dense(7 * 7 * 128, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(z)
     x = layers.Reshape((7, 7, 128))(x)
+    # Skip saved at the BEGINNING of the 7x7 scale (freshest features, before
+    # the conv/FiLM/attention stack processes them)
+    skip_7 = layers.Conv2D(128, 1, padding="same")(x)
     # FiLM at 7x7
     gamma7, beta7 = make_film(128)(lbl)
     gamma7 = layers.Reshape((1, 1, 128))(gamma7)
@@ -358,8 +361,10 @@ def build_generator():
     sa7 = layers.Conv2D(1, 1, activation='sigmoid')(x)
     x = layers.Multiply()([x, sa7])
     x = layers.SpatialDropout2D(SPATIAL_DROPOUT)(x)
-    skip_7 = layers.Conv2D(128, 1, padding="same")(x)
     x = upsample(x, [14, 14])
+    # Skip saved at the BEGINNING of the 14x14 scale (freshest features,
+    # before the conv/FiLM/attention stack processes them)
+    skip_14 = layers.Conv2D(64, 1, padding="same")(x)
     x = layers.Conv2D(128, 3, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     # FiLM at 14x14
     gamma14, beta14 = make_film(128)(lbl)
@@ -394,7 +399,6 @@ def build_generator():
     sa14 = layers.Conv2D(1, 1, activation='sigmoid')(x)
     x = layers.Multiply()([x, sa14])
     x = layers.SpatialDropout2D(SPATIAL_DROPOUT)(x)
-    skip_14 = layers.Conv2D(64, 1, padding="same")(x)
     x = upsample(x, [28, 28])
     x = layers.Conv2D(64, 3, padding="same", activation="relu")(x)
     x = layers.SpatialDropout2D(SPATIAL_DROPOUT)(x)
