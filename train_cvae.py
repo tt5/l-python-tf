@@ -282,6 +282,19 @@ def build_generator_14():
             return gamma, beta
         return film_fn
 
+    # Label-conditioned spatial attention with spatial context (mirrors
+    # build_generator so positional weight transfer stays aligned).
+    def label_spatial_attention(x, lbl, k):
+        avg = tf.reduce_mean(x, axis=-1, keepdims=True)
+        mx = tf.reduce_max(x, axis=-1, keepdims=True)
+        pooled = layers.Concatenate()([avg, mx])
+        h = int(x.shape[1])
+        lbl_map = layers.Reshape((1, 1, NUM_CLASSES))(lbl)
+        lbl_map = layers.UpSampling2D(size=h, interpolation="nearest")(lbl_map)
+        att_in = layers.Concatenate()([pooled, lbl_map])
+        att = layers.Conv2D(1, k, padding="same", activation="sigmoid")(att_in)
+        return layers.Multiply()([x, att])
+
     # Initial projection to 7x7, mirrored from 28x28 generator
     x = layers.Dense(7 * 7 * 128, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="dense_7")(z)
     x = layers.Reshape((7, 7, 128))(x)
@@ -293,13 +306,6 @@ def build_generator_14():
     beta7 = layers.Reshape((1, 1, 128), name="reshape_1")(beta7)
     x = layers.Multiply()([x, gamma7])
     x = layers.Add()([x, beta7])
-    se_init = layers.GlobalAveragePooling2D()(x)
-    se_init = layers.Dense(128 // 4, activation="relu", name="dense_8")(se_init)
-    se_init = layers.Dense(128, activation="sigmoid", name="dense_9")(se_init)
-    se_init = layers.Reshape((1, 1, 128))(se_init)
-    x = layers.Multiply()([x, se_init])
-    sa_init = layers.Conv2D(1, 1, activation='sigmoid', name="conv2d_3")(x)
-    x = layers.Multiply()([x, sa_init])
 
     # 7x7 block with FiLM, mirrored from 28x28 generator
     x = layers.Conv2D(128, 3, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="conv2d_4")(x)
@@ -308,13 +314,12 @@ def build_generator_14():
     beta7c = layers.Reshape((1, 1, 128), name="reshape_3")(beta7c)
     x = layers.Multiply()([x, gamma7c])
     x = layers.Add()([x, beta7c])
+    # SE at the 7x7 bottleneck (one consolidated, matches build_generator)
     se7 = layers.GlobalAveragePooling2D()(x)
     se7 = layers.Dense(128 // 4, activation="relu", name="dense_10")(se7)
     se7 = layers.Dense(128, activation="sigmoid", name="dense_11")(se7)
     se7 = layers.Reshape((1, 1, 128))(se7)
     x = layers.Multiply()([x, se7])
-    sa7 = layers.Conv2D(1, 1, activation='sigmoid', name="conv2d_5")(x)
-    x = layers.Multiply()([x, sa7])
 
     # 7x7 → 14x14, mirrored from 28x28 generator
     x = upsample(x, [14, 14])
@@ -324,8 +329,8 @@ def build_generator_14():
     beta14 = layers.Reshape((1, 1, 128), name="reshape_5")(beta14)
     x = layers.Multiply()([x, gamma14])
     x = layers.Add()([x, beta14])
-    sa14_pre = layers.Conv2D(1, 1, activation='sigmoid', name="conv2d_8")(x)
-    x = layers.Multiply()([x, sa14_pre])
+    # Label-conditioned spatial attention at 14x14 (k=5, matches build_generator)
+    x = label_spatial_attention(x, lbl, k=5)
     skip_7_up = upsample(skip_7, [14, 14])
     x = layers.Add()([x, skip_7_up])
     x = layers.Activation("relu")(x)
