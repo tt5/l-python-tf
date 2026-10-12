@@ -130,7 +130,7 @@ def build_encoder():
     # Channel-pool (avg+max) + broadcast label -> kxk conv -> sigmoid gate.
     # Lets the encoder focus on class-relevant structure before the downsample
     # crush, so e.g. line pixels are preserved into the latent.
-    def label_spatial_attention(x, lbl, k):
+    def label_spatial_attention(x, lbl, k, name=None):
         avg = tf.reduce_mean(x, axis=-1, keepdims=True)
         mx = tf.reduce_max(x, axis=-1, keepdims=True)
         pooled = layers.Concatenate()([avg, mx])
@@ -138,7 +138,7 @@ def build_encoder():
         lbl_map = layers.Reshape((1, 1, NUM_CLASSES))(lbl)
         lbl_map = layers.UpSampling2D(size=h, interpolation="nearest")(lbl_map)
         att_in = layers.Concatenate()([pooled, lbl_map])
-        att = layers.Conv2D(1, k, padding="same", activation="sigmoid")(att_in)
+        att = layers.Conv2D(1, k, padding="same", activation="sigmoid", name=name)(att_in)
         return layers.Multiply()([x, att])
 
     # Conv block 1: 28x28 → 14x14
@@ -146,7 +146,7 @@ def build_encoder():
     c1 = layers.Activation("relu")(c1)
     # Label-conditioned spatial attention at 14x14 (k=5): focus on class-relevant
     # structure before the 7x7 crush. (Early low-channel SE se1 removed here.)
-    c1 = label_spatial_attention(c1, lbl, k=5)
+    c1 = label_spatial_attention(c1, lbl, k=5, name="enc_spatial_attn")
     c1 = layers.SpatialDropout2D(SPATIAL_DROPOUT)(c1)
 
     # Conv block 2: 14x14 → 7x7
@@ -158,8 +158,8 @@ def build_encoder():
     c2 = layers.Activation("relu")(c2)
     # SE attention 2
     se2 = layers.GlobalAveragePooling2D()(c2)
-    se2 = layers.Dense(128 // 4, activation="relu")(se2)
-    se2 = layers.Dense(128, activation="sigmoid")(se2)
+    se2 = layers.Dense(128 // 4, activation="relu", name="enc_se2_a")(se2)
+    se2 = layers.Dense(128, activation="sigmoid", name="enc_se2_b")(se2)
     se2 = layers.Reshape((1, 1, 128))(se2)
     c2 = layers.Multiply()([c2, se2])
     c2 = layers.SpatialDropout2D(SPATIAL_DROPOUT)(c2)
@@ -191,7 +191,7 @@ def build_encoder():
     # that the main path's average-pooling would destroy -- this is what
     # lets a thin line's fine geometry reach z instead of being averaged away.
     fine = layers.Conv2D(32, 3, padding="same", activation="relu",
-                         kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(c1)
+                         kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_fine_conv")(c1)
     fine = layers.Flatten()(fine)               # 14*14*32 = 6272, spatial layout kept
     fine = layers.Dense(256, activation="relu",
                         kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(fine)
@@ -217,14 +217,24 @@ def build_encoder_14():
     img = keras.Input(shape=(14, 14, 1), name="image_input")
     lbl = keras.Input(shape=(NUM_CLASSES,), name="label_input")
 
+    # Label-conditioned spatial attention (mirrors build_encoder for name transfer)
+    def label_spatial_attention(x, lbl, k, name=None):
+        avg = tf.reduce_mean(x, axis=-1, keepdims=True)
+        mx = tf.reduce_max(x, axis=-1, keepdims=True)
+        pooled = layers.Concatenate()([avg, mx])
+        h = int(x.shape[1])
+        lbl_map = layers.Reshape((1, 1, NUM_CLASSES))(lbl)
+        lbl_map = layers.UpSampling2D(size=h, interpolation="nearest")(lbl_map)
+        att_in = layers.Concatenate()([pooled, lbl_map])
+        att = layers.Conv2D(1, k, padding="same", activation="sigmoid", name=name)(att_in)
+        return layers.Multiply()([x, att])
+
     # Block 1: 14x14 -> 7x7, mirrored from 28x28 encoder
     c1 = layers.Conv2D(64, 3, strides=2, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv1")(img)
     c1 = layers.Activation("relu")(c1)
-    se1 = layers.GlobalAveragePooling2D()(c1)
-    se1 = layers.Dense(64 // 4, activation="relu", name="dense")(se1)
-    se1 = layers.Dense(64, activation="sigmoid", name="dense_1")(se1)
-    se1 = layers.Reshape((1, 1, 64))(se1)
-    c1 = layers.Multiply()([c1, se1])
+    # Label-conditioned spatial attention (k=5, matches build_encoder for transfer;
+    # replaces the early low-channel se1)
+    c1 = label_spatial_attention(c1, lbl, k=5, name="enc_spatial_attn")
 
     # Block 2: 7x7 -> 7x7, mirrored from 14x14 encoder
     c2 = layers.Conv2D(128, 3, strides=1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv2")(c1)
@@ -233,8 +243,8 @@ def build_encoder_14():
     c2 = layers.Add()([c2, skip])
     c2 = layers.Activation("relu")(c2)
     se2 = layers.GlobalAveragePooling2D()(c2)
-    se2 = layers.Dense(128 // 4, activation="relu", name="dense_2")(se2)
-    se2 = layers.Dense(128, activation="sigmoid", name="dense_3")(se2)
+    se2 = layers.Dense(128 // 4, activation="relu", name="enc_se2_a")(se2)
+    se2 = layers.Dense(128, activation="sigmoid", name="enc_se2_b")(se2)
     se2 = layers.Reshape((1, 1, 128))(se2)
     c2 = layers.Multiply()([c2, se2])
 
