@@ -174,9 +174,19 @@ def build_encoder():
     skip3 = layers.Conv2D(256, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(c3_pre)
     c3 = layers.Add()([c3, skip3])
 
-    # Bottleneck
+    # Parallel fine-detail path: preserve 14x14 spatial detail (c1) to the
+    # latent, bypassing the 7x7 crush. Flattening keeps the spatial layout
+    # that the main path's average-pooling would destroy -- this is what
+    # lets a thin line's fine geometry reach z instead of being averaged away.
+    fine = layers.Conv2D(32, 3, padding="same", activation="relu",
+                         kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(c1)
+    fine = layers.Flatten()(fine)               # 14*14*32 = 6272, spatial layout kept
+    fine = layers.Dense(256, activation="relu",
+                        kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(fine)
+
+    # Bottleneck: main 7x7 path + fine 14x14 path + label
     x = layers.Flatten()(c3)
-    x = layers.Concatenate()([x, lbl])
+    x = layers.Concatenate()([x, fine, lbl])
     x = layers.LayerNormalization()(x)
     x = layers.Dense(640, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = layers.Dropout(DROPOUT)(x)
