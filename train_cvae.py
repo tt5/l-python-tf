@@ -24,7 +24,7 @@ from utils.mnist_loader import load_data
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "synthetic" / "data"
 LATENT_DIM = 256
 PHA1_LATENT_DIM = 64
-EPOCHS = 100
+EPOCHS = 120
 BATCH_SIZE = 256
 NUM_CLASSES = 5
 
@@ -249,7 +249,6 @@ def build_generator_14():
 
     # Initial projection to 7x7, mirrored from 28x28 generator
     x = layers.Dense(7 * 7 * 128, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="dense_7")(z)
-    x = layers.Dropout(DROPOUT)(x)
     x = layers.Reshape((7, 7, 128))(x)
     gamma7, beta7 = make_film(128)(lbl)
     gamma7 = layers.Reshape((1, 1, 128), name="reshape")(gamma7)
@@ -263,7 +262,6 @@ def build_generator_14():
     x = layers.Multiply()([x, se_init])
     sa_init = layers.Conv2D(1, 1, activation='sigmoid', name="conv2d_3")(x)
     x = layers.Multiply()([x, sa_init])
-    x = layers.SpatialDropout2D(SPATIAL_DROPOUT)(x)
 
     # 7x7 block with FiLM, mirrored from 28x28 generator
     x = layers.Conv2D(128, 3, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="conv2d_4")(x)
@@ -279,7 +277,6 @@ def build_generator_14():
     x = layers.Multiply()([x, se7])
     sa7 = layers.Conv2D(1, 1, activation='sigmoid', name="conv2d_5")(x)
     x = layers.Multiply()([x, sa7])
-    x = layers.SpatialDropout2D(SPATIAL_DROPOUT)(x)
     skip_7 = layers.Conv2D(128, 1, padding="same", name="conv2d_6")(x)
 
     # 7x7 → 14x14, mirrored from 28x28 generator
@@ -341,7 +338,6 @@ def build_generator():
     # Spatial attention before conv
     sa_init = layers.Conv2D(1, 1, activation='sigmoid')(x)
     x = layers.Multiply()([x, sa_init])
-    x = layers.SpatialDropout2D(SPATIAL_DROPOUT)(x)
 
     # 7x7 → 14x14
     x = layers.Conv2D(128, 3, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
@@ -697,7 +693,7 @@ class GeneratorCheckpoint(keras.callbacks.Callback):
 
 
 callbacks = [
-    keras.callbacks.EarlyStopping(monitor='val_recon_loss', patience=10, restore_best_weights=True),
+    keras.callbacks.EarlyStopping(monitor='val_recon_loss', patience=20, restore_best_weights=True),
     GeneratorCheckpoint(generator, best_generator_path),
     BestEpochLogger(vae),
     keras.callbacks.TensorBoard(log_dir=LOG_NAME, histogram_freq=1),
