@@ -24,7 +24,7 @@ from utils.mnist_loader import load_data
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "synthetic" / "data"
 LATENT_DIM = 256
 PHA1_LATENT_DIM = 64
-EPOCHS = 140
+EPOCHS = 160
 BATCH_SIZE = 256
 NUM_CLASSES = 5
 
@@ -44,7 +44,7 @@ MAX_SAMPLES_PER_CLASS = args.max_samples_per_class
 SAMPLES_PER_EPOCH_PER_CLASS = args.samples_per_epoch_per_class
 PBM_DIR = Path(args.pbm_dir) if args.pbm_dir else None
 
-PROGRESSIVE_EPOCHS = 5 # Phase 1: 14x14
+PROGRESSIVE_EPOCHS = 6 # Phase 1: 14x14
 LR = 0.001
 LR_WARMUP_START = 0.000005
 LR_WARMUP_EPOCHS = 2
@@ -93,8 +93,8 @@ PHA1_KL_WARMUP_EPOCHS = 1
 PHA1_KL_WARMUP_START = 0.0000001
 PHA1_KL_WEIGHT_START = 0.01
 PHA1_INFO_NCE_WEIGHT = 0.0
-LOG_NAME = 'logs/gen1'
-LOG_NAME_PHA1 = 'logs/gen1/phase1'
+LOG_NAME = 'logs/gen1b'
+LOG_NAME_PHA1 = 'logs/gen1b/phase1'
 
 # ─── Data ──────────────────────────────────────────────────────────
 def load_data_cvae():
@@ -126,15 +126,27 @@ def build_encoder():
     img = keras.Input(shape=(28, 28, 1), name="image_input")
     lbl = keras.Input(shape=(NUM_CLASSES,), name="label_input")
 
+    # Label-conditioned spatial attention with real spatial context (CBAM-style).
+    # Channel-pool (avg+max) + broadcast label -> kxk conv -> sigmoid gate.
+    # Lets the encoder focus on class-relevant structure before the downsample
+    # crush, so e.g. line pixels are preserved into the latent.
+    def label_spatial_attention(x, lbl, k):
+        avg = tf.reduce_mean(x, axis=-1, keepdims=True)
+        mx = tf.reduce_max(x, axis=-1, keepdims=True)
+        pooled = layers.Concatenate()([avg, mx])
+        h = int(x.shape[1])
+        lbl_map = layers.Reshape((1, 1, NUM_CLASSES))(lbl)
+        lbl_map = layers.UpSampling2D(size=h, interpolation="nearest")(lbl_map)
+        att_in = layers.Concatenate()([pooled, lbl_map])
+        att = layers.Conv2D(1, k, padding="same", activation="sigmoid")(att_in)
+        return layers.Multiply()([x, att])
+
     # Conv block 1: 28x28 → 14x14
     c1 = layers.Conv2D(64, 3, strides=2, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv1")(img)
     c1 = layers.Activation("relu")(c1)
-    # SE attention 1
-    se1 = layers.GlobalAveragePooling2D()(c1)
-    se1 = layers.Dense(64 // 4, activation="relu")(se1)
-    se1 = layers.Dense(64, activation="sigmoid")(se1)
-    se1 = layers.Reshape((1, 1, 64))(se1)
-    c1 = layers.Multiply()([c1, se1])
+    # Label-conditioned spatial attention at 14x14 (k=5): focus on class-relevant
+    # structure before the 7x7 crush. (Early low-channel SE se1 removed here.)
+    c1 = label_spatial_attention(c1, lbl, k=5)
     c1 = layers.SpatialDropout2D(SPATIAL_DROPOUT)(c1)
 
     # Conv block 2: 14x14 → 7x7
