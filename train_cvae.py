@@ -24,7 +24,7 @@ from utils.mnist_loader import load_data
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "synthetic" / "data"
 LATENT_DIM = 256
 PHA1_LATENT_DIM = 64
-EPOCHS = 120
+EPOCHS = 140
 BATCH_SIZE = 256
 NUM_CLASSES = 5
 
@@ -44,7 +44,7 @@ MAX_SAMPLES_PER_CLASS = args.max_samples_per_class
 SAMPLES_PER_EPOCH_PER_CLASS = args.samples_per_epoch_per_class
 PBM_DIR = Path(args.pbm_dir) if args.pbm_dir else None
 
-PROGRESSIVE_EPOCHS = 4 # Phase 1: 14x14
+PROGRESSIVE_EPOCHS = 5 # Phase 1: 14x14
 LR = 0.001
 LR_WARMUP_START = 0.000005
 LR_WARMUP_EPOCHS = 2
@@ -93,8 +93,8 @@ PHA1_KL_WARMUP_EPOCHS = 1
 PHA1_KL_WARMUP_START = 0.0000001
 PHA1_KL_WEIGHT_START = 0.01
 PHA1_INFO_NCE_WEIGHT = 0.0
-LOG_NAME = 'logs/gen1b'
-LOG_NAME_PHA1 = 'logs/gen1b/phase1'
+LOG_NAME = 'logs/gen1'
+LOG_NAME_PHA1 = 'logs/gen1/phase1'
 
 # ─── Data ──────────────────────────────────────────────────────────
 def load_data_cvae():
@@ -213,7 +213,6 @@ def build_encoder_14():
     se1 = layers.Dense(64, activation="sigmoid", name="dense_1")(se1)
     se1 = layers.Reshape((1, 1, 64))(se1)
     c1 = layers.Multiply()([c1, se1])
-    c1 = layers.SpatialDropout2D(SPATIAL_DROPOUT)(c1)
 
     # Block 2: 7x7 -> 7x7, mirrored from 14x14 encoder
     c2 = layers.Conv2D(128, 3, strides=1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv2")(c1)
@@ -226,11 +225,21 @@ def build_encoder_14():
     se2 = layers.Dense(128, activation="sigmoid", name="dense_3")(se2)
     se2 = layers.Reshape((1, 1, 128))(se2)
     c2 = layers.Multiply()([c2, se2])
-    c2 = layers.SpatialDropout2D(SPATIAL_DROPOUT)(c2)
 
-    # Bottleneck
-    x = layers.Flatten()(c2)
-    x = layers.Concatenate()([x, lbl])
+    # Parallel fine-detail path off the 14x14 input (preserves detail the
+    # 7x7 crush would average away -- same fix as the 28x28 encoder).
+    fine = layers.Conv2D(32, 3, padding="same", activation="relu",
+                         kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(img)
+    fine = layers.Flatten()(fine)
+    fine = layers.Dense(256, activation="relu",
+                        kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(fine)
+
+    # Balanced bottleneck: main 7x7 path compressed to 256 to match the
+    # fine path, so fine detail isn't drowned out.
+    main = layers.Flatten()(c2)
+    main = layers.Dense(256, activation="relu",
+                        kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(main)
+    x = layers.Concatenate()([main, fine, lbl])
     x = layers.LayerNormalization()(x)
     x = layers.Dense(256, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="dense_6")(x)
     x = layers.Dropout(DROPOUT)(x)
@@ -264,6 +273,9 @@ def build_generator_14():
     # Initial projection to 7x7, mirrored from 28x28 generator
     x = layers.Dense(7 * 7 * 128, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="dense_7")(z)
     x = layers.Reshape((7, 7, 128))(x)
+    # Skip at the BEGINNING of the 7x7 scale (matches build_generator for
+    # positional weight transfer)
+    skip_7 = layers.Conv2D(128, 1, padding="same", name="conv2d_6")(x)
     gamma7, beta7 = make_film(128)(lbl)
     gamma7 = layers.Reshape((1, 1, 128), name="reshape")(gamma7)
     beta7 = layers.Reshape((1, 1, 128), name="reshape_1")(beta7)
@@ -291,7 +303,6 @@ def build_generator_14():
     x = layers.Multiply()([x, se7])
     sa7 = layers.Conv2D(1, 1, activation='sigmoid', name="conv2d_5")(x)
     x = layers.Multiply()([x, sa7])
-    skip_7 = layers.Conv2D(128, 1, padding="same", name="conv2d_6")(x)
 
     # 7x7 → 14x14, mirrored from 28x28 generator
     x = upsample(x, [14, 14])
@@ -370,7 +381,6 @@ def build_generator():
     # Spatial attention 7x7
     sa7 = layers.Conv2D(1, 1, activation='sigmoid')(x)
     x = layers.Multiply()([x, sa7])
-    x = layers.SpatialDropout2D(SPATIAL_DROPOUT)(x)
     x = upsample(x, [14, 14])
     # Skip saved at the BEGINNING of the 14x14 scale (freshest features,
     # before the conv/FiLM/attention stack processes them)
@@ -389,7 +399,6 @@ def build_generator():
     skip_7_up = upsample(skip_7, [14, 14])
     x = layers.Add()([x, skip_7_up])
     x = layers.Activation("relu")(x)
-    x = layers.SpatialDropout2D(SPATIAL_DROPOUT)(x)
 
     # 14x14 → 28x28
     x = layers.Conv2D(64, 3, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
@@ -408,14 +417,11 @@ def build_generator():
     # Spatial attention 14x14
     sa14 = layers.Conv2D(1, 1, activation='sigmoid')(x)
     x = layers.Multiply()([x, sa14])
-    x = layers.SpatialDropout2D(SPATIAL_DROPOUT)(x)
     x = upsample(x, [28, 28])
     x = layers.Conv2D(64, 3, padding="same", activation="relu")(x)
-    x = layers.SpatialDropout2D(SPATIAL_DROPOUT)(x)
     skip_14_up = upsample(skip_14, [28, 28])
     x = layers.Add()([x, skip_14_up])
     x = layers.Activation("relu")(x)
-    x = layers.Dropout(DROPOUT)(x)
 
     # Per-class output scale+shift: lets sparse classes reach high
     # activation instead of collapsing into a narrow sub-0.5 band.
@@ -739,7 +745,7 @@ class VAE14(VAE):
         decay_lr = PHA1_LR + (PHA1_LR_END - PHA1_LR) * decay_progress
         return tf.where(epoch < warmup_epochs, warmup_lr, decay_lr)
 
-    def train_step_14(self, data):
+    def train_step(self, data):
         images, labels = data
         self.optimizer.learning_rate = self.get_lr()
         with tf.GradientTape() as tape:
@@ -769,6 +775,7 @@ class VAE14(VAE):
         self.total_loss_tracker.update_state(total_loss)
         self.recon_loss_tracker.update_state(pixel_loss)
         self.kl_loss_tracker.update_state(kl_loss)
+        self.kl_weight_tracker.update_state(kl_weight)
         return {m.name: m.result() for m in self.metrics}
 
     def test_step(self, data):
@@ -787,12 +794,12 @@ class VAE14(VAE):
         self.total_loss_tracker.update_state(total_loss)
         self.recon_loss_tracker.update_state(pixel_loss)
         self.kl_loss_tracker.update_state(kl_loss)
+        self.kl_weight_tracker.update_state(kl_weight)
         return {m.name: m.result() for m in self.metrics}
 
 vae_14 = VAE14(encoder_14, generator_14)
 vae_14.compile(optimizer=keras.optimizers.Adam(PHA1_LR))
-# Use train_step_14 which skips perceptual loss
-vae_14.train_step = vae_14.train_step_14
+# VAE14 overrides train_step directly (no perceptual loss in phase 1)
 
 train_seq_14 = CVAESequence(x_train_14, y_train, BATCH_SIZE, samples_per_epoch_per_class=SAMPLES_PER_EPOCH_PER_CLASS)
 val_seq_14 = CVAESequence(x_test_14, y_test, BATCH_SIZE, samples_per_epoch_per_class=None)
@@ -839,8 +846,35 @@ def transfer_weights_by_name(src_model, dst_model, name="model"):
         print(f"  skip {w_name}: {s_shape} -> {d_shape}")
     return transferred
 
+def transfer_weights_by_order(src_model, dst_model, name="model"):
+    """Transfer weights by construction order + shape (name-agnostic).
+
+    Walks src/dst weights in parallel by index; copies where shapes match.
+    Robust to Keras auto-naming collisions. Used for the generator, whose
+    phase-1 and phase-2 builders share the same layer sequence for the
+    7x7/14x14 trunk (differing only in the extra 28x28 stage).
+    """
+    src_w = list(src_model.weights)
+    dst_w = list(dst_model.weights)
+    transferred = []
+    skipped = []
+    n = min(len(src_w), len(dst_w))
+    for i in range(n):
+        sw, dw = src_w[i], dst_w[i]
+        if tuple(sw.shape) == tuple(dw.shape):
+            dw.assign(sw)
+            transferred.append(dw)
+        else:
+            skipped.append((i, sw.name, tuple(sw.shape), tuple(dw.shape)))
+    print(f"[{name}] transferred {len(transferred)}/{n} weights by order; "
+          f"skipped {len(skipped)} due to shape mismatch")
+    for idx, nm, s_shape, d_shape in skipped:
+        print(f"  skip #{idx} {nm}: {s_shape} -> {d_shape}")
+    return transferred
+
+
 enc_transferred = transfer_weights_by_name(encoder_14, encoder, name="encoder")
-gen_transferred = transfer_weights_by_name(generator_14, generator, name="generator")
+gen_transferred = transfer_weights_by_order(generator_14, generator, name="generator")
 vae.phase1_transferred_weights = enc_transferred + gen_transferred
 print(f"Weight transfer complete. {len(vae.phase1_transferred_weights)} weights transferred.")
 
