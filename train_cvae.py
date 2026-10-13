@@ -25,7 +25,7 @@ from utils.mnist_loader import load_data
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "synthetic" / "data"
 LATENT_DIM = 256
 PHA1_LATENT_DIM = 64
-EPOCHS = 160
+EPOCHS = 180
 BATCH_SIZE = 256
 NUM_CLASSES = 5
 
@@ -45,22 +45,44 @@ MAX_SAMPLES_PER_CLASS = args.max_samples_per_class
 SAMPLES_PER_EPOCH_PER_CLASS = args.samples_per_epoch_per_class
 PBM_DIR = Path(args.pbm_dir) if args.pbm_dir else None
 
-PROGRESSIVE_EPOCHS = 21 # Phase 1: 14x14
+PROGRESSIVE_EPOCHS = 30 # Phase 1: 14x14
 LR = 0.0008
 LR_WARMUP_START = 0.00005
-LR_WARMUP_EPOCHS = 4
+LR_WARMUP_EPOCHS = 3
 LR_DECAY_EPOCHS = EPOCHS - LR_WARMUP_EPOCHS
 LR_END = 0.00005
 PIXEL_LOSS_WEIGHT = 0.8
-PERCEPTUAL_LOSS_WEIGHT = 0.25
-INFO_NCE_WEIGHT = 0.002
+PERCEPTUAL_LOSS_WEIGHT = 0.2
+INFO_NCE_WEIGHT = 0.01
 TEMPERATURE = 1.0
 # Foreground weight for pixel BCE. Sparse classes (e.g. class 4, ~12.6%
 # foreground) are dominated by background under plain BCE, which drags
 # the generator output below the 0.5 threshold. (1-fg)/fg ~= 7 balances
 # the positive/negative contributions at the measured coverage.
 PIXEL_POS_WEIGHT = 2.0
-
+DROPOUT = 0.3
+SPATIAL_DROPOUT = 0.1
+L2_REG = 0.000005
+# Phase 2 KL schedule (configurable start)
+PHA2_KL_WARMUP_START = 0.001
+PHA2_KL_WEIGHT_START = 0.1
+PHA2_KL_WEIGHT_TARGET = 0.005
+PHA2_KL_WARMUP_EPOCHS = 4
+PHA2_KL_DECAY_EPOCHS = EPOCHS
+PHA2_TRANSFER_FREEZE_EPOCHS = 5
+# Phase 1 (14x14) specific config
+PHA1_LR = 0.002
+PHA1_LR_WARMUP_START = 0.0001
+PHA1_LR_WARMUP_EPOCHS = 8
+PHA1_LR_END = 0.00005
+PHA1_LR_DECAY_EPOCHS = PROGRESSIVE_EPOCHS - PHA1_LR_WARMUP_EPOCHS
+PHA1_PIXEL_LOSS_WEIGHT = 1.0
+PHA1_KL_WARMUP_EPOCHS = 3
+PHA1_KL_WARMUP_START = 0.0001
+PHA1_KL_WEIGHT_START = 0.03
+PHA1_INFO_NCE_WEIGHT = 0.01
+LOG_NAME = 'logs/gen1b'
+LOG_NAME_PHA1 = 'logs/gen1b/phase1'
 
 def weighted_pixel_loss(target, reconstruction):
     """Foreground-weighted pixel BCE.
@@ -73,29 +95,6 @@ def weighted_pixel_loss(target, reconstruction):
     t = tf.squeeze(target, axis=-1)
     pixel_weights = t * PIXEL_POS_WEIGHT + (1.0 - t)
     return tf.reduce_mean(tf.reduce_sum(bce * pixel_weights, axis=(1, 2)))
-DROPOUT = 0.3
-SPATIAL_DROPOUT = 0.1
-L2_REG = 0.00001
-# Phase 2 KL schedule (configurable start)
-PHA2_KL_WARMUP_START = 0.001
-PHA2_KL_WEIGHT_START = 0.4
-PHA2_KL_WEIGHT_TARGET = 0.01
-PHA2_KL_WARMUP_EPOCHS = 4
-PHA2_KL_DECAY_EPOCHS = EPOCHS
-PHA2_TRANSFER_FREEZE_EPOCHS = 5
-# Phase 1 (14x14) specific config
-PHA1_LR = 0.0005
-PHA1_LR_WARMUP_START = 0.00001
-PHA1_LR_WARMUP_EPOCHS = 4
-PHA1_LR_END = 0.0001
-PHA1_LR_DECAY_EPOCHS = PROGRESSIVE_EPOCHS - PHA1_LR_WARMUP_EPOCHS
-PHA1_PIXEL_LOSS_WEIGHT = 1.0
-PHA1_KL_WARMUP_EPOCHS = 2
-PHA1_KL_WARMUP_START = 0.00001
-PHA1_KL_WEIGHT_START = 0.02
-PHA1_INFO_NCE_WEIGHT = 0.002
-LOG_NAME = 'logs/gen1b'
-LOG_NAME_PHA1 = 'logs/gen1b/phase1'
 
 # ─── Data ──────────────────────────────────────────────────────────
 def load_data_cvae():
@@ -193,19 +192,19 @@ def build_encoder():
     fine = layers.Conv2D(32, 3, padding="same", activation="relu",
                          kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_fine_conv")(c1)
     fine = layers.Flatten()(fine)               # 14*14*32 = 6272, spatial layout kept
-    fine = layers.Dense(256, activation="relu",
+    fine = layers.Dense(512, activation="relu",
                         kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(fine)
 
     # Bottleneck: balance the two paths so the fine detail isn't drowned out.
     # Main 7x7 path compressed 12544 -> 256 to match the fine path's 256, so
     # each contributes ~equally to the latent instead of fine being ~2%.
     main = layers.Flatten()(c3)
-    main = layers.Dense(384, activation="relu",
+    main = layers.Dense(1024, activation="relu",
                         kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(main)
     x = layers.Concatenate()([main, fine, lbl])
     x = layers.LayerNormalization()(x)
-    x = layers.Dense(640, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = layers.Dropout(DROPOUT)(x)
+    x = layers.Dense(512, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     z_mean = layers.Dense(LATENT_DIM, name="z_mean", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     z_log_var = layers.Dense(LATENT_DIM, name="z_log_var", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     z = Sampling()([z_mean, z_log_var])
@@ -253,7 +252,7 @@ def build_encoder_14():
     fine = layers.Conv2D(32, 3, padding="same", activation="relu",
                          kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(img)
     fine = layers.Flatten()(fine)
-    fine = layers.Dense(256, activation="relu",
+    fine = layers.Dense(512, activation="relu",
                         kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(fine)
 
     # Balanced bottleneck: main 7x7 path compressed to 256 to match the
@@ -263,8 +262,8 @@ def build_encoder_14():
                         kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(main)
     x = layers.Concatenate()([main, fine, lbl])
     x = layers.LayerNormalization()(x)
-    x = layers.Dense(256, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="dense_6")(x)
     x = layers.Dropout(DROPOUT)(x)
+    x = layers.Dense(128, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="dense_6")(x)
     z_mean = layers.Dense(PHA1_LATENT_DIM, name="z_mean", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     z_log_var = layers.Dense(PHA1_LATENT_DIM, name="z_log_var", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     z = Sampling()([z_mean, z_log_var])
@@ -338,14 +337,7 @@ def build_generator_14():
     x = layers.Add()([x, skip_7_up])
     x = layers.Activation("relu")(x)
 
-    # Per-class output scale+shift (kept consistent with 28x28 generator;
-    # layer name conv2d_9 preserved for weight transfer).
-    logits = layers.Conv2D(1, 3, padding="same", activation=None, dtype="float32", name="conv2d_9")(x)
-    out_scale = layers.Dense(1)(lbl)
-    out_shift = layers.Dense(1)(lbl)
-    out_scale = layers.Reshape((1, 1, 1))(out_scale)
-    out_shift = layers.Reshape((1, 1, 1))(out_shift)
-    x = layers.Activation("sigmoid")(logits * out_scale + out_shift)
+    x = layers.Conv2D(1, 3, padding="same", activation="sigmoid", dtype="float32")(x)
     return keras.Model([z, lbl], x, name="generator_14")
 
 
@@ -428,7 +420,6 @@ def build_generator():
     x = layers.Add()([x, skip_14_up])
     x = layers.Activation("relu")(x)
 
-    # Output: plain conv + sigmoid (per-class scale/shift dropped to reduce over-conditioning)
     x = layers.Conv2D(1, 3, padding="same", activation="sigmoid", dtype="float32")(x)
     return keras.Model([z, lbl], x, name="generator")
 
