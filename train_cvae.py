@@ -45,15 +45,15 @@ MAX_SAMPLES_PER_CLASS = args.max_samples_per_class
 SAMPLES_PER_EPOCH_PER_CLASS = args.samples_per_epoch_per_class
 PBM_DIR = Path(args.pbm_dir) if args.pbm_dir else None
 
-PROGRESSIVE_EPOCHS = 19 # Phase 1: 14x14
-LR = 0.0009
-LR_WARMUP_START = 0.0001
+PROGRESSIVE_EPOCHS = 21 # Phase 1: 14x14
+LR = 0.0008
+LR_WARMUP_START = 0.00005
 LR_WARMUP_EPOCHS = 4
 LR_DECAY_EPOCHS = EPOCHS - LR_WARMUP_EPOCHS
 LR_END = 0.00005
 PIXEL_LOSS_WEIGHT = 0.8
 PERCEPTUAL_LOSS_WEIGHT = 0.25
-INFO_NCE_WEIGHT = 0.001
+INFO_NCE_WEIGHT = 0.002
 TEMPERATURE = 1.0
 # Foreground weight for pixel BCE. Sparse classes (e.g. class 4, ~12.6%
 # foreground) are dominated by background under plain BCE, which drags
@@ -91,9 +91,9 @@ PHA1_LR_END = 0.0001
 PHA1_LR_DECAY_EPOCHS = PROGRESSIVE_EPOCHS - PHA1_LR_WARMUP_EPOCHS
 PHA1_PIXEL_LOSS_WEIGHT = 1.0
 PHA1_KL_WARMUP_EPOCHS = 2
-PHA1_KL_WARMUP_START = 0.000001
+PHA1_KL_WARMUP_START = 0.00001
 PHA1_KL_WEIGHT_START = 0.02
-PHA1_INFO_NCE_WEIGHT = 0.0
+PHA1_INFO_NCE_WEIGHT = 0.002
 LOG_NAME = 'logs/gen1b'
 LOG_NAME_PHA1 = 'logs/gen1b/phase1'
 
@@ -311,13 +311,7 @@ def build_generator_14():
     # Skip at the BEGINNING of the 7x7 scale (matches build_generator for
     # positional weight transfer)
     skip_7 = layers.Conv2D(128, 1, padding="same", name="conv2d_6")(x)
-    gamma7, beta7 = make_film(128)(lbl)
-    gamma7 = layers.Reshape((1, 1, 128), name="reshape")(gamma7)
-    beta7 = layers.Reshape((1, 1, 128), name="reshape_1")(beta7)
-    x = layers.Multiply()([x, gamma7])
-    x = layers.Add()([x, beta7])
-
-    # 7x7 block with FiLM, mirrored from 28x28 generator
+    # 7x7 block (single FiLM after conv; seed FiLM dropped, matches build_generator)
     x = layers.Conv2D(128, 3, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="conv2d_4")(x)
     gamma7c, beta7c = make_film(128)(lbl)
     gamma7c = layers.Reshape((1, 1, 128), name="reshape_2")(gamma7c)
@@ -388,14 +382,7 @@ def build_generator():
     # Skip saved at the BEGINNING of the 7x7 scale (freshest features, before
     # the conv/FiLM/attention stack processes them)
     skip_7 = layers.Conv2D(128, 1, padding="same")(x)
-    # FiLM at 7x7
-    gamma7, beta7 = make_film(128)(lbl)
-    gamma7 = layers.Reshape((1, 1, 128))(gamma7)
-    beta7 = layers.Reshape((1, 1, 128))(beta7)
-    x = layers.Multiply()([x, gamma7])
-    x = layers.Add()([x, beta7])
-
-    # 7x7 → 14x14
+    # 7x7 → 14x14 (single FiLM after conv; seed FiLM dropped to reduce over-conditioning)
     x = layers.Conv2D(128, 3, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     # FiLM at 7x7 (after conv)
     gamma7c, beta7c = make_film(128)(lbl)
@@ -441,14 +428,8 @@ def build_generator():
     x = layers.Add()([x, skip_14_up])
     x = layers.Activation("relu")(x)
 
-    # Per-class output scale+shift: lets sparse classes reach high
-    # activation instead of collapsing into a narrow sub-0.5 band.
-    logits = layers.Conv2D(1, 3, padding="same", activation=None, dtype="float32")(x)
-    out_scale = layers.Dense(1)(lbl)
-    out_shift = layers.Dense(1)(lbl)
-    out_scale = layers.Reshape((1, 1, 1))(out_scale)
-    out_shift = layers.Reshape((1, 1, 1))(out_shift)
-    x = layers.Activation("sigmoid")(logits * out_scale + out_shift)
+    # Output: plain conv + sigmoid (per-class scale/shift dropped to reduce over-conditioning)
+    x = layers.Conv2D(1, 3, padding="same", activation="sigmoid", dtype="float32")(x)
     return keras.Model([z, lbl], x, name="generator")
 
 
