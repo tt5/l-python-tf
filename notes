@@ -44,10 +44,10 @@ gradient accumulation
 
 1:
 
-  Class 0: 87.7% correctly classified (877/1000), avg confidence: 99.6%
-  Class 1: 42.8% correctly classified (428/1000), avg confidence: 94.1%
-  Class 2: 97.7% correctly classified (977/1000), avg confidence: 99.4%
-  Class 3: 99.1% correctly classified (991/1000), avg confidence: 100.0%
+  Class 0: 84.3% correctly classified (843/1000), avg confidence: 99.4%
+  Class 1: 55.4% correctly classified (554/1000), avg confidence: 96.0%
+  Class 2: 90.6% correctly classified (906/1000), avg confidence: 99.0%
+  Class 3: 100.0% correctly classified (1000/1000), avg confidence: 100.0%
   Class 4: 100.0% correctly classified (1000/1000), avg confidence: 100.0%
 
 ─── Real data classification (from synthetic project) ───

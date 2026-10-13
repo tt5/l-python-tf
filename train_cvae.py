@@ -44,15 +44,15 @@ MAX_SAMPLES_PER_CLASS = args.max_samples_per_class
 SAMPLES_PER_EPOCH_PER_CLASS = args.samples_per_epoch_per_class
 PBM_DIR = Path(args.pbm_dir) if args.pbm_dir else None
 
-PROGRESSIVE_EPOCHS = 10 # Phase 1: 14x14
-LR = 0.001
-LR_WARMUP_START = 0.000005
-LR_WARMUP_EPOCHS = 2
+PROGRESSIVE_EPOCHS = 19 # Phase 1: 14x14
+LR = 0.0009
+LR_WARMUP_START = 0.0001
+LR_WARMUP_EPOCHS = 4
 LR_DECAY_EPOCHS = EPOCHS - LR_WARMUP_EPOCHS
-LR_END = 0.0001
+LR_END = 0.00005
 PIXEL_LOSS_WEIGHT = 0.8
 PERCEPTUAL_LOSS_WEIGHT = 0.25
-INFO_NCE_WEIGHT = 0.01
+INFO_NCE_WEIGHT = 0.001
 TEMPERATURE = 1.0
 # Foreground weight for pixel BCE. Sparse classes (e.g. class 4, ~12.6%
 # foreground) are dominated by background under plain BCE, which drags
@@ -74,25 +74,25 @@ def weighted_pixel_loss(target, reconstruction):
     return tf.reduce_mean(tf.reduce_sum(bce * pixel_weights, axis=(1, 2)))
 DROPOUT = 0.3
 SPATIAL_DROPOUT = 0.1
-L2_REG = 0.00005
+L2_REG = 0.00001
 # Phase 2 KL schedule (configurable start)
-PHA2_KL_WARMUP_START = 0.0003
-PHA2_KL_WEIGHT_START = 0.5
-PHA2_KL_WEIGHT_TARGET = 0.1
-PHA2_KL_WARMUP_EPOCHS = 6
+PHA2_KL_WARMUP_START = 0.001
+PHA2_KL_WEIGHT_START = 0.4
+PHA2_KL_WEIGHT_TARGET = 0.01
+PHA2_KL_WARMUP_EPOCHS = 4
 PHA2_KL_DECAY_EPOCHS = EPOCHS
-PHA2_TRANSFER_FREEZE_EPOCHS = 3
+PHA2_TRANSFER_FREEZE_EPOCHS = 5
 # Phase 1 (14x14) specific config
-PHA1_LR = 0.0003
-PHA1_LR_WARMUP_START = 0.000001
-PHA1_LR_WARMUP_EPOCHS = 2
+PHA1_LR = 0.0005
+PHA1_LR_WARMUP_START = 0.00001
+PHA1_LR_WARMUP_EPOCHS = 4
 PHA1_LR_END = 0.0001
 PHA1_LR_DECAY_EPOCHS = PROGRESSIVE_EPOCHS - PHA1_LR_WARMUP_EPOCHS
 PHA1_PIXEL_LOSS_WEIGHT = 1.0
-PHA1_KL_WARMUP_EPOCHS = 1
-PHA1_KL_WARMUP_START = 0.0000001
-PHA1_KL_WEIGHT_START = 0.01
-PHA1_INFO_NCE_WEIGHT = 0.01
+PHA1_KL_WARMUP_EPOCHS = 2
+PHA1_KL_WARMUP_START = 0.000001
+PHA1_KL_WEIGHT_START = 0.02
+PHA1_INFO_NCE_WEIGHT = 0.0
 LOG_NAME = 'logs/gen1b'
 LOG_NAME_PHA1 = 'logs/gen1b/phase1'
 
@@ -147,7 +147,6 @@ def build_encoder():
     # Label-conditioned spatial attention at 14x14 (k=5): focus on class-relevant
     # structure before the 7x7 crush. (Early low-channel SE se1 removed here.)
     c1 = label_spatial_attention(c1, lbl, k=5, name="enc_spatial_attn")
-    c1 = layers.SpatialDropout2D(SPATIAL_DROPOUT)(c1)
 
     # Conv block 2: 14x14 → 7x7
     c2 = layers.Conv2D(128, 3, strides=2, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv2")(c1)
@@ -200,7 +199,7 @@ def build_encoder():
     # Main 7x7 path compressed 12544 -> 256 to match the fine path's 256, so
     # each contributes ~equally to the latent instead of fine being ~2%.
     main = layers.Flatten()(c3)
-    main = layers.Dense(256, activation="relu",
+    main = layers.Dense(384, activation="relu",
                         kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(main)
     x = layers.Concatenate()([main, fine, lbl])
     x = layers.LayerNormalization()(x)
