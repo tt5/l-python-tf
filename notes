@@ -223,3 +223,7 @@ gradient accumulation
   Class digit_4: 0.0% correct (0/5000), avg confidence: 0.0%
   Class digit_5: 88.7% correct (4435/5000), avg confidence: 99.0%
   Class low_conf: 47.6% correct (2379/5000), avg confidence: 89.4%
+
+https://www.alphaxiv.org/abs/2212.06335.md
+https://github.com/HZAI-ZJNU/SCSA
+not over-conditioning

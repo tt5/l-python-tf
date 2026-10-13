@@ -13,6 +13,8 @@ import os
 
 import tensorflow as tf
 
+from collab import CollabModulation
+
 parser = argparse.ArgumentParser()
 parser.add_argument("--output", default="cvae_generator.onnx", help="Output ONNX file path")
 parser.add_argument("--model", default="cvae_generator.h5", help="Input Keras model path")
@@ -20,6 +22,7 @@ args = parser.parse_args()
 
 custom_objects = {
     "LayerNormalization": tf.keras.layers.LayerNormalization,
+    "CollabModulation": CollabModulation,
 }
 
 model = tf.keras.models.load_model(args.model, custom_objects=custom_objects)

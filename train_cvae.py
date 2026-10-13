@@ -18,6 +18,7 @@ from tensorflow.keras import layers
 import numpy as np
 from pathlib import Path
 
+from collab import CollabModulation
 from utils.mnist_loader import load_data
 
 # ─── Config ────────────────────────────────────────────────────────
@@ -93,8 +94,8 @@ PHA1_KL_WARMUP_EPOCHS = 2
 PHA1_KL_WARMUP_START = 0.000001
 PHA1_KL_WEIGHT_START = 0.02
 PHA1_INFO_NCE_WEIGHT = 0.0
-LOG_NAME = 'logs/gen1'
-LOG_NAME_PHA1 = 'logs/gen1/phase1'
+LOG_NAME = 'logs/gen1b'
+LOG_NAME_PHA1 = 'logs/gen1b/phase1'
 
 # ─── Data ──────────────────────────────────────────────────────────
 def load_data_cvae():
@@ -291,9 +292,9 @@ def build_generator_14():
             return gamma, beta
         return film_fn
 
-    # Label-conditioned spatial attention with spatial context (mirrors
-    # build_generator so positional weight transfer stays aligned).
-    def label_spatial_attention(x, lbl, k):
+    # Spatial attention map (mirrors build_generator for positional transfer).
+    # Returns the gate so it can be combined with FiLM via colla-factors (CAT).
+    def spatial_attention_map(x, lbl, k, name=None):
         avg = tf.reduce_mean(x, axis=-1, keepdims=True)
         mx = tf.reduce_max(x, axis=-1, keepdims=True)
         pooled = layers.Concatenate()([avg, mx])
@@ -301,8 +302,8 @@ def build_generator_14():
         lbl_map = layers.Reshape((1, 1, NUM_CLASSES))(lbl)
         lbl_map = layers.UpSampling2D(size=h, interpolation="nearest")(lbl_map)
         att_in = layers.Concatenate()([pooled, lbl_map])
-        att = layers.Conv2D(1, k, padding="same", activation="sigmoid")(att_in)
-        return layers.Multiply()([x, att])
+        att = layers.Conv2D(1, k, padding="same", activation="sigmoid", name=name)(att_in)
+        return att
 
     # Initial projection to 7x7, mirrored from 28x28 generator
     x = layers.Dense(7 * 7 * 128, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="dense_7")(z)
@@ -336,10 +337,9 @@ def build_generator_14():
     gamma14, beta14 = make_film(128)(lbl)
     gamma14 = layers.Reshape((1, 1, 128), name="reshape_4")(gamma14)
     beta14 = layers.Reshape((1, 1, 128), name="reshape_5")(beta14)
-    x = layers.Multiply()([x, gamma14])
-    x = layers.Add()([x, beta14])
-    # Label-conditioned spatial attention at 14x14 (k=5, matches build_generator)
-    x = label_spatial_attention(x, lbl, k=5)
+    # CAT collaboration at 14x14 (k=5, matches build_generator)
+    att14 = spatial_attention_map(x, lbl, k=5, name="spatial_attn_14")
+    x = CollabModulation(name="collab_14")([x, gamma14, att14, beta14])
     skip_7_up = upsample(skip_7, [14, 14])
     x = layers.Add()([x, skip_7_up])
     x = layers.Activation("relu")(x)
@@ -368,11 +368,10 @@ def build_generator():
             return gamma, beta
         return film_fn
 
-    # Label-conditioned spatial attention with real spatial context (CBAM-style).
-    # Channel-pool (avg+max) + broadcast label -> kxk conv -> sigmoid gate.
-    # The kxk kernel gives each pixel's gate neighborhood context (unlike the
-    # old 1x1 per-pixel gate); the label makes the gate class-specific.
-    def label_spatial_attention(x, lbl, k):
+    # Spatial attention map (CBAM-style): channel-pool (avg+max) + broadcast
+    # label -> kxk conv -> sigmoid gate. Returns the gate (not x*att) so it
+    # can be combined with FiLM via learned colla-factors (CAT).
+    def spatial_attention_map(x, lbl, k, name=None):
         avg = tf.reduce_mean(x, axis=-1, keepdims=True)
         mx = tf.reduce_max(x, axis=-1, keepdims=True)
         pooled = layers.Concatenate()([avg, mx])                  # (B,H,W,2)
@@ -380,8 +379,8 @@ def build_generator():
         lbl_map = layers.Reshape((1, 1, NUM_CLASSES))(lbl)
         lbl_map = layers.UpSampling2D(size=h, interpolation="nearest")(lbl_map)
         att_in = layers.Concatenate()([pooled, lbl_map])          # (B,H,W,2+NC)
-        att = layers.Conv2D(1, k, padding="same", activation="sigmoid")(att_in)
-        return layers.Multiply()([x, att])
+        att = layers.Conv2D(1, k, padding="same", activation="sigmoid", name=name)(att_in)
+        return att
 
     # Initial projection
     x = layers.Dense(7 * 7 * 128, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(z)
@@ -419,10 +418,9 @@ def build_generator():
     gamma14, beta14 = make_film(128)(lbl)
     gamma14 = layers.Reshape((1, 1, 128))(gamma14)
     beta14 = layers.Reshape((1, 1, 128))(beta14)
-    x = layers.Multiply()([x, gamma14])
-    x = layers.Add()([x, beta14])
-    # Label-conditioned spatial attention at 14x14 (k=5, real spatial context)
-    x = label_spatial_attention(x, lbl, k=5)
+    # CAT collaboration: learned colla-factors combine FiLM (channel) + spatial attn
+    att14 = spatial_attention_map(x, lbl, k=5, name="spatial_attn_14")
+    x = CollabModulation(name="collab_14")([x, gamma14, att14, beta14])
     # Residual: project skip_7 to 14x14 and add
     skip_7_up = upsample(skip_7, [14, 14])
     x = layers.Add()([x, skip_7_up])
@@ -434,11 +432,9 @@ def build_generator():
     gamma28, beta28 = make_film(64)(lbl)
     gamma28 = layers.Reshape((1, 1, 64))(gamma28)
     beta28 = layers.Reshape((1, 1, 64))(beta28)
-    x = layers.Multiply()([x, gamma28])
-    x = layers.Add()([x, beta28])
-    # Label-conditioned spatial attention at 28x28 (k=7, real spatial context).
-    # No SE here (redundant with the output conv's per-pixel selection).
-    x = label_spatial_attention(x, lbl, k=7)
+    # CAT collaboration at 28x28 (k=7). No SE here (redundant with output conv).
+    att28 = spatial_attention_map(x, lbl, k=7, name="spatial_attn_28")
+    x = CollabModulation(name="collab_28")([x, gamma28, att28, beta28])
     x = upsample(x, [28, 28])
     x = layers.Conv2D(64, 3, padding="same", activation="relu")(x)
     skip_14_up = upsample(skip_14, [28, 28])
