@@ -25,7 +25,7 @@ from utils.mnist_loader import load_data
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "synthetic" / "data"
 LATENT_DIM = 256
 PHA1_LATENT_DIM = 64
-EPOCHS = 180
+EPOCHS = 80
 BATCH_SIZE = 256
 NUM_CLASSES = 5
 
@@ -45,10 +45,10 @@ MAX_SAMPLES_PER_CLASS = args.max_samples_per_class
 SAMPLES_PER_EPOCH_PER_CLASS = args.samples_per_epoch_per_class
 PBM_DIR = Path(args.pbm_dir) if args.pbm_dir else None
 
-PROGRESSIVE_EPOCHS = 30 # Phase 1: 14x14
+PROGRESSIVE_EPOCHS = 36 # Phase 1: 14x14
 LR = 0.0008
 LR_WARMUP_START = 0.00005
-LR_WARMUP_EPOCHS = 3
+LR_WARMUP_EPOCHS = 4
 LR_DECAY_EPOCHS = EPOCHS - LR_WARMUP_EPOCHS
 LR_END = 0.00005
 PIXEL_LOSS_WEIGHT = 0.8
@@ -63,13 +63,16 @@ PIXEL_POS_WEIGHT = 2.0
 DROPOUT = 0.3
 SPATIAL_DROPOUT = 0.1
 L2_REG = 0.000005
+# VAE-GAN hybrid (Phase 2 only): adversarial term + discriminator LR
+ADV_LAMBDA = 1.0
+DISC_LR = 0.0002
 # Phase 2 KL schedule (configurable start)
 PHA2_KL_WARMUP_START = 0.001
 PHA2_KL_WEIGHT_START = 0.1
 PHA2_KL_WEIGHT_TARGET = 0.005
 PHA2_KL_WARMUP_EPOCHS = 4
 PHA2_KL_DECAY_EPOCHS = EPOCHS
-PHA2_TRANSFER_FREEZE_EPOCHS = 5
+PHA2_TRANSFER_FREEZE_EPOCHS = 2
 # Phase 1 (14x14) specific config
 PHA1_LR = 0.002
 PHA1_LR_WARMUP_START = 0.0001
@@ -81,8 +84,8 @@ PHA1_KL_WARMUP_EPOCHS = 3
 PHA1_KL_WARMUP_START = 0.0001
 PHA1_KL_WEIGHT_START = 0.03
 PHA1_INFO_NCE_WEIGHT = 0.01
-LOG_NAME = 'logs/gen1b'
-LOG_NAME_PHA1 = 'logs/gen1b/phase1'
+LOG_NAME = 'logs/gen1'
+LOG_NAME_PHA1 = 'logs/gen1/phase1'
 
 def weighted_pixel_loss(target, reconstruction):
     """Foreground-weighted pixel BCE.
@@ -614,6 +617,150 @@ class VAE(keras.Model):
         return {m.name: m.result() for m in self.metrics}
 
 
+# ─── Discriminator (conditional critic) ────────────────────────────
+def build_discriminator():
+    img = keras.Input(shape=(28, 28, 1), name="image_input")
+    lbl = keras.Input(shape=(NUM_CLASSES,), name="label_input")
+
+    # Broadcast label to a spatial channel map and concat (robust conditioning)
+    lbl_map = layers.Reshape((1, 1, NUM_CLASSES))(lbl)
+    lbl_map = layers.UpSampling2D(size=28, interpolation="nearest")(lbl_map)
+    x = layers.Concatenate()([img, lbl_map])
+
+    for filters in (64, 128, 256):
+        x = layers.Conv2D(filters, 4, strides=2, padding="same")(x)
+        x = layers.LeakyReLU(0.2)(x)
+    x = layers.Flatten()(x)
+    x = layers.Dense(128)(x)
+    x = layers.LeakyReLU(0.2)(x)
+    out = layers.Dense(1)(x)  # real/fake logit
+    return keras.Model([img, lbl], out, name="discriminator")
+
+
+# ─── VAE-GAN hybrid (Phase 2 only) ─────────────────────────────────
+class VAEGAN(VAE):
+    """VAE with a conditional discriminator and adversarial loss.
+
+    The adversarial term forces the generator to commit to sharp output
+    instead of the KL/BCE-averaged blur. Phase 1 stays pure VAE; the
+    discriminator joins in Phase 2 (it does not transfer from Phase 1).
+    """
+    def __init__(self, encoder, generator, discriminator, **kwargs):
+        super().__init__(encoder, generator, **kwargs)
+        self.discriminator = discriminator
+        self.disc_loss_tracker = keras.metrics.Mean(name="disc_loss")
+        self.adv_loss_tracker = keras.metrics.Mean(name="adv_loss")
+
+    def compile(self, g_opt, d_opt, **kwargs):
+        super().compile(optimizer=g_opt, **kwargs)
+        self.d_opt = d_opt
+
+    @property
+    def metrics(self):
+        return super().metrics + [self.disc_loss_tracker, self.adv_loss_tracker]
+
+    def _bce(self, labels, logits):
+        return tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(
+            labels=labels, logits=logits))
+
+    def train_step(self, data):
+        images, labels = data
+        self.optimizer.learning_rate = self.get_lr()
+        kl_weight = self.get_kl_weight()
+
+        # Encode once (z is sampled here; generator decode is deterministic)
+        z_mean, z_log_var, z = self.encoder([images, labels])
+
+        # --- Train discriminator (detach reconstruction) ---
+        reconstruction_d = self.generator([z, labels])
+        with tf.GradientTape() as d_tape:
+            d_real = self.discriminator([images, labels])
+            d_fake = self.discriminator([tf.stop_gradient(reconstruction_d), labels])
+            d_loss = (self._bce(tf.ones_like(d_real), d_real)
+                      + self._bce(tf.zeros_like(d_fake), d_fake))
+        d_grads = d_tape.gradient(d_loss, self.discriminator.trainable_weights)
+        self.d_opt.apply_gradients(zip(d_grads, self.discriminator.trainable_weights))
+
+        # --- Train generator (encoder + decoder; adversarial flows through D) ---
+        with tf.GradientTape() as g_tape:
+            reconstruction = self.generator([z, labels])
+            d_fake = self.discriminator([reconstruction, labels])
+            adv_loss = self._bce(tf.ones_like(d_fake), d_fake)
+
+            target = tf.image.resize(images, tf.shape(reconstruction)[1:3])
+            pixel_loss = weighted_pixel_loss(target, reconstruction)
+            kl_loss = -0.5 * tf.reduce_mean(tf.reduce_sum(
+                1 + z_log_var - tf.square(z_mean) - tf.exp(z_log_var), axis=1))
+            batch_size = tf.shape(z)[0]
+            z_norm = tf.math.l2_normalize(z, axis=1)
+            sim_matrix = tf.matmul(z_norm, z_norm, transpose_b=True) / TEMPERATURE
+            labels_ce = tf.range(batch_size)
+            info_nce_loss = tf.reduce_mean(
+                tf.nn.sparse_softmax_cross_entropy_with_logits(labels=labels_ce, logits=sim_matrix))
+            real_features = self.feature_extractor(images)
+            fake_features = self.feature_extractor(reconstruction)
+            perceptual_loss = 0.0
+            count = 0
+            for rf, ff in zip(real_features, fake_features):
+                diff = tf.reduce_mean(tf.square(rf - ff))
+                n = tf.cast(tf.size(rf), tf.float32)
+                perceptual_loss += diff / n
+                count += 1
+            perceptual_loss /= tf.maximum(tf.cast(count, tf.float32), 1.0)
+
+            total_loss = (PIXEL_LOSS_WEIGHT * pixel_loss +
+                          PERCEPTUAL_LOSS_WEIGHT * perceptual_loss +
+                          kl_weight * kl_loss +
+                          INFO_NCE_WEIGHT * info_nce_loss +
+                          ADV_LAMBDA * adv_loss)
+
+        g_weights = self.encoder.trainable_weights + self.generator.trainable_weights
+        g_grads = g_tape.gradient(total_loss, g_weights)
+        g_grads = [tf.clip_by_value(g, -1.0, 1.0) if g is not None else g for g in g_grads]
+        self.optimizer.apply_gradients(zip(g_grads, g_weights))
+
+        self.total_loss_tracker.update_state(total_loss)
+        self.recon_loss_tracker.update_state(pixel_loss)
+        self.kl_loss_tracker.update_state(kl_loss)
+        self.kl_weight_tracker.update_state(kl_weight)
+        self.disc_loss_tracker.update_state(d_loss)
+        self.adv_loss_tracker.update_state(adv_loss)
+        return {m.name: m.result() for m in self.metrics}
+
+    def test_step(self, data):
+        images, labels = data
+        z_mean, z_log_var, z = self.encoder([images, labels])
+        reconstruction = self.generator([z, labels])
+        d_real = self.discriminator([images, labels])
+        d_fake = self.discriminator([reconstruction, labels])
+        d_loss = (self._bce(tf.ones_like(d_real), d_real)
+                  + self._bce(tf.zeros_like(d_fake), d_fake))
+        adv_loss = self._bce(tf.ones_like(d_fake), d_fake)
+
+        target = tf.image.resize(images, tf.shape(reconstruction)[1:3])
+        pixel_loss = weighted_pixel_loss(target, reconstruction)
+        kl_loss = -0.5 * tf.reduce_mean(tf.reduce_sum(
+            1 + z_log_var - tf.square(z_mean) - tf.exp(z_log_var), axis=1))
+        kl_weight = self.get_kl_weight()
+        real_features = self.feature_extractor(images)
+        fake_features = self.feature_extractor(reconstruction)
+        perceptual_loss = tf.reduce_mean([
+            tf.reduce_mean(tf.square(rf - ff))
+            for rf, ff in zip(real_features, fake_features)
+        ])
+        total_loss = (PIXEL_LOSS_WEIGHT * pixel_loss +
+                      PERCEPTUAL_LOSS_WEIGHT * perceptual_loss +
+                      kl_weight * kl_loss +
+                      ADV_LAMBDA * adv_loss)
+        self.total_loss_tracker.update_state(total_loss)
+        self.recon_loss_tracker.update_state(pixel_loss)
+        self.kl_loss_tracker.update_state(kl_loss)
+        self.kl_weight_tracker.update_state(kl_weight)
+        self.disc_loss_tracker.update_state(d_loss)
+        self.adv_loss_tracker.update_state(adv_loss)
+        return {m.name: m.result() for m in self.metrics}
+
+
 # ─── Train ────────────────────────────────────────────────────────
 class CVAESequence(tf.keras.utils.Sequence):
     def __init__(self, images, labels, batch_size, samples_per_epoch_per_class=None):
@@ -661,8 +808,9 @@ class CVAESequence(tf.keras.utils.Sequence):
 
 encoder = build_encoder()
 generator = build_generator()
-vae = VAE(encoder, generator)
-vae.compile(optimizer=keras.optimizers.Adam(LR))
+discriminator = build_discriminator()
+vae = VAEGAN(encoder, generator, discriminator)
+vae.compile(g_opt=keras.optimizers.Adam(LR), d_opt=keras.optimizers.Adam(DISC_LR))
 
 train_seq = CVAESequence(x_train, y_train, BATCH_SIZE, samples_per_epoch_per_class=SAMPLES_PER_EPOCH_PER_CLASS)
 val_seq = CVAESequence(x_test, y_test, BATCH_SIZE, samples_per_epoch_per_class=None)
@@ -877,7 +1025,7 @@ print(f"\nPhase 2a: frozen transferred weights for {PHA2_TRANSFER_FREEZE_EPOCHS}
 frozen_weights = list(getattr(vae, 'phase1_transferred_weights', []))
 for v in frozen_weights:
     v._trainable = False
-vae.compile(optimizer=keras.optimizers.Adam(LR))
+vae.compile(g_opt=keras.optimizers.Adam(LR), d_opt=keras.optimizers.Adam(DISC_LR))
 history2_frozen = vae.fit(
     train_seq,
     validation_data=val_seq,
@@ -892,7 +1040,7 @@ history2_frozen = vae.fit(
 print("\nUnfreezing transferred weights and resuming Phase 2")
 for v in frozen_weights:
     v._trainable = True
-vae.compile(optimizer=keras.optimizers.Adam(LR))
+vae.compile(g_opt=keras.optimizers.Adam(LR), d_opt=keras.optimizers.Adam(DISC_LR))
 history2 = vae.fit(
     train_seq,
     validation_data=val_seq,
