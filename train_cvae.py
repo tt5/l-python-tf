@@ -93,8 +93,8 @@ PHA1_KL_WARMUP_EPOCHS = 2
 PHA1_KL_WARMUP_START = 0.000001
 PHA1_KL_WEIGHT_START = 0.02
 PHA1_INFO_NCE_WEIGHT = 0.0
-LOG_NAME = 'logs/gen1b'
-LOG_NAME_PHA1 = 'logs/gen1b/phase1'
+LOG_NAME = 'logs/gen1'
+LOG_NAME_PHA1 = 'logs/gen1/phase1'
 
 # ─── Data ──────────────────────────────────────────────────────────
 def load_data_cvae():
@@ -286,7 +286,7 @@ def build_generator_14():
 
     def make_film(channels):
         def film_fn(label):
-            gamma = layers.Dense(channels, activation="sigmoid")(label)
+            gamma = 2.0 * layers.Dense(channels, activation="sigmoid")(label)  # [0,2], init ~1 (identity)
             beta = layers.Dense(channels)(label)
             return gamma, beta
         return film_fn
@@ -363,7 +363,7 @@ def build_generator():
     # FiLM helper: produce scale (gamma) and shift (beta) from label
     def make_film(channels):
         def film_fn(label):
-            gamma = layers.Dense(channels, activation="sigmoid")(label)
+            gamma = 2.0 * layers.Dense(channels, activation="sigmoid")(label)  # [0,2], init ~1 (identity)
             beta = layers.Dense(channels)(label)
             return gamma, beta
         return film_fn
