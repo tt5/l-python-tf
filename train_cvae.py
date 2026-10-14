@@ -25,7 +25,7 @@ from utils.mnist_loader import load_data
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "synthetic" / "data"
 LATENT_DIM = 512
 PHA1_LATENT_DIM = 128
-EPOCHS = 62
+EPOCHS = 120
 BATCH_SIZE = 128
 NUM_CLASSES = 5
 
@@ -195,10 +195,9 @@ def build_encoder():
     main = layers.Flatten()(c3)
     main = layers.Dense(1024, activation="relu",
                         kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(main)
+    main = layers.LayerNormalization()(main)
+    main = layers.Dropout(DROPOUT)(main)
     x = layers.Concatenate()([main, lbl])
-    x = layers.LayerNormalization()(x)
-    x = layers.Dropout(DROPOUT)(x)
-    x = layers.Dense(640, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     z_mean = layers.Dense(LATENT_DIM, name="z_mean", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     z_log_var = layers.Dense(LATENT_DIM, name="z_log_var", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     z = Sampling()([z_mean, z_log_var])
@@ -244,10 +243,9 @@ def build_encoder_14():
     main = layers.Flatten()(c2)
     main = layers.Dense(256, activation="relu",
                         kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(main)
+    main = layers.LayerNormalization()(main)
+    main = layers.Dropout(DROPOUT)(main)
     x = layers.Concatenate()([main, lbl])
-    x = layers.LayerNormalization()(x)
-    x = layers.Dropout(DROPOUT)(x)
-    x = layers.Dense(192, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="dense_6")(x)
     z_mean = layers.Dense(PHA1_LATENT_DIM, name="z_mean", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     z_log_var = layers.Dense(PHA1_LATENT_DIM, name="z_log_var", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     z = Sampling()([z_mean, z_log_var])
