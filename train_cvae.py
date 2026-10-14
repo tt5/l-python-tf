@@ -24,8 +24,8 @@ from utils.mnist_loader import load_data
 # ─── Config ────────────────────────────────────────────────────────
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "synthetic" / "data"
 LATENT_DIM = 512
-PHA1_LATENT_DIM = 64
-EPOCHS = 60
+PHA1_LATENT_DIM = 128
+EPOCHS = 62
 BATCH_SIZE = 128
 NUM_CLASSES = 5
 
@@ -46,49 +46,49 @@ SAMPLES_PER_EPOCH_PER_CLASS = args.samples_per_epoch_per_class
 PBM_DIR = Path(args.pbm_dir) if args.pbm_dir else None
 
 #PROGRESSIVE_EPOCHS = 36 # Phase 1: 14x14
-PROGRESSIVE_EPOCHS = 20 # Phase 1: 14x14
-LR = 0.001
+PROGRESSIVE_EPOCHS = 24 # Phase 1: 14x14
+LR = 0.002
 LR_WARMUP_START = 0.0005
-LR_WARMUP_EPOCHS = 4
+LR_WARMUP_EPOCHS = 3
 LR_DECAY_EPOCHS = EPOCHS - LR_WARMUP_EPOCHS
 LR_END = 0.0005
-PIXEL_LOSS_WEIGHT = 0.8
+PIXEL_LOSS_WEIGHT = 0.7
 PERCEPTUAL_LOSS_WEIGHT = 0.0
-INFO_NCE_WEIGHT = 0.01
+INFO_NCE_WEIGHT = 0.02
 TEMPERATURE = 1.0
 # Foreground weight for pixel BCE. Sparse classes (e.g. class 4, ~12.6%
 # foreground) are dominated by background under plain BCE, which drags
 # the generator output below the 0.5 threshold. (1-fg)/fg ~= 7 balances
 # the positive/negative contributions at the measured coverage.
-PIXEL_POS_WEIGHT = 2.0
-DROPOUT = 0.3
+PIXEL_POS_WEIGHT = 3.0
+DROPOUT = 0.4
 SPATIAL_DROPOUT = 0.1
 L2_REG = 0.000005
 # VAE-GAN hybrid (Phase 2 only): adversarial term + discriminator LR
-ADV_LAMBDA = 0.1
+ADV_LAMBDA = 0.15
 DISC_LR = 0.0001
 D_BATCH_INTERVAL = 4  # update discriminator every N batches (G updates every batch)
 D_REAL_LABEL = 0.9    # one-sided label smoothing for the real class
 # Phase 2 KL schedule (configurable start)
 PHA2_KL_WARMUP_START = 0.001
-PHA2_KL_WEIGHT_START = 0.05
-PHA2_KL_WEIGHT_TARGET = 0.005
-PHA2_KL_WARMUP_EPOCHS = 4
+PHA2_KL_WEIGHT_START = 0.04
+PHA2_KL_WEIGHT_TARGET = 0.001
+PHA2_KL_WARMUP_EPOCHS = 3
 PHA2_KL_DECAY_EPOCHS = EPOCHS
-PHA2_TRANSFER_FREEZE_EPOCHS = 1
+PHA2_TRANSFER_FREEZE_EPOCHS = 2
 # Phase 1 (14x14) specific config
 PHA1_LR = 0.002
 PHA1_LR_WARMUP_START = 0.0001
 PHA1_LR_WARMUP_EPOCHS = 8
-PHA1_LR_END = 0.00005
+PHA1_LR_END = 0.0001
 PHA1_LR_DECAY_EPOCHS = PROGRESSIVE_EPOCHS - PHA1_LR_WARMUP_EPOCHS
 PHA1_PIXEL_LOSS_WEIGHT = 1.0
 PHA1_KL_WARMUP_EPOCHS = 3
 PHA1_KL_WARMUP_START = 0.0001
-PHA1_KL_WEIGHT_START = 0.03
-PHA1_INFO_NCE_WEIGHT = 0.01
-LOG_NAME = 'logs/gen1b'
-LOG_NAME_PHA1 = 'logs/gen1b/phase1'
+PHA1_KL_WEIGHT_START = 0.02
+PHA1_INFO_NCE_WEIGHT = 0.02
+LOG_NAME = 'logs/gen1'
+LOG_NAME_PHA1 = 'logs/gen1/phase1'
 
 def weighted_pixel_loss(target, reconstruction):
     """Foreground-weighted pixel BCE.
@@ -191,26 +191,14 @@ def build_encoder():
     skip3 = layers.Conv2D(256, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(c3_pre)
     c3 = layers.Add()([c3, skip3])
 
-    # Parallel fine-detail path: preserve 14x14 spatial detail (c1) to the
-    # latent, bypassing the 7x7 crush. Flattening keeps the spatial layout
-    # that the main path's average-pooling would destroy -- this is what
-    # lets a thin line's fine geometry reach z instead of being averaged away.
-    fine = layers.Conv2D(32, 3, padding="same", activation="relu",
-                         kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_fine_conv")(c1)
-    fine = layers.Flatten()(fine)               # 14*14*32 = 6272, spatial layout kept
-    fine = layers.Dense(512, activation="relu",
-                        kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(fine)
-
-    # Bottleneck: balance the two paths so the fine detail isn't drowned out.
-    # Main 7x7 path compressed 12544 -> 256 to match the fine path's 256, so
     # each contributes ~equally to the latent instead of fine being ~2%.
     main = layers.Flatten()(c3)
     main = layers.Dense(1024, activation="relu",
                         kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(main)
-    x = layers.Concatenate()([main, fine, lbl])
+    x = layers.Concatenate()([main, lbl])
     x = layers.LayerNormalization()(x)
     x = layers.Dropout(DROPOUT)(x)
-    x = layers.Dense(512, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
+    x = layers.Dense(640, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     z_mean = layers.Dense(LATENT_DIM, name="z_mean", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     z_log_var = layers.Dense(LATENT_DIM, name="z_log_var", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     z = Sampling()([z_mean, z_log_var])
@@ -253,23 +241,13 @@ def build_encoder_14():
     se2 = layers.Reshape((1, 1, 128))(se2)
     c2 = layers.Multiply()([c2, se2])
 
-    # Parallel fine-detail path off the 14x14 input (preserves detail the
-    # 7x7 crush would average away -- same fix as the 28x28 encoder).
-    fine = layers.Conv2D(32, 3, padding="same", activation="relu",
-                         kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(img)
-    fine = layers.Flatten()(fine)
-    fine = layers.Dense(512, activation="relu",
-                        kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(fine)
-
-    # Balanced bottleneck: main 7x7 path compressed to 256 to match the
-    # fine path, so fine detail isn't drowned out.
     main = layers.Flatten()(c2)
     main = layers.Dense(256, activation="relu",
                         kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(main)
-    x = layers.Concatenate()([main, fine, lbl])
+    x = layers.Concatenate()([main, lbl])
     x = layers.LayerNormalization()(x)
     x = layers.Dropout(DROPOUT)(x)
-    x = layers.Dense(128, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="dense_6")(x)
+    x = layers.Dense(192, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="dense_6")(x)
     z_mean = layers.Dense(PHA1_LATENT_DIM, name="z_mean", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     z_log_var = layers.Dense(PHA1_LATENT_DIM, name="z_log_var", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     z = Sampling()([z_mean, z_log_var])
