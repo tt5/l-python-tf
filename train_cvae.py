@@ -25,7 +25,7 @@ from utils.mnist_loader import load_data
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "synthetic" / "data"
 LATENT_DIM = 512
 PHA1_LATENT_DIM = 128
-EPOCHS = 120
+EPOCHS = 130
 BATCH_SIZE = 128
 NUM_CLASSES = 5
 
@@ -65,7 +65,7 @@ DROPOUT = 0.4
 SPATIAL_DROPOUT = 0.1
 L2_REG = 0.000005
 # VAE-GAN hybrid (Phase 2 only): adversarial term + discriminator LR
-ADV_LAMBDA = 0.15
+ADV_LAMBDA = 0.1
 DISC_LR = 0.0001
 D_BATCH_INTERVAL = 4  # update discriminator every N batches (G updates every batch)
 D_REAL_LABEL = 0.9    # one-sided label smoothing for the real class
@@ -287,23 +287,23 @@ def build_generator_14():
         return att
 
     # Initial projection to 7x7, mirrored from 28x28 generator
-    x = layers.Dense(7 * 7 * 128, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="dense_7")(z)
-    x = layers.Reshape((7, 7, 128))(x)
+    x = layers.Dense(7 * 7 * 256, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="dense_7")(z)
+    x = layers.Reshape((7, 7, 256))(x)
     # Skip at the BEGINNING of the 7x7 scale (matches build_generator for
     # positional weight transfer)
     skip_7 = layers.Conv2D(128, 1, padding="same", name="conv2d_6")(x)
     # 7x7 block (single FiLM after conv; seed FiLM dropped, matches build_generator)
-    x = layers.Conv2D(128, 3, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="conv2d_4")(x)
-    gamma7c, beta7c = make_film(128)(lbl)
-    gamma7c = layers.Reshape((1, 1, 128), name="reshape_2")(gamma7c)
-    beta7c = layers.Reshape((1, 1, 128), name="reshape_3")(beta7c)
+    x = layers.Conv2D(256, 3, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="conv2d_4")(x)
+    gamma7c, beta7c = make_film(256)(lbl)
+    gamma7c = layers.Reshape((1, 1, 256), name="reshape_2")(gamma7c)
+    beta7c = layers.Reshape((1, 1, 256), name="reshape_3")(beta7c)
     x = layers.Multiply()([x, gamma7c])
     x = layers.Add()([x, beta7c])
     # SE at the 7x7 bottleneck (one consolidated, matches build_generator)
     se7 = layers.GlobalAveragePooling2D()(x)
-    se7 = layers.Dense(128 // 4, activation="relu", name="dense_10")(se7)
-    se7 = layers.Dense(128, activation="sigmoid", name="dense_11")(se7)
-    se7 = layers.Reshape((1, 1, 128))(se7)
+    se7 = layers.Dense(256 // 4, activation="relu", name="dense_10")(se7)
+    se7 = layers.Dense(256, activation="sigmoid", name="dense_11")(se7)
+    se7 = layers.Reshape((1, 1, 256))(se7)
     x = layers.Multiply()([x, se7])
 
     # 7x7 → 14x14, mirrored from 28x28 generator
@@ -351,24 +351,24 @@ def build_generator():
         return att
 
     # Initial projection
-    x = layers.Dense(7 * 7 * 128, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(z)
-    x = layers.Reshape((7, 7, 128))(x)
+    x = layers.Dense(7 * 7 * 256, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(z)
+    x = layers.Reshape((7, 7, 256))(x)
     # Skip saved at the BEGINNING of the 7x7 scale (freshest features, before
     # the conv/FiLM/attention stack processes them)
     skip_7 = layers.Conv2D(128, 1, padding="same")(x)
     # 7x7 → 14x14 (single FiLM after conv; seed FiLM dropped to reduce over-conditioning)
-    x = layers.Conv2D(128, 3, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
+    x = layers.Conv2D(256, 3, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     # FiLM at 7x7 (after conv)
-    gamma7c, beta7c = make_film(128)(lbl)
-    gamma7c = layers.Reshape((1, 1, 128))(gamma7c)
-    beta7c = layers.Reshape((1, 1, 128))(beta7c)
+    gamma7c, beta7c = make_film(256)(lbl)
+    gamma7c = layers.Reshape((1, 1, 256))(gamma7c)
+    beta7c = layers.Reshape((1, 1, 256))(beta7c)
     x = layers.Multiply()([x, gamma7c])
     x = layers.Add()([x, beta7c])
     # SE at the 7x7 bottleneck (one consolidated; high channels + semantic)
     se7 = layers.GlobalAveragePooling2D()(x)
-    se7 = layers.Dense(128 // 4, activation="relu")(se7)
-    se7 = layers.Dense(128, activation="sigmoid")(se7)
-    se7 = layers.Reshape((1, 1, 128))(se7)
+    se7 = layers.Dense(256 // 4, activation="relu")(se7)
+    se7 = layers.Dense(256, activation="sigmoid")(se7)
+    se7 = layers.Reshape((1, 1, 256))(se7)
     x = layers.Multiply()([x, se7])
     x = upsample(x, [14, 14])
     # Skip saved at the BEGINNING of the 14x14 scale (freshest features,
