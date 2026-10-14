@@ -23,9 +23,9 @@ from utils.mnist_loader import load_data
 
 # ─── Config ────────────────────────────────────────────────────────
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "synthetic" / "data"
-LATENT_DIM = 256
+LATENT_DIM = 512
 PHA1_LATENT_DIM = 64
-EPOCHS = 80
+EPOCHS = 60
 BATCH_SIZE = 256
 NUM_CLASSES = 5
 
@@ -45,12 +45,13 @@ MAX_SAMPLES_PER_CLASS = args.max_samples_per_class
 SAMPLES_PER_EPOCH_PER_CLASS = args.samples_per_epoch_per_class
 PBM_DIR = Path(args.pbm_dir) if args.pbm_dir else None
 
-PROGRESSIVE_EPOCHS = 36 # Phase 1: 14x14
-LR = 0.0008
-LR_WARMUP_START = 0.00005
+#PROGRESSIVE_EPOCHS = 36 # Phase 1: 14x14
+PROGRESSIVE_EPOCHS = 10 # Phase 1: 14x14
+LR = 0.001
+LR_WARMUP_START = 0.0005
 LR_WARMUP_EPOCHS = 4
 LR_DECAY_EPOCHS = EPOCHS - LR_WARMUP_EPOCHS
-LR_END = 0.00005
+LR_END = 0.0005
 PIXEL_LOSS_WEIGHT = 0.8
 PERCEPTUAL_LOSS_WEIGHT = 0.2
 INFO_NCE_WEIGHT = 0.01
@@ -64,9 +65,9 @@ DROPOUT = 0.3
 SPATIAL_DROPOUT = 0.1
 L2_REG = 0.000005
 # VAE-GAN hybrid (Phase 2 only): adversarial term + discriminator LR
-ADV_LAMBDA = 1.0
-DISC_LR = 0.0002
-D_BATCH_INTERVAL = 2  # update discriminator every N batches (G updates every batch)
+ADV_LAMBDA = 0.1
+DISC_LR = 0.0001
+D_BATCH_INTERVAL = 4  # update discriminator every N batches (G updates every batch)
 D_REAL_LABEL = 0.9    # one-sided label smoothing for the real class
 # Phase 2 KL schedule (configurable start)
 PHA2_KL_WARMUP_START = 0.001
@@ -652,7 +653,7 @@ class VAEGAN(VAE):
         self.discriminator = discriminator
         self.disc_loss_tracker = keras.metrics.Mean(name="disc_loss")
         self.adv_loss_tracker = keras.metrics.Mean(name="adv_loss")
-        self._d_batch = 0
+        self._d_step = tf.Variable(0, trainable=False, dtype=tf.int32)
 
     def compile(self, g_opt, d_opt, **kwargs):
         super().compile(optimizer=g_opt, **kwargs)
@@ -676,27 +677,25 @@ class VAEGAN(VAE):
         reconstruction_d = self.generator([z, labels])
 
         # --- Train discriminator every D_BATCH_INTERVAL batches ---
-        # (updating G twice as often keeps D from collapsing to 0)
-        self._d_batch += 1
-        if self._d_batch % D_BATCH_INTERVAL == 0:
-            with tf.GradientTape() as d_tape:
-                d_real = self.discriminator([images, labels])
-                d_fake = self.discriminator([tf.stop_gradient(reconstruction_d), labels])
-                # one-sided label smoothing: real target 0.9 (not 1.0) so D
-                # cannot reach 0 confidence and keeps providing gradient to G
-                d_loss = (self._bce(D_REAL_LABEL * tf.ones_like(d_real), d_real)
-                          + self._bce(tf.zeros_like(d_fake), d_fake))
-            d_grads = d_tape.gradient(d_loss, self.discriminator.trainable_weights)
-            self.d_opt.apply_gradients(zip(d_grads, self.discriminator.trainable_weights))
-            self.disc_loss_tracker.update_state(d_loss)
-        else:
-            # report the current D loss without updating
-            with tf.GradientTape() as d_tape:
-                d_real = self.discriminator([images, labels])
-                d_fake = self.discriminator([tf.stop_gradient(reconstruction_d), labels])
-                d_loss = (self._bce(D_REAL_LABEL * tf.ones_like(d_real), d_real)
-                          + self._bce(tf.zeros_like(d_fake), d_fake))
-            self.disc_loss_tracker.update_state(d_loss)
+        # (updating G twice as often keeps D from collapsing to 0).
+        # apply_gradients is called EVERY batch (Keras optimizers create
+        # their variables lazily on first call, which must happen inside
+        # the traced tf.function); the gate zeroes the update on off-batches.
+        do_d_update = tf.cast(
+            tf.equal(tf.math.floormod(self._d_step, D_BATCH_INTERVAL), 0),
+            tf.float32)
+        self._d_step.assign_add(1)
+        with tf.GradientTape() as d_tape:
+            d_real = self.discriminator([images, labels])
+            d_fake = self.discriminator([tf.stop_gradient(reconstruction_d), labels])
+            # one-sided label smoothing: real target 0.9 (not 1.0) so D
+            # cannot reach 0 confidence and keeps providing gradient to G
+            d_loss = (self._bce(D_REAL_LABEL * tf.ones_like(d_real), d_real)
+                      + self._bce(tf.zeros_like(d_fake), d_fake))
+        d_grads = d_tape.gradient(d_loss, self.discriminator.trainable_weights)
+        d_grads = [g * do_d_update if g is not None else g for g in d_grads]
+        self.d_opt.apply_gradients(zip(d_grads, self.discriminator.trainable_weights))
+        self.disc_loss_tracker.update_state(d_loss)
 
         # --- Train generator (encoder + decoder; adversarial flows through D) ---
         with tf.GradientTape() as g_tape:
