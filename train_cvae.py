@@ -26,7 +26,7 @@ DATA_DIR = Path(__file__).resolve().parent.parent.parent / "synthetic" / "data"
 LATENT_DIM = 512
 PHA1_LATENT_DIM = 64
 EPOCHS = 60
-BATCH_SIZE = 256
+BATCH_SIZE = 128
 NUM_CLASSES = 5
 
 parser = argparse.ArgumentParser()
@@ -46,14 +46,14 @@ SAMPLES_PER_EPOCH_PER_CLASS = args.samples_per_epoch_per_class
 PBM_DIR = Path(args.pbm_dir) if args.pbm_dir else None
 
 #PROGRESSIVE_EPOCHS = 36 # Phase 1: 14x14
-PROGRESSIVE_EPOCHS = 10 # Phase 1: 14x14
+PROGRESSIVE_EPOCHS = 20 # Phase 1: 14x14
 LR = 0.001
 LR_WARMUP_START = 0.0005
 LR_WARMUP_EPOCHS = 4
 LR_DECAY_EPOCHS = EPOCHS - LR_WARMUP_EPOCHS
 LR_END = 0.0005
 PIXEL_LOSS_WEIGHT = 0.8
-PERCEPTUAL_LOSS_WEIGHT = 0.2
+PERCEPTUAL_LOSS_WEIGHT = 0.0
 INFO_NCE_WEIGHT = 0.01
 TEMPERATURE = 1.0
 # Foreground weight for pixel BCE. Sparse classes (e.g. class 4, ~12.6%
@@ -71,11 +71,11 @@ D_BATCH_INTERVAL = 4  # update discriminator every N batches (G updates every ba
 D_REAL_LABEL = 0.9    # one-sided label smoothing for the real class
 # Phase 2 KL schedule (configurable start)
 PHA2_KL_WARMUP_START = 0.001
-PHA2_KL_WEIGHT_START = 0.1
+PHA2_KL_WEIGHT_START = 0.05
 PHA2_KL_WEIGHT_TARGET = 0.005
 PHA2_KL_WARMUP_EPOCHS = 4
 PHA2_KL_DECAY_EPOCHS = EPOCHS
-PHA2_TRANSFER_FREEZE_EPOCHS = 2
+PHA2_TRANSFER_FREEZE_EPOCHS = 1
 # Phase 1 (14x14) specific config
 PHA1_LR = 0.002
 PHA1_LR_WARMUP_START = 0.0001
@@ -87,8 +87,8 @@ PHA1_KL_WARMUP_EPOCHS = 3
 PHA1_KL_WARMUP_START = 0.0001
 PHA1_KL_WEIGHT_START = 0.03
 PHA1_INFO_NCE_WEIGHT = 0.01
-LOG_NAME = 'logs/gen1'
-LOG_NAME_PHA1 = 'logs/gen1/phase1'
+LOG_NAME = 'logs/gen1b'
+LOG_NAME_PHA1 = 'logs/gen1b/phase1'
 
 def weighted_pixel_loss(target, reconstruction):
     """Foreground-weighted pixel BCE.

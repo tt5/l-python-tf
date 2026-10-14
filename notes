@@ -59,6 +59,23 @@ gradient accumulation
 ─── Synthetic class evaluation (generated on-the-fly) ───
   Class 4: 100.0% correctly classified (1000/1000)
 
+1, veagan:
+
+  Class 0: 61.8% correctly classified (618/1000), avg confidence: 98.7%
+  Class 1: 47.3% correctly classified (473/1000), avg confidence: 96.2%
+  Class 2: 59.6% correctly classified (596/1000), avg confidence: 96.3%
+  Class 3: 42.2% correctly classified (422/1000), avg confidence: 97.6%
+  Class 4: 0.8% correctly classified (8/1000), avg confidence: 94.0%
+
+─── Real data classification (from synthetic project) ───
+  Class 0: 100.0% correctly classified (1000/1000)
+  Class 1: 98.5% correctly classified (985/1000)
+  Class 2: 96.8% correctly classified (968/1000)
+  Class 3: 99.7% correctly classified (997/1000)
+
+─── Synthetic class evaluation (generated on-the-fly) ───
+  Class 4: 99.9% correctly classified (999/1000)
+
 2:
 
   Class 0: 83.1% correctly classified (831/1000), avg confidence: 99.7%
