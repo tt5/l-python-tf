@@ -25,7 +25,7 @@ from utils.mnist_loader import load_data
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "synthetic" / "data"
 LATENT_DIM = 512
 PHA1_LATENT_DIM = 128
-EPOCHS = 80
+EPOCHS = 60
 BATCH_SIZE = 128
 NUM_CLASSES = 5
 
@@ -48,45 +48,45 @@ PBM_DIR = Path(args.pbm_dir) if args.pbm_dir else None
 #PROGRESSIVE_EPOCHS = 36 # Phase 1: 14x14
 PROGRESSIVE_EPOCHS = 23 # Phase 1: 14x14
 LR = 0.002
-LR_WARMUP_START = 0.0005
+LR_WARMUP_START = 0.0001
 LR_WARMUP_EPOCHS = 3
 LR_DECAY_EPOCHS = EPOCHS - LR_WARMUP_EPOCHS
 LR_END = 0.0005
-PIXEL_LOSS_WEIGHT = 0.9
-PERCEPTUAL_LOSS_WEIGHT = 0.1
-INFO_NCE_WEIGHT = 0.01
+PIXEL_LOSS_WEIGHT = 0.8
+PERCEPTUAL_LOSS_WEIGHT = 0.2
+INFO_NCE_WEIGHT = 0.011
 TEMPERATURE = 1.0
 # Foreground weight for pixel BCE. Sparse classes (e.g. class 4, ~12.6%
 # foreground) are dominated by background under plain BCE, which drags
 # the generator output below the 0.5 threshold. (1-fg)/fg ~= 7 balances
 # the positive/negative contributions at the measured coverage.
-PIXEL_POS_WEIGHT = 4.0
+PIXEL_POS_WEIGHT = 5.0
 DROPOUT = 0.3
 SPATIAL_DROPOUT = 0.0
 L2_REG = 0.000005
 # VAE-GAN hybrid (Phase 2 only): adversarial term + discriminator LR
-ADV_LAMBDA = 0.01
-DISC_LR = 0.0001
-D_BATCH_INTERVAL = 5  # update discriminator every N batches (G updates every batch)
-D_REAL_LABEL = 0.9    # one-sided label smoothing for the real class
+ADV_LAMBDA = 0.008
+DISC_LR = 0.00003
+D_BATCH_INTERVAL = 7  # update discriminator every N batches (G updates every batch)
+D_REAL_LABEL = 0.95    # one-sided label smoothing for the real class
 # Phase 2 KL schedule (configurable start)
-PHA2_KL_WARMUP_START = 0.001
-PHA2_KL_WEIGHT_START = 0.04
+PHA2_KL_WARMUP_START = 0.0
+PHA2_KL_WEIGHT_START = 0.01
 PHA2_KL_WEIGHT_TARGET = 0.001
-PHA2_KL_WARMUP_EPOCHS = 3
+PHA2_KL_WARMUP_EPOCHS = 1
 PHA2_KL_DECAY_EPOCHS = EPOCHS
-PHA2_TRANSFER_FREEZE_EPOCHS = 2
+PHA2_TRANSFER_FREEZE_EPOCHS = 1
 # Phase 1 (14x14) specific config
-PHA1_LR = 0.002
-PHA1_LR_WARMUP_START = 0.0001
-PHA1_LR_WARMUP_EPOCHS = 8
-PHA1_LR_END = 0.0001
+PHA1_LR = 0.0025
+PHA1_LR_WARMUP_START = 0.00005
+PHA1_LR_WARMUP_EPOCHS = 10
+PHA1_LR_END = 0.00005
 PHA1_LR_DECAY_EPOCHS = PROGRESSIVE_EPOCHS - PHA1_LR_WARMUP_EPOCHS
 PHA1_PIXEL_LOSS_WEIGHT = 1.0
-PHA1_KL_WARMUP_EPOCHS = 3
-PHA1_KL_WARMUP_START = 0.0001
-PHA1_KL_WEIGHT_START = 0.02
-PHA1_INFO_NCE_WEIGHT = 0.01
+PHA1_KL_WARMUP_EPOCHS = PROGRESSIVE_EPOCHS
+PHA1_KL_WARMUP_START = 0.00001
+PHA1_KL_WEIGHT_START = 0.01
+PHA1_INFO_NCE_WEIGHT = 0.007
 LOG_NAME = 'logs/gen1b'
 LOG_NAME_PHA1 = 'logs/gen1b/phase1'
 
@@ -147,8 +147,17 @@ def build_encoder():
         att = layers.Conv2D(1, k, padding="same", activation="sigmoid", name=name)(att_in)
         return layers.Multiply()([x, att])
 
+    x28_main = img
+    x28_main_res = x28_main
+    x28_main = tf.keras.layers.Conv2D(64, 3, padding='same', activation=None, kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_main28_res1')(x28_main)
+    x28_main = tf.keras.layers.LayerNormalization(name='enc_main28_ln')(x28_main)
+    x28_main = tf.keras.layers.Add()([x28_main, x28_main_res])
+    x28_main = tf.keras.layers.Activation('relu')(x28_main)
+    x28_main = tf.keras.layers.SpatialDropout2D(SPATIAL_DROPOUT)(x28_main)
+
     # Conv block 1: 28x28 → 14x14
-    c1 = layers.Conv2D(64, 3, strides=2, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv1")(img)
+    c1 = layers.Conv2D(64, 3, strides=2, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv1")(x28_main)
+    c1 = tf.keras.layers.LayerNormalization(name='enc_14_ln')(c1)
     c1 = layers.Activation("relu")(c1)
     # Label-conditioned spatial attention at 14x14 (k=5): focus on class-relevant
     # structure before the 7x7 crush. (Early low-channel SE se1 removed here.)
@@ -221,8 +230,16 @@ def build_encoder_14():
         att = layers.Conv2D(1, k, padding="same", activation="sigmoid", name=name)(att_in)
         return layers.Multiply()([x, att])
 
+    x14_main_res = img
+    x14_main = tf.keras.layers.Conv2D(64, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_main14_res1')(img)
+    x14_main = tf.keras.layers.Add()([x14_main, x14_main_res])
+    x14_main = tf.keras.layers.LayerNormalization(name='enc_main14_res1_ln')(x14_main)
+    x14_main = tf.keras.layers.Activation('relu')(x14_main)
+    x14_main = tf.keras.layers.SpatialDropout2D(SPATIAL_DROPOUT)(x14_main)
+
     # Block 1: 14x14 -> 14x14 (stride-1: extract features at native resolution)
-    c1 = layers.Conv2D(64, 3, strides=1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv1")(img)
+    c1 = layers.Conv2D(64, 3, strides=1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv1")(x14_main)
+    c1 = tf.keras.layers.LayerNormalization(name='enc_14_ln')(c1)
     c1 = layers.Activation("relu")(c1)
     # Label-conditioned spatial attention (k=5, matches build_encoder for transfer;
     # replaces the early low-channel se1)
