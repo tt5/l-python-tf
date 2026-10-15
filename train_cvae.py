@@ -24,8 +24,8 @@ from utils.mnist_loader import load_data
 # ─── Config ────────────────────────────────────────────────────────
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "synthetic" / "data"
 LATENT_DIM = 512
-PHA1_LATENT_DIM = 128
-EPOCHS = 70
+PHA1_LATENT_DIM = 256
+EPOCHS = 80
 BATCH_SIZE = 128
 NUM_CLASSES = 5
 
@@ -52,27 +52,27 @@ LR_WARMUP_START = 0.0001
 LR_WARMUP_EPOCHS = 4
 LR_DECAY_EPOCHS = EPOCHS - LR_WARMUP_EPOCHS
 LR_END = 0.0005
-PIXEL_LOSS_WEIGHT = 0.8
-PERCEPTUAL_LOSS_WEIGHT = 0.2
+PIXEL_LOSS_WEIGHT = 0.9
+PERCEPTUAL_LOSS_WEIGHT = 0.1
 INFO_NCE_WEIGHT = 0.01
 TEMPERATURE = 1.0
 # Foreground weight for pixel BCE. Sparse classes (e.g. class 4, ~12.6%
 # foreground) are dominated by background under plain BCE, which drags
 # the generator output below the 0.5 threshold. (1-fg)/fg ~= 7 balances
 # the positive/negative contributions at the measured coverage.
-PIXEL_POS_WEIGHT = 3.0
+PIXEL_POS_WEIGHT = 2.0
 DROPOUT = 0.3
 SPATIAL_DROPOUT = 0.0
 L2_REG = 0.00001
 # VAE-GAN hybrid (Phase 2 only): adversarial term + discriminator LR
-ADV_LAMBDA = 0.01
+ADV_LAMBDA = 0.03
 DISC_LR = 0.00001
-D_BATCH_INTERVAL = 8  # update discriminator every N batches (G updates every batch)
-D_REAL_LABEL = 0.95    # one-sided label smoothing for the real class
+D_BATCH_INTERVAL = 6  # update discriminator every N batches (G updates every batch)
+D_REAL_LABEL = 0.96    # one-sided label smoothing for the real class
 # Phase 2 KL schedule (configurable start)
 PHA2_KL_WARMUP_START = 0.00001
 PHA2_KL_WEIGHT_START = 0.1
-PHA2_KL_WEIGHT_TARGET = 0.01
+PHA2_KL_WEIGHT_TARGET = 0.000001
 PHA2_KL_WARMUP_EPOCHS = 3
 PHA2_KL_DECAY_EPOCHS = EPOCHS
 PHA2_TRANSFER_FREEZE_EPOCHS = 2
@@ -87,8 +87,8 @@ PHA1_KL_WARMUP_EPOCHS = 3
 PHA1_KL_WARMUP_START = 0.00001
 PHA1_KL_WEIGHT_START = 0.01
 PHA1_INFO_NCE_WEIGHT = 0.007
-LOG_NAME = 'logs/gen1b'
-LOG_NAME_PHA1 = 'logs/gen1b/phase1'
+LOG_NAME = 'logs/gen1'
+LOG_NAME_PHA1 = 'logs/gen1/phase1'
 
 def weighted_pixel_loss(target, reconstruction):
     """Foreground-weighted pixel BCE.
@@ -161,7 +161,6 @@ def build_encoder():
     x28_main = layers.Concatenate(name="enc28_cat")([b3, b5, b7])   # 24ch @ 28x28
     x28_main = layers.LayerNormalization(name="enc28_ln")(x28_main)
     x28_main = layers.Activation("relu")(x28_main)
-    x28_main = layers.SpatialDropout2D(SPATIAL_DROPOUT, name="enc28_drop")(x28_main)
 
     # Conv block 1: 28x28 → 14x14
     c1 = layers.Conv2D(24, 3, strides=2, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv1")(x28_main)
@@ -178,7 +177,6 @@ def build_encoder():
     skip = layers.Conv2D(48, 1, strides=2, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv2_skip")(c1)
     c2 = layers.Add()([c2, skip])
     c2 = layers.Activation("relu")(c2)
-    c2 = layers.SpatialDropout2D(SPATIAL_DROPOUT)(c2)
 
     # Cross-scale shortcut from c1 into block 3
     pooled_c1 = layers.AveragePooling2D(2)(c1)
@@ -208,6 +206,7 @@ def build_encoder():
 
     # each contributes ~equally to the latent instead of fine being ~2%.
     main = layers.Flatten()(c3)
+    main = layers.Concatenate()([main, lbl])
     z_mean = layers.Dense(LATENT_DIM, name="z_mean", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(main)
     z_log_var = layers.Dense(LATENT_DIM, name="z_log_var", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(main)
     z = Sampling()([z_mean, z_log_var])
@@ -245,7 +244,6 @@ def build_encoder_14():
     x14_main = layers.Concatenate(name="enc14_cat")([b3, b5])   # 48 @ 14x14
     x14_main = layers.LayerNormalization(name="enc14_ln")(x14_main)
     x14_main = layers.Activation("relu")(x14_main)
-    x14_main = layers.SpatialDropout2D(SPATIAL_DROPOUT, name="enc14_drop")(x14_main)
 
     c1 = label_spatial_attention(x14_main, lbl, k=5, name="enc_spatial_attn")
 
@@ -283,6 +281,7 @@ def build_encoder_14():
     c3 = layers.Add()([c3, skip3])
 
     main = layers.Flatten()(c3)
+    main = layers.Concatenate()([main, lbl])
     z_mean = layers.Dense(PHA1_LATENT_DIM, name="z_mean", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(main)
     z_log_var = layers.Dense(PHA1_LATENT_DIM, name="z_log_var", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(main)
     z = Sampling()([z_mean, z_log_var])
