@@ -23,10 +23,10 @@ from utils.mnist_loader import load_data
 
 # ─── Config ────────────────────────────────────────────────────────
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "synthetic" / "data"
-LATENT_DIM = 512
+LATENT_DIM = 256
 PHA1_LATENT_DIM = 128
 EPOCHS = 60
-BATCH_SIZE = 128
+BATCH_SIZE = 256
 NUM_CLASSES = 5
 
 parser = argparse.ArgumentParser()
@@ -49,11 +49,11 @@ PBM_DIR = Path(args.pbm_dir) if args.pbm_dir else None
 PROGRESSIVE_EPOCHS = 23 # Phase 1: 14x14
 LR = 0.002
 LR_WARMUP_START = 0.0001
-LR_WARMUP_EPOCHS = 3
+LR_WARMUP_EPOCHS = 4
 LR_DECAY_EPOCHS = EPOCHS - LR_WARMUP_EPOCHS
 LR_END = 0.0005
-PIXEL_LOSS_WEIGHT = 0.8
-PERCEPTUAL_LOSS_WEIGHT = 0.2
+PIXEL_LOSS_WEIGHT = 0.9
+PERCEPTUAL_LOSS_WEIGHT = 0.1
 INFO_NCE_WEIGHT = 0.011
 TEMPERATURE = 1.0
 # Foreground weight for pixel BCE. Sparse classes (e.g. class 4, ~12.6%
@@ -65,30 +65,30 @@ DROPOUT = 0.3
 SPATIAL_DROPOUT = 0.0
 L2_REG = 0.000005
 # VAE-GAN hybrid (Phase 2 only): adversarial term + discriminator LR
-ADV_LAMBDA = 0.008
-DISC_LR = 0.00003
-D_BATCH_INTERVAL = 7  # update discriminator every N batches (G updates every batch)
+ADV_LAMBDA = 0.0086
+DISC_LR = 0.000001
+D_BATCH_INTERVAL = 10  # update discriminator every N batches (G updates every batch)
 D_REAL_LABEL = 0.95    # one-sided label smoothing for the real class
 # Phase 2 KL schedule (configurable start)
 PHA2_KL_WARMUP_START = 0.00001
-PHA2_KL_WEIGHT_START = 0.01
-PHA2_KL_WEIGHT_TARGET = 0.0001
-PHA2_KL_WARMUP_EPOCHS = 2
+PHA2_KL_WEIGHT_START = 0.02
+PHA2_KL_WEIGHT_TARGET = 0.001
+PHA2_KL_WARMUP_EPOCHS = 3
 PHA2_KL_DECAY_EPOCHS = EPOCHS
 PHA2_TRANSFER_FREEZE_EPOCHS = 1
 # Phase 1 (14x14) specific config
-PHA1_LR = 0.0025
-PHA1_LR_WARMUP_START = 0.00001
-PHA1_LR_WARMUP_EPOCHS = 10
+PHA1_LR = 0.0005
+PHA1_LR_WARMUP_START = 0.00005
+PHA1_LR_WARMUP_EPOCHS = 8
 PHA1_LR_END = 0.00005
 PHA1_LR_DECAY_EPOCHS = PROGRESSIVE_EPOCHS - PHA1_LR_WARMUP_EPOCHS
 PHA1_PIXEL_LOSS_WEIGHT = 1.0
-PHA1_KL_WARMUP_EPOCHS = PROGRESSIVE_EPOCHS
+PHA1_KL_WARMUP_EPOCHS = 3
 PHA1_KL_WARMUP_START = 0.00001
-PHA1_KL_WEIGHT_START = 0.01
+PHA1_KL_WEIGHT_START = 0.05
 PHA1_INFO_NCE_WEIGHT = 0.007
-LOG_NAME = 'logs/gen1'
-LOG_NAME_PHA1 = 'logs/gen1/phase1'
+LOG_NAME = 'logs/gen1b'
+LOG_NAME_PHA1 = 'logs/gen1b/phase1'
 
 def weighted_pixel_loss(target, reconstruction):
     """Foreground-weighted pixel BCE.
@@ -164,7 +164,7 @@ def build_encoder():
     x28_main = layers.SpatialDropout2D(SPATIAL_DROPOUT, name="enc28_drop")(x28_main)
 
     # Conv block 1: 28x28 → 14x14
-    c1 = layers.Conv2D(64, 3, strides=2, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv1")(x28_main)
+    c1 = layers.Conv2D(48, 3, strides=2, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv1")(x28_main)
     c1 = tf.keras.layers.LayerNormalization(name='enc_14_ln')(c1)
     c1 = layers.Activation("relu")(c1)
     # Label-conditioned spatial attention at 14x14 (k=5): focus on class-relevant
@@ -172,18 +172,12 @@ def build_encoder():
     c1 = label_spatial_attention(c1, lbl, k=5, name="enc_spatial_attn")
 
     # Conv block 2: 14x14 → 7x7
-    c2 = layers.Conv2D(128, 3, strides=2, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv2")(c1)
+    c2 = layers.Conv2D(96, 3, strides=2, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv2")(c1)
     c2 = layers.Activation("relu")(c2)
     # Residual connection: project c1 (14x14x64) to match c2 (7x7x128)
-    skip = layers.Conv2D(128, 1, strides=2, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv2_skip")(c1)
+    skip = layers.Conv2D(96, 1, strides=2, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv2_skip")(c1)
     c2 = layers.Add()([c2, skip])
     c2 = layers.Activation("relu")(c2)
-    # SE attention 2
-    se2 = layers.GlobalAveragePooling2D()(c2)
-    se2 = layers.Dense(128 // 4, activation="relu", name="enc_se2_a")(se2)
-    se2 = layers.Dense(128, activation="sigmoid", name="enc_se2_b")(se2)
-    se2 = layers.Reshape((1, 1, 128))(se2)
-    c2 = layers.Multiply()([c2, se2])
     c2 = layers.SpatialDropout2D(SPATIAL_DROPOUT)(c2)
 
     # Cross-scale shortcut from c1 into block 3
@@ -191,26 +185,26 @@ def build_encoder():
     c2 = layers.Concatenate()([c2, pooled_c1])
 
     # Conv block 3: 7x7 → 7x7 (stride 1)
-    c3 = layers.Conv2D(256, 3, strides=1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(c2)
+    c3 = layers.Conv2D(192, 3, strides=1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(c2)
     c3 = layers.Activation("relu")(c3)
     # Residual connection: project c2 (7x7x128) to match c3 (7x7x256)
-    skip2 = layers.Conv2D(256, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(c2)
+    skip2 = layers.Conv2D(192, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(c2)
     c3 = layers.Add()([c3, skip2])
     c3 = layers.Activation("relu")(c3)
     # SE attention 3
     se3 = layers.GlobalAveragePooling2D()(c3)
-    se3 = layers.Dense(256 // 4, activation="relu")(se3)
-    se3 = layers.Dense(256, activation="sigmoid")(se3)
-    se3 = layers.Reshape((1, 1, 256))(se3)
+    se3 = layers.Dense(192 // 4, activation="relu")(se3)
+    se3 = layers.Dense(192, activation="sigmoid")(se3)
+    se3 = layers.Reshape((1, 1, 192))(se3)
     c3_pre = c3
     c3 = layers.Multiply()([c3, se3])
     c3 = layers.Activation("relu")(c3)
-    skip3 = layers.Conv2D(256, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(c3_pre)
+    skip3 = layers.Conv2D(192, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(c3_pre)
     c3 = layers.Add()([c3, skip3])
 
     # each contributes ~equally to the latent instead of fine being ~2%.
     main = layers.Flatten()(c3)
-    main = layers.Dense(1024, activation="relu",
+    main = layers.Dense(512, activation="relu",
                         kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(main)
     main = layers.LayerNormalization()(main)
     main = layers.Dropout(DROPOUT)(main)
@@ -247,42 +241,48 @@ def build_encoder_14():
     # subtraction cancels it exactly) -- it is gone; (b) relu -> LN -> relu
     # clipped the pre-activations twice around the norm -- now LN sees raw
     # pre-activations with a single relu after, exactly as in phase 2.
-    b3 = layers.Conv2D(16, 3, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc14_conv3")(img)
-    b5 = layers.Conv2D(16, 5, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc14_conv5")(img)
-    x14_main = layers.Concatenate(name="enc14_cat")([b3, b5])   # 32ch @ 14x14
+    b3 = layers.Conv2D(48, 3, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc14_conv3")(img)
+    b5 = layers.Conv2D(48, 5, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc14_conv5")(img)
+    x14_main = layers.Concatenate(name="enc14_cat")([b3, b5])   # 96ch @ 14x14
     x14_main = layers.LayerNormalization(name="enc14_ln")(x14_main)
     x14_main = layers.Activation("relu")(x14_main)
     x14_main = layers.SpatialDropout2D(SPATIAL_DROPOUT, name="enc14_drop")(x14_main)
 
-    # Block 1: 14x14 -> 14x14 (stride-1: extract features at native resolution).
-    # Named enc14_conv1, NOT enc_conv1: phase 2's enc_conv1 runs at 28x28 with
-    # stride 2 (it is the 28->14 downsampler). Same kernel shape, different
-    # resolution -- transferring a 14x14-trained filter into it would be a
-    # 14x14 -> 28x28 transfer, which is invalid. This layer is phase-1 only.
-    c1 = layers.Conv2D(64, 3, strides=1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc14_conv1")(x14_main)
-    c1 = tf.keras.layers.LayerNormalization(name='enc_14_ln')(c1)
-    c1 = layers.Activation("relu")(c1)
-    # Label-conditioned spatial attention (k=5, matches build_encoder for transfer;
-    # replaces the early low-channel se1)
-    c1 = label_spatial_attention(c1, lbl, k=5, name="enc_spatial_attn")
+    c1 = label_spatial_attention(x14_main, lbl, k=5, name="enc_spatial_attn")
 
     # Block 2: 14x14 -> 7x7 (mirrored from 28x28 encoder block 2)
-    c2 = layers.Conv2D(128, 3, strides=2, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv2")(c1)
+    c2 = layers.Conv2D(96, 3, strides=2, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv2")(c1)
     c2 = layers.Activation("relu")(c2)
-    skip = layers.Conv2D(128, 1, strides=2, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv2_skip")(c1)
+    skip = layers.Conv2D(96, 1, strides=2, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv2_skip")(c1)
     c2 = layers.Add()([c2, skip])
     c2 = layers.Activation("relu")(c2)
-    se2 = layers.GlobalAveragePooling2D()(c2)
-    se2 = layers.Dense(128 // 4, activation="relu", name="enc_se2_a")(se2)
-    se2 = layers.Dense(128, activation="sigmoid", name="enc_se2_b")(se2)
-    se2 = layers.Reshape((1, 1, 128))(se2)
-    c2 = layers.Multiply()([c2, se2])
 
-    main = layers.Flatten()(c2)
-    main = layers.Dense(192, activation="relu",
+    # Cross-scale shortcut from c1 into block 3
+    pooled_c1 = layers.AveragePooling2D(2)(c1)
+    c2 = layers.Concatenate()([c2, pooled_c1])
+
+    # Conv block 3: 7x7 → 7x7 (stride 1)
+    c3 = layers.Conv2D(192, 3, strides=1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(c2)
+    c3 = layers.Activation("relu")(c3)
+    # Residual connection: project c2 (7x7x128) to match c3 (7x7x256)
+    skip2 = layers.Conv2D(192, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(c2)
+    c3 = layers.Add()([c3, skip2])
+    c3 = layers.Activation("relu")(c3)
+    # SE attention 3
+    se3 = layers.GlobalAveragePooling2D()(c3)
+    se3 = layers.Dense(192 // 4, activation="relu")(se3)
+    se3 = layers.Dense(192, activation="sigmoid")(se3)
+    se3 = layers.Reshape((1, 1, 192))(se3)
+    c3_pre = c3
+    c3 = layers.Multiply()([c3, se3])
+    c3 = layers.Activation("relu")(c3)
+    skip3 = layers.Conv2D(192, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(c3_pre)
+    c3 = layers.Add()([c3, skip3])
+
+    main = layers.Flatten()(c3)
+    main = layers.Dense(256, activation="relu",
                         kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(main)
     main = layers.LayerNormalization()(main)
-    main = layers.Dropout(DROPOUT)(main)
     x = layers.Concatenate()([main, lbl])
     z_mean = layers.Dense(PHA1_LATENT_DIM, name="z_mean", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     z_log_var = layers.Dense(PHA1_LATENT_DIM, name="z_log_var", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
