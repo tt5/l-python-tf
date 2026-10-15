@@ -23,9 +23,9 @@ from utils.mnist_loader import load_data
 
 # ─── Config ────────────────────────────────────────────────────────
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "synthetic" / "data"
-LATENT_DIM = 256
+LATENT_DIM = 512
 PHA1_LATENT_DIM = 128
-EPOCHS = 60
+EPOCHS = 130
 BATCH_SIZE = 256
 NUM_CLASSES = 5
 
@@ -63,7 +63,7 @@ TEMPERATURE = 1.0
 PIXEL_POS_WEIGHT = 5.0
 DROPOUT = 0.3
 SPATIAL_DROPOUT = 0.0
-L2_REG = 0.000005
+L2_REG = 0.00001
 # VAE-GAN hybrid (Phase 2 only): adversarial term + discriminator LR
 ADV_LAMBDA = 0.0086
 DISC_LR = 0.000001
@@ -87,8 +87,8 @@ PHA1_KL_WARMUP_EPOCHS = 3
 PHA1_KL_WARMUP_START = 0.00001
 PHA1_KL_WEIGHT_START = 0.05
 PHA1_INFO_NCE_WEIGHT = 0.007
-LOG_NAME = 'logs/gen1b'
-LOG_NAME_PHA1 = 'logs/gen1b/phase1'
+LOG_NAME = 'logs/gen1'
+LOG_NAME_PHA1 = 'logs/gen1/phase1'
 
 def weighted_pixel_loss(target, reconstruction):
     """Foreground-weighted pixel BCE.
@@ -155,16 +155,16 @@ def build_encoder():
     # once input channels > 1. No residual: there is no identity path from
     # 1 channel to 48, and the old broadcast Add was either a no-op (phase 1)
     # or an unnormalised pixel bias (phase 2).
-    b3 = layers.Conv2D(16, 3, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc28_conv3")(img)
-    b5 = layers.Conv2D(16, 5, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc28_conv5")(img)
-    b7 = layers.Conv2D(16, 7, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc28_conv7")(img)
-    x28_main = layers.Concatenate(name="enc28_cat")([b3, b5, b7])   # 48ch @ 28x28
+    b3 = layers.Conv2D(8, 3, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc28_conv3")(img)
+    b5 = layers.Conv2D(8, 5, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc28_conv5")(img)
+    b7 = layers.Conv2D(8, 7, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc28_conv7")(img)
+    x28_main = layers.Concatenate(name="enc28_cat")([b3, b5, b7])   # 24ch @ 28x28
     x28_main = layers.LayerNormalization(name="enc28_ln")(x28_main)
     x28_main = layers.Activation("relu")(x28_main)
     x28_main = layers.SpatialDropout2D(SPATIAL_DROPOUT, name="enc28_drop")(x28_main)
 
     # Conv block 1: 28x28 → 14x14
-    c1 = layers.Conv2D(48, 3, strides=2, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv1")(x28_main)
+    c1 = layers.Conv2D(24, 3, strides=2, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv1")(x28_main)
     c1 = tf.keras.layers.LayerNormalization(name='enc_14_ln')(c1)
     c1 = layers.Activation("relu")(c1)
     # Label-conditioned spatial attention at 14x14 (k=5): focus on class-relevant
@@ -172,10 +172,10 @@ def build_encoder():
     c1 = label_spatial_attention(c1, lbl, k=5, name="enc_spatial_attn")
 
     # Conv block 2: 14x14 → 7x7
-    c2 = layers.Conv2D(96, 3, strides=2, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv2")(c1)
+    c2 = layers.Conv2D(48, 3, strides=2, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv2")(c1)
     c2 = layers.Activation("relu")(c2)
     # Residual connection: project c1 (14x14x64) to match c2 (7x7x128)
-    skip = layers.Conv2D(96, 1, strides=2, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv2_skip")(c1)
+    skip = layers.Conv2D(48, 1, strides=2, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv2_skip")(c1)
     c2 = layers.Add()([c2, skip])
     c2 = layers.Activation("relu")(c2)
     c2 = layers.SpatialDropout2D(SPATIAL_DROPOUT)(c2)
@@ -189,21 +189,21 @@ def build_encoder():
     # input width differs by phase -- the c2 concat is 192ch in phase 1 and
     # 144ch in phase 2), but enc_se3_a/b and enc_se3_skip have identical
     # shapes in both and do transfer.
-    c3 = layers.Conv2D(192, 3, strides=1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv3")(c2)
+    c3 = layers.Conv2D(96, 3, strides=1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv3")(c2)
     c3 = layers.Activation("relu")(c3)
     # Residual connection: 1x1 projection of c2 to c3's channel count
-    skip2 = layers.Conv2D(192, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv3_skip")(c2)
+    skip2 = layers.Conv2D(96, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv3_skip")(c2)
     c3 = layers.Add()([c3, skip2])
     c3 = layers.Activation("relu")(c3)
     # SE attention 3
     se3 = layers.GlobalAveragePooling2D()(c3)
-    se3 = layers.Dense(192 // 4, activation="relu", name="enc_se3_a")(se3)
-    se3 = layers.Dense(192, activation="sigmoid", name="enc_se3_b")(se3)
-    se3 = layers.Reshape((1, 1, 192))(se3)
+    se3 = layers.Dense(96 // 4, activation="relu", name="enc_se3_a")(se3)
+    se3 = layers.Dense(96, activation="sigmoid", name="enc_se3_b")(se3)
+    se3 = layers.Reshape((1, 1, 96))(se3)
     c3_pre = c3
     c3 = layers.Multiply()([c3, se3])
     c3 = layers.Activation("relu")(c3)
-    skip3 = layers.Conv2D(192, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_se3_skip")(c3_pre)
+    skip3 = layers.Conv2D(96, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_se3_skip")(c3_pre)
     c3 = layers.Add()([c3, skip3])
 
     # each contributes ~equally to the latent instead of fine being ~2%.
@@ -240,9 +240,9 @@ def build_encoder_14():
     # subtraction cancels it exactly) -- it is gone; (b) relu -> LN -> relu
     # clipped the pre-activations twice around the norm -- now LN sees raw
     # pre-activations with a single relu after, exactly as in phase 2.
-    b3 = layers.Conv2D(48, 3, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc14_conv3")(img)
-    b5 = layers.Conv2D(48, 5, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc14_conv5")(img)
-    x14_main = layers.Concatenate(name="enc14_cat")([b3, b5])   # 96ch @ 14x14
+    b3 = layers.Conv2D(24, 3, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc14_conv3")(img)
+    b5 = layers.Conv2D(24, 5, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc14_conv5")(img)
+    x14_main = layers.Concatenate(name="enc14_cat")([b3, b5])   # 48 @ 14x14
     x14_main = layers.LayerNormalization(name="enc14_ln")(x14_main)
     x14_main = layers.Activation("relu")(x14_main)
     x14_main = layers.SpatialDropout2D(SPATIAL_DROPOUT, name="enc14_drop")(x14_main)
@@ -250,9 +250,9 @@ def build_encoder_14():
     c1 = label_spatial_attention(x14_main, lbl, k=5, name="enc_spatial_attn")
 
     # Block 2: 14x14 -> 7x7 (mirrored from 28x28 encoder block 2)
-    c2 = layers.Conv2D(96, 3, strides=2, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv2")(c1)
+    c2 = layers.Conv2D(48, 3, strides=2, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv2")(c1)
     c2 = layers.Activation("relu")(c2)
-    skip = layers.Conv2D(96, 1, strides=2, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv2_skip")(c1)
+    skip = layers.Conv2D(48, 1, strides=2, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv2_skip")(c1)
     c2 = layers.Add()([c2, skip])
     c2 = layers.Activation("relu")(c2)
 
@@ -265,21 +265,21 @@ def build_encoder_14():
     # input width differs by phase -- the c2 concat is 192ch in phase 1 and
     # 144ch in phase 2), but enc_se3_a/b and enc_se3_skip have identical
     # shapes in both and do transfer.
-    c3 = layers.Conv2D(192, 3, strides=1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv3")(c2)
+    c3 = layers.Conv2D(96, 3, strides=1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv3")(c2)
     c3 = layers.Activation("relu")(c3)
     # Residual connection: 1x1 projection of c2 to c3's channel count
-    skip2 = layers.Conv2D(192, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv3_skip")(c2)
+    skip2 = layers.Conv2D(96, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv3_skip")(c2)
     c3 = layers.Add()([c3, skip2])
     c3 = layers.Activation("relu")(c3)
     # SE attention 3
     se3 = layers.GlobalAveragePooling2D()(c3)
-    se3 = layers.Dense(192 // 4, activation="relu", name="enc_se3_a")(se3)
-    se3 = layers.Dense(192, activation="sigmoid", name="enc_se3_b")(se3)
-    se3 = layers.Reshape((1, 1, 192))(se3)
+    se3 = layers.Dense(96 // 4, activation="relu", name="enc_se3_a")(se3)
+    se3 = layers.Dense(96, activation="sigmoid", name="enc_se3_b")(se3)
+    se3 = layers.Reshape((1, 1, 96))(se3)
     c3_pre = c3
     c3 = layers.Multiply()([c3, se3])
     c3 = layers.Activation("relu")(c3)
-    skip3 = layers.Conv2D(192, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_se3_skip")(c3_pre)
+    skip3 = layers.Conv2D(96, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_se3_skip")(c3_pre)
     c3 = layers.Add()([c3, skip3])
 
     main = layers.Flatten()(c3)
@@ -355,9 +355,12 @@ def build_generator_14():
     se7 = layers.Reshape((1, 1, 256))(se7)
     x = layers.Multiply()([x, se7])
 
-    # 7x7 → 14x14
-    x = upsample(x, [14, 14], name="gen_up7")
+    # 7x7 → 14x14. Narrow BEFORE upsampling: the sub-pixel conv costs
+    # 36*H*W*C^2, so doing the 256->128 reduction at 7x7 rather than at 14x14
+    # drops this step from 173.4M to 43.4M MACs. gen_conv14 keeps its shape
+    # (3,3,256,128), so the phase-1 -> phase-2 transfer is unaffected.
     x = layers.Conv2D(128, 3, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="gen_conv14")(x)
+    x = upsample(x, [14, 14], name="gen_up7")
     gamma14, beta14 = make_film(128, "gen_film14")(lbl)
     gamma14 = layers.Reshape((1, 1, 128))(gamma14)
     beta14 = layers.Reshape((1, 1, 128))(beta14)
@@ -427,11 +430,15 @@ def build_generator():
     se7 = layers.Dense(256, activation="sigmoid", name="gen_se7_b")(se7)
     se7 = layers.Reshape((1, 1, 256))(se7)
     x = layers.Multiply()([x, se7])
+    # Narrow BEFORE upsampling (see build_generator_14): 256->128 at 7x7
+    # instead of at 14x14 drops this step from 173.4M to 43.4M MACs.
+    x = layers.Conv2D(128, 3, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="gen_conv14")(x)
     x = upsample(x, [14, 14], name="gen_up7")
     # Skip saved at the BEGINNING of the 14x14 scale. Phase-2 only: it feeds
-    # the 28x28 stage, which phase 1 does not have.
+    # the 28x28 stage, which phase 1 does not have. It now taps the narrowed
+    # 128ch tensor (was 256ch before the reduction moved to 7x7), so its shape
+    # becomes (1,1,128,64) instead of (1,1,256,64).
     skip_14 = layers.Conv2D(64, 1, padding="same", name="gen_skip14")(x)
-    x = layers.Conv2D(128, 3, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="gen_conv14")(x)
     # FiLM at 14x14
     gamma14, beta14 = make_film(128, "gen_film14")(lbl)
     gamma14 = layers.Reshape((1, 1, 128))(gamma14)
