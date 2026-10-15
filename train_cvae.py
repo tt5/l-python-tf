@@ -71,15 +71,15 @@ D_BATCH_INTERVAL = 9  # update discriminator every N batches (G updates every ba
 D_REAL_LABEL = 0.95    # one-sided label smoothing for the real class
 # Phase 2 KL schedule (configurable start)
 PHA2_KL_WARMUP_START = 0.00001
-PHA2_KL_WEIGHT_START = 0.02
+PHA2_KL_WEIGHT_START = 0.01
 PHA2_KL_WEIGHT_TARGET = 0.001
-PHA2_KL_WARMUP_EPOCHS = 3
+PHA2_KL_WARMUP_EPOCHS = 2
 PHA2_KL_DECAY_EPOCHS = EPOCHS
 PHA2_TRANSFER_FREEZE_EPOCHS = 1
 # Phase 1 (14x14) specific config
-PHA1_LR = 0.0005
+PHA1_LR = 0.0006
 PHA1_LR_WARMUP_START = 0.00005
-PHA1_LR_WARMUP_EPOCHS = 8
+PHA1_LR_WARMUP_EPOCHS = 7
 PHA1_LR_END = 0.00005
 PHA1_LR_DECAY_EPOCHS = PROGRESSIVE_EPOCHS - PHA1_LR_WARMUP_EPOCHS
 PHA1_PIXEL_LOSS_WEIGHT = 1.0
@@ -184,22 +184,26 @@ def build_encoder():
     pooled_c1 = layers.AveragePooling2D(2)(c1)
     c2 = layers.Concatenate()([c2, pooled_c1])
 
-    # Conv block 3: 7x7 → 7x7 (stride 1)
-    c3 = layers.Conv2D(192, 3, strides=1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(c2)
+    # Conv block 3: 7x7 -> 7x7 (stride 1). Named for the phase-1 -> phase-2
+    # transfer contract: enc_conv3 and enc_conv3_skip cannot transfer (their
+    # input width differs by phase -- the c2 concat is 192ch in phase 1 and
+    # 144ch in phase 2), but enc_se3_a/b and enc_se3_skip have identical
+    # shapes in both and do transfer.
+    c3 = layers.Conv2D(192, 3, strides=1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv3")(c2)
     c3 = layers.Activation("relu")(c3)
-    # Residual connection: project c2 (7x7x128) to match c3 (7x7x256)
-    skip2 = layers.Conv2D(192, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(c2)
+    # Residual connection: 1x1 projection of c2 to c3's channel count
+    skip2 = layers.Conv2D(192, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv3_skip")(c2)
     c3 = layers.Add()([c3, skip2])
     c3 = layers.Activation("relu")(c3)
     # SE attention 3
     se3 = layers.GlobalAveragePooling2D()(c3)
-    se3 = layers.Dense(192 // 4, activation="relu")(se3)
-    se3 = layers.Dense(192, activation="sigmoid")(se3)
+    se3 = layers.Dense(192 // 4, activation="relu", name="enc_se3_a")(se3)
+    se3 = layers.Dense(192, activation="sigmoid", name="enc_se3_b")(se3)
     se3 = layers.Reshape((1, 1, 192))(se3)
     c3_pre = c3
     c3 = layers.Multiply()([c3, se3])
     c3 = layers.Activation("relu")(c3)
-    skip3 = layers.Conv2D(192, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(c3_pre)
+    skip3 = layers.Conv2D(192, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_se3_skip")(c3_pre)
     c3 = layers.Add()([c3, skip3])
 
     # each contributes ~equally to the latent instead of fine being ~2%.
@@ -256,22 +260,26 @@ def build_encoder_14():
     pooled_c1 = layers.AveragePooling2D(2)(c1)
     c2 = layers.Concatenate()([c2, pooled_c1])
 
-    # Conv block 3: 7x7 → 7x7 (stride 1)
-    c3 = layers.Conv2D(192, 3, strides=1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(c2)
+    # Conv block 3: 7x7 -> 7x7 (stride 1). Named for the phase-1 -> phase-2
+    # transfer contract: enc_conv3 and enc_conv3_skip cannot transfer (their
+    # input width differs by phase -- the c2 concat is 192ch in phase 1 and
+    # 144ch in phase 2), but enc_se3_a/b and enc_se3_skip have identical
+    # shapes in both and do transfer.
+    c3 = layers.Conv2D(192, 3, strides=1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv3")(c2)
     c3 = layers.Activation("relu")(c3)
-    # Residual connection: project c2 (7x7x128) to match c3 (7x7x256)
-    skip2 = layers.Conv2D(192, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(c2)
+    # Residual connection: 1x1 projection of c2 to c3's channel count
+    skip2 = layers.Conv2D(192, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv3_skip")(c2)
     c3 = layers.Add()([c3, skip2])
     c3 = layers.Activation("relu")(c3)
     # SE attention 3
     se3 = layers.GlobalAveragePooling2D()(c3)
-    se3 = layers.Dense(192 // 4, activation="relu")(se3)
-    se3 = layers.Dense(192, activation="sigmoid")(se3)
+    se3 = layers.Dense(192 // 4, activation="relu", name="enc_se3_a")(se3)
+    se3 = layers.Dense(192, activation="sigmoid", name="enc_se3_b")(se3)
     se3 = layers.Reshape((1, 1, 192))(se3)
     c3_pre = c3
     c3 = layers.Multiply()([c3, se3])
     c3 = layers.Activation("relu")(c3)
-    skip3 = layers.Conv2D(192, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(c3_pre)
+    skip3 = layers.Conv2D(192, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_se3_skip")(c3_pre)
     c3 = layers.Add()([c3, skip3])
 
     main = layers.Flatten()(c3)
@@ -282,10 +290,16 @@ def build_encoder_14():
 
 
 # ─── Upsample via Sub-pixel Convolution ────────────────────────────
-def upsample(x, target_size):
-    """Upsample using sub-pixel convolution (depth_to_space)."""
+def upsample(x, target_size, name=None):
+    """Upsample using sub-pixel convolution (depth_to_space).
+
+    `name` is required for name-based weight transfer: without it the conv is
+    auto-named, and the auto-name differs between the phase-1 and phase-2
+    builders (it depends on how many layers were created earlier in the
+    process), so there would be nothing to match on.
+    """
     channels = x.shape[-1]
-    x = layers.Conv2D(channels * 4, 3, padding='same', activation='relu')(x)
+    x = layers.Conv2D(channels * 4, 3, padding='same', activation='relu', name=name)(x)
     x = tf.nn.depth_to_space(x, 2)
     return x
 
@@ -295,10 +309,10 @@ def build_generator_14():
     z = keras.Input(shape=(PHA1_LATENT_DIM,), name="latent_input")
     lbl = keras.Input(shape=(NUM_CLASSES,), name="label_input")
 
-    def make_film(channels):
+    def make_film(channels, tag):
         def film_fn(label):
-            gamma = 2.0 * layers.Dense(channels, activation="sigmoid")(label)  # [0,2], init ~1 (identity)
-            beta = layers.Dense(channels)(label)
+            gamma = 2.0 * layers.Dense(channels, activation="sigmoid", name=f"{tag}_g")(label)  # [0,2], init ~1 (identity)
+            beta = layers.Dense(channels, name=f"{tag}_b")(label)
             return gamma, beta
         return film_fn
 
@@ -315,40 +329,48 @@ def build_generator_14():
         att = layers.Conv2D(1, k, padding="same", activation="sigmoid", name=name)(att_in)
         return att
 
-    # Initial projection to 7x7, mirrored from 28x28 generator
-    x = layers.Dense(7 * 7 * 256, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="dense_7")(z)
+    # Names below are the transfer contract: every layer whose role exists at
+    # the same resolution in build_generator carries the identical name, so
+    # transfer_weights_by_name copies exactly those. Layers that are phase-1
+    # only (the 14x14 output conv) carry a phase-specific name and are
+    # deliberately left untransferred.
+    #
+    # Initial projection to 7x7 (kernel shapes differ between the phases --
+    # latent dims differ -- so only its bias transfers).
+    x = layers.Dense(7 * 7 * 256, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="gen_proj7")(z)
     x = layers.Reshape((7, 7, 256))(x)
-    # Skip at the BEGINNING of the 7x7 scale (matches build_generator for
-    # positional weight transfer)
-    skip_7 = layers.Conv2D(128, 1, padding="same", name="conv2d_6")(x)
-    # 7x7 block (single FiLM after conv; seed FiLM dropped, matches build_generator)
-    x = layers.Conv2D(256, 3, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="conv2d_4")(x)
-    gamma7c, beta7c = make_film(256)(lbl)
-    gamma7c = layers.Reshape((1, 1, 256), name="reshape_2")(gamma7c)
-    beta7c = layers.Reshape((1, 1, 256), name="reshape_3")(beta7c)
+    # Skip at the BEGINNING of the 7x7 scale
+    skip_7 = layers.Conv2D(128, 1, padding="same", name="gen_skip7")(x)
+    # 7x7 block (single FiLM after conv; seed FiLM dropped)
+    x = layers.Conv2D(256, 3, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="gen_conv7")(x)
+    gamma7c, beta7c = make_film(256, "gen_film7")(lbl)
+    gamma7c = layers.Reshape((1, 1, 256))(gamma7c)
+    beta7c = layers.Reshape((1, 1, 256))(beta7c)
     x = layers.Multiply()([x, gamma7c])
     x = layers.Add()([x, beta7c])
-    # SE at the 7x7 bottleneck (one consolidated, matches build_generator)
+    # SE at the 7x7 bottleneck (one consolidated)
     se7 = layers.GlobalAveragePooling2D()(x)
-    se7 = layers.Dense(256 // 4, activation="relu", name="dense_10")(se7)
-    se7 = layers.Dense(256, activation="sigmoid", name="dense_11")(se7)
+    se7 = layers.Dense(256 // 4, activation="relu", name="gen_se7_a")(se7)
+    se7 = layers.Dense(256, activation="sigmoid", name="gen_se7_b")(se7)
     se7 = layers.Reshape((1, 1, 256))(se7)
     x = layers.Multiply()([x, se7])
 
-    # 7x7 → 14x14, mirrored from 28x28 generator
-    x = upsample(x, [14, 14])
-    x = layers.Conv2D(128, 3, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="conv2d_7")(x)
-    gamma14, beta14 = make_film(128)(lbl)
-    gamma14 = layers.Reshape((1, 1, 128), name="reshape_4")(gamma14)
-    beta14 = layers.Reshape((1, 1, 128), name="reshape_5")(beta14)
-    # CAT collaboration at 14x14 (k=5, matches build_generator)
+    # 7x7 → 14x14
+    x = upsample(x, [14, 14], name="gen_up7")
+    x = layers.Conv2D(128, 3, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="gen_conv14")(x)
+    gamma14, beta14 = make_film(128, "gen_film14")(lbl)
+    gamma14 = layers.Reshape((1, 1, 128))(gamma14)
+    beta14 = layers.Reshape((1, 1, 128))(beta14)
+    # CAT collaboration at 14x14 (k=5)
     att14 = spatial_attention_map(x, lbl, k=5, name="spatial_attn_14")
     x = CollabModulation(name="collab_14")([x, gamma14, att14, beta14])
-    skip_7_up = upsample(skip_7, [14, 14])
+    skip_7_up = upsample(skip_7, [14, 14], name="gen_up7_skip")
     x = layers.Add()([x, skip_7_up])
     x = layers.Activation("relu")(x)
 
-    x = layers.Conv2D(1, 3, padding="same", activation="sigmoid", dtype="float32")(x)
+    # Output conv at 14x14. Phase 2's equivalent is gen_out28 at 28x28 with a
+    # different input width, so there is no name match and no transfer.
+    x = layers.Conv2D(1, 3, padding="same", activation="sigmoid", dtype="float32", name="gen_out14")(x)
     return keras.Model([z, lbl], x, name="generator_14")
 
 
@@ -358,10 +380,10 @@ def build_generator():
     lbl = keras.Input(shape=(NUM_CLASSES,), name="label_input")
 
     # FiLM helper: produce scale (gamma) and shift (beta) from label
-    def make_film(channels):
+    def make_film(channels, tag):
         def film_fn(label):
-            gamma = 2.0 * layers.Dense(channels, activation="sigmoid")(label)  # [0,2], init ~1 (identity)
-            beta = layers.Dense(channels)(label)
+            gamma = 2.0 * layers.Dense(channels, activation="sigmoid", name=f"{tag}_g")(label)  # [0,2], init ~1 (identity)
+            beta = layers.Dense(channels, name=f"{tag}_b")(label)
             return gamma, beta
         return film_fn
 
@@ -379,59 +401,66 @@ def build_generator():
         att = layers.Conv2D(1, k, padding="same", activation="sigmoid", name=name)(att_in)
         return att
 
-    # Initial projection
-    x = layers.Dense(7 * 7 * 256, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(z)
+    # Names are the transfer contract with build_generator_14: every layer
+    # whose role exists at the same resolution in phase 1 carries the identical
+    # name. Layers below marked "phase-2 only" have no phase-1 counterpart and
+    # are deliberately left untransferred.
+    #
+    # Initial projection (kernel shapes differ -- latent dims differ -- so only
+    # its bias transfers)
+    x = layers.Dense(7 * 7 * 256, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="gen_proj7")(z)
     x = layers.Reshape((7, 7, 256))(x)
     # Skip saved at the BEGINNING of the 7x7 scale (freshest features, before
     # the conv/FiLM/attention stack processes them)
-    skip_7 = layers.Conv2D(128, 1, padding="same")(x)
-    # 7x7 → 14x14 (single FiLM after conv; seed FiLM dropped to reduce over-conditioning)
-    x = layers.Conv2D(256, 3, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
+    skip_7 = layers.Conv2D(128, 1, padding="same", name="gen_skip7")(x)
+    # 7x7 block (single FiLM after conv; seed FiLM dropped to reduce over-conditioning)
+    x = layers.Conv2D(256, 3, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="gen_conv7")(x)
     # FiLM at 7x7 (after conv)
-    gamma7c, beta7c = make_film(256)(lbl)
+    gamma7c, beta7c = make_film(256, "gen_film7")(lbl)
     gamma7c = layers.Reshape((1, 1, 256))(gamma7c)
     beta7c = layers.Reshape((1, 1, 256))(beta7c)
     x = layers.Multiply()([x, gamma7c])
     x = layers.Add()([x, beta7c])
     # SE at the 7x7 bottleneck (one consolidated; high channels + semantic)
     se7 = layers.GlobalAveragePooling2D()(x)
-    se7 = layers.Dense(256 // 4, activation="relu")(se7)
-    se7 = layers.Dense(256, activation="sigmoid")(se7)
+    se7 = layers.Dense(256 // 4, activation="relu", name="gen_se7_a")(se7)
+    se7 = layers.Dense(256, activation="sigmoid", name="gen_se7_b")(se7)
     se7 = layers.Reshape((1, 1, 256))(se7)
     x = layers.Multiply()([x, se7])
-    x = upsample(x, [14, 14])
-    # Skip saved at the BEGINNING of the 14x14 scale (freshest features,
-    # before the conv/FiLM/attention stack processes them)
-    skip_14 = layers.Conv2D(64, 1, padding="same")(x)
-    x = layers.Conv2D(128, 3, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
+    x = upsample(x, [14, 14], name="gen_up7")
+    # Skip saved at the BEGINNING of the 14x14 scale. Phase-2 only: it feeds
+    # the 28x28 stage, which phase 1 does not have.
+    skip_14 = layers.Conv2D(64, 1, padding="same", name="gen_skip14")(x)
+    x = layers.Conv2D(128, 3, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="gen_conv14")(x)
     # FiLM at 14x14
-    gamma14, beta14 = make_film(128)(lbl)
+    gamma14, beta14 = make_film(128, "gen_film14")(lbl)
     gamma14 = layers.Reshape((1, 1, 128))(gamma14)
     beta14 = layers.Reshape((1, 1, 128))(beta14)
     # CAT collaboration: learned colla-factors combine FiLM (channel) + spatial attn
     att14 = spatial_attention_map(x, lbl, k=5, name="spatial_attn_14")
     x = CollabModulation(name="collab_14")([x, gamma14, att14, beta14])
     # Residual: project skip_7 to 14x14 and add
-    skip_7_up = upsample(skip_7, [14, 14])
+    skip_7_up = upsample(skip_7, [14, 14], name="gen_up7_skip")
     x = layers.Add()([x, skip_7_up])
     x = layers.Activation("relu")(x)
 
-    # 14x14 → 28x28
-    x = layers.Conv2D(64, 3, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
-    # FiLM at 28x28
-    gamma28, beta28 = make_film(64)(lbl)
+    # ─── 28x28 stage: phase-2 only, no phase-1 counterpart ──────────────
+    x = layers.Conv2D(64, 3, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="gen_conv14b")(x)
+    # FiLM for the 28x28 stage (applied at 14x14, before the upsample)
+    gamma28, beta28 = make_film(64, "gen_film14b")(lbl)
     gamma28 = layers.Reshape((1, 1, 64))(gamma28)
     beta28 = layers.Reshape((1, 1, 64))(beta28)
     # CAT collaboration at 28x28 (k=7). No SE here (redundant with output conv).
     att28 = spatial_attention_map(x, lbl, k=7, name="spatial_attn_28")
     x = CollabModulation(name="collab_28")([x, gamma28, att28, beta28])
-    x = upsample(x, [28, 28])
-    x = layers.Conv2D(64, 3, padding="same", activation="relu")(x)
-    skip_14_up = upsample(skip_14, [28, 28])
+    x = upsample(x, [28, 28], name="gen_up14")
+    x = layers.Conv2D(64, 3, padding="same", activation="relu", name="gen_conv28")(x)
+    skip_14_up = upsample(skip_14, [28, 28], name="gen_up14_skip")
     x = layers.Add()([x, skip_14_up])
     x = layers.Activation("relu")(x)
 
-    x = layers.Conv2D(1, 3, padding="same", activation="sigmoid", dtype="float32")(x)
+    # Output conv at 28x28 (phase 1's equivalent is gen_out14 at 14x14)
+    x = layers.Conv2D(1, 3, padding="same", activation="sigmoid", dtype="float32", name="gen_out28")(x)
     return keras.Model([z, lbl], x, name="generator")
 
 
@@ -1033,7 +1062,7 @@ def transfer_weights_by_order(src_model, dst_model, name="model"):
 
 
 enc_transferred = transfer_weights_by_name(encoder_14, encoder, name="encoder")
-gen_transferred = transfer_weights_by_order(generator_14, generator, name="generator")
+gen_transferred = transfer_weights_by_name(generator_14, generator, name="generator")
 vae.phase1_transferred_weights = enc_transferred + gen_transferred
 print(f"Weight transfer complete. {len(vae.phase1_transferred_weights)} weights transferred.")
 
