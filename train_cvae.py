@@ -70,15 +70,15 @@ DISC_LR = 0.00003
 D_BATCH_INTERVAL = 7  # update discriminator every N batches (G updates every batch)
 D_REAL_LABEL = 0.95    # one-sided label smoothing for the real class
 # Phase 2 KL schedule (configurable start)
-PHA2_KL_WARMUP_START = 0.0
+PHA2_KL_WARMUP_START = 0.00001
 PHA2_KL_WEIGHT_START = 0.01
-PHA2_KL_WEIGHT_TARGET = 0.001
-PHA2_KL_WARMUP_EPOCHS = 1
+PHA2_KL_WEIGHT_TARGET = 0.0001
+PHA2_KL_WARMUP_EPOCHS = 2
 PHA2_KL_DECAY_EPOCHS = EPOCHS
 PHA2_TRANSFER_FREEZE_EPOCHS = 1
 # Phase 1 (14x14) specific config
 PHA1_LR = 0.0025
-PHA1_LR_WARMUP_START = 0.00005
+PHA1_LR_WARMUP_START = 0.00001
 PHA1_LR_WARMUP_EPOCHS = 10
 PHA1_LR_END = 0.00005
 PHA1_LR_DECAY_EPOCHS = PROGRESSIVE_EPOCHS - PHA1_LR_WARMUP_EPOCHS
@@ -87,8 +87,8 @@ PHA1_KL_WARMUP_EPOCHS = PROGRESSIVE_EPOCHS
 PHA1_KL_WARMUP_START = 0.00001
 PHA1_KL_WEIGHT_START = 0.01
 PHA1_INFO_NCE_WEIGHT = 0.007
-LOG_NAME = 'logs/gen1b'
-LOG_NAME_PHA1 = 'logs/gen1b/phase1'
+LOG_NAME = 'logs/gen1'
+LOG_NAME_PHA1 = 'logs/gen1/phase1'
 
 def weighted_pixel_loss(target, reconstruction):
     """Foreground-weighted pixel BCE.
@@ -238,12 +238,21 @@ def build_encoder_14():
         att = layers.Conv2D(1, k, padding="same", activation="sigmoid", name=name)(att_in)
         return layers.Multiply()([x, att])
 
-    x14_main_res = img
-    x14_main = tf.keras.layers.Conv2D(64, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_main14_res1')(img)
-    x14_main = tf.keras.layers.Add()([x14_main, x14_main_res])
-    x14_main = tf.keras.layers.LayerNormalization(name='enc_main14_res1_ln')(x14_main)
-    x14_main = tf.keras.layers.Activation('relu')(x14_main)
-    x14_main = tf.keras.layers.SpatialDropout2D(SPATIAL_DROPOUT)(x14_main)
+    # 14x14 front-end, phase 1. Mirrors the enc28_* front-end in build_encoder,
+    # but 3/5 rather than 3/5/7: bilinear downsampling to 14x14 halves stroke
+    # thickness, so the scale-appropriate kernel sizes are smaller. This block
+    # does NOT transfer -- phase 2's 28x28 front-end plays this role there.
+    # Fixes vs the old x14_main: (a) the Add was erased by the LayerNorm (the
+    # image is added identically to every channel, so LN's per-pixel mean
+    # subtraction cancels it exactly) -- it is gone; (b) relu -> LN -> relu
+    # clipped the pre-activations twice around the norm -- now LN sees raw
+    # pre-activations with a single relu after, exactly as in phase 2.
+    b3 = layers.Conv2D(16, 3, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc14_conv3")(img)
+    b5 = layers.Conv2D(16, 5, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc14_conv5")(img)
+    x14_main = layers.Concatenate(name="enc14_cat")([b3, b5])   # 32ch @ 14x14
+    x14_main = layers.LayerNormalization(name="enc14_ln")(x14_main)
+    x14_main = layers.Activation("relu")(x14_main)
+    x14_main = layers.SpatialDropout2D(SPATIAL_DROPOUT, name="enc14_drop")(x14_main)
 
     # Block 1: 14x14 -> 14x14 (stride-1: extract features at native resolution).
     # Named enc14_conv1, NOT enc_conv1: phase 2's enc_conv1 runs at 28x28 with
@@ -270,7 +279,7 @@ def build_encoder_14():
     c2 = layers.Multiply()([c2, se2])
 
     main = layers.Flatten()(c2)
-    main = layers.Dense(256, activation="relu",
+    main = layers.Dense(192, activation="relu",
                         kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(main)
     main = layers.LayerNormalization()(main)
     main = layers.Dropout(DROPOUT)(main)
