@@ -25,7 +25,7 @@ from utils.mnist_loader import load_data
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "synthetic" / "data"
 LATENT_DIM = 256
 PHA1_LATENT_DIM = 128
-EPOCHS = 130
+EPOCHS = 60
 BATCH_SIZE = 256
 NUM_CLASSES = 5
 
@@ -87,8 +87,8 @@ PHA1_KL_WARMUP_EPOCHS = 3
 PHA1_KL_WARMUP_START = 0.00001
 PHA1_KL_WEIGHT_START = 0.05
 PHA1_INFO_NCE_WEIGHT = 0.007
-LOG_NAME = 'logs/gen1'
-LOG_NAME_PHA1 = 'logs/gen1/phase1'
+LOG_NAME = 'logs/gen1b'
+LOG_NAME_PHA1 = 'logs/gen1b/phase1'
 
 def weighted_pixel_loss(target, reconstruction):
     """Foreground-weighted pixel BCE.
@@ -204,13 +204,8 @@ def build_encoder():
 
     # each contributes ~equally to the latent instead of fine being ~2%.
     main = layers.Flatten()(c3)
-    main = layers.Dense(512, activation="relu",
-                        kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(main)
-    main = layers.LayerNormalization()(main)
-    main = layers.Dropout(DROPOUT)(main)
-    x = layers.Concatenate()([main, lbl])
-    z_mean = layers.Dense(LATENT_DIM, name="z_mean", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
-    z_log_var = layers.Dense(LATENT_DIM, name="z_log_var", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
+    z_mean = layers.Dense(LATENT_DIM, name="z_mean", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(main)
+    z_log_var = layers.Dense(LATENT_DIM, name="z_log_var", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(main)
     z = Sampling()([z_mean, z_log_var])
     return keras.Model([img, lbl], [z_mean, z_log_var, z], name="encoder")
 
@@ -280,12 +275,8 @@ def build_encoder_14():
     c3 = layers.Add()([c3, skip3])
 
     main = layers.Flatten()(c3)
-    main = layers.Dense(256, activation="relu",
-                        kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(main)
-    main = layers.LayerNormalization()(main)
-    x = layers.Concatenate()([main, lbl])
-    z_mean = layers.Dense(PHA1_LATENT_DIM, name="z_mean", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
-    z_log_var = layers.Dense(PHA1_LATENT_DIM, name="z_log_var", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
+    z_mean = layers.Dense(PHA1_LATENT_DIM, name="z_mean", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(main)
+    z_log_var = layers.Dense(PHA1_LATENT_DIM, name="z_log_var", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(main)
     z = Sampling()([z_mean, z_log_var])
     return keras.Model([img, lbl], [z_mean, z_log_var, z], name="encoder_14")
 
