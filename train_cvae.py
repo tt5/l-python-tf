@@ -25,7 +25,7 @@ from utils.mnist_loader import load_data
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "synthetic" / "data"
 LATENT_DIM = 512
 PHA1_LATENT_DIM = 128
-EPOCHS = 60
+EPOCHS = 70
 BATCH_SIZE = 128
 NUM_CLASSES = 5
 
@@ -60,14 +60,14 @@ TEMPERATURE = 1.0
 # foreground) are dominated by background under plain BCE, which drags
 # the generator output below the 0.5 threshold. (1-fg)/fg ~= 7 balances
 # the positive/negative contributions at the measured coverage.
-PIXEL_POS_WEIGHT = 4.0
+PIXEL_POS_WEIGHT = 3.0
 DROPOUT = 0.3
 SPATIAL_DROPOUT = 0.0
 L2_REG = 0.00001
 # VAE-GAN hybrid (Phase 2 only): adversarial term + discriminator LR
 ADV_LAMBDA = 0.01
 DISC_LR = 0.00001
-D_BATCH_INTERVAL = 9  # update discriminator every N batches (G updates every batch)
+D_BATCH_INTERVAL = 8  # update discriminator every N batches (G updates every batch)
 D_REAL_LABEL = 0.95    # one-sided label smoothing for the real class
 # Phase 2 KL schedule (configurable start)
 PHA2_KL_WARMUP_START = 0.00001
@@ -87,8 +87,8 @@ PHA1_KL_WARMUP_EPOCHS = 3
 PHA1_KL_WARMUP_START = 0.00001
 PHA1_KL_WEIGHT_START = 0.01
 PHA1_INFO_NCE_WEIGHT = 0.007
-LOG_NAME = 'logs/gen1'
-LOG_NAME_PHA1 = 'logs/gen1/phase1'
+LOG_NAME = 'logs/gen1b'
+LOG_NAME_PHA1 = 'logs/gen1b/phase1'
 
 def weighted_pixel_loss(target, reconstruction):
     """Foreground-weighted pixel BCE.
