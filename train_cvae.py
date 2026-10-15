@@ -147,13 +147,21 @@ def build_encoder():
         att = layers.Conv2D(1, k, padding="same", activation="sigmoid", name=name)(att_in)
         return layers.Multiply()([x, att])
 
-    x28_main = img
-    x28_main_res = x28_main
-    x28_main = tf.keras.layers.Conv2D(64, 3, padding='same', activation=None, kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_main28_res1')(x28_main)
-    x28_main = tf.keras.layers.LayerNormalization(name='enc_main28_ln')(x28_main)
-    x28_main = tf.keras.layers.Add()([x28_main, x28_main_res])
-    x28_main = tf.keras.layers.Activation('relu')(x28_main)
-    x28_main = tf.keras.layers.SpatialDropout2D(SPATIAL_DROPOUT)(x28_main)
+    # 28x28 front-end (multi-scale). Richest spatial scale, and with 1 input
+    # channel the cheapest place in the encoder to buy detail: 9 MACs/output
+    # here vs 576 for a 3x3 at 14x14 with 64ch. Parallel 3/5/7 banks give
+    # explicit primitives at three stroke widths before the stride-2 crush.
+    # 16ch per branch keeps it narrow -- channels at 28x28 get expensive fast
+    # once input channels > 1. No residual: there is no identity path from
+    # 1 channel to 48, and the old broadcast Add was either a no-op (phase 1)
+    # or an unnormalised pixel bias (phase 2).
+    b3 = layers.Conv2D(16, 3, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc28_conv3")(img)
+    b5 = layers.Conv2D(16, 5, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc28_conv5")(img)
+    b7 = layers.Conv2D(16, 7, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc28_conv7")(img)
+    x28_main = layers.Concatenate(name="enc28_cat")([b3, b5, b7])   # 48ch @ 28x28
+    x28_main = layers.LayerNormalization(name="enc28_ln")(x28_main)
+    x28_main = layers.Activation("relu")(x28_main)
+    x28_main = layers.SpatialDropout2D(SPATIAL_DROPOUT, name="enc28_drop")(x28_main)
 
     # Conv block 1: 28x28 → 14x14
     c1 = layers.Conv2D(64, 3, strides=2, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv1")(x28_main)
@@ -237,8 +245,12 @@ def build_encoder_14():
     x14_main = tf.keras.layers.Activation('relu')(x14_main)
     x14_main = tf.keras.layers.SpatialDropout2D(SPATIAL_DROPOUT)(x14_main)
 
-    # Block 1: 14x14 -> 14x14 (stride-1: extract features at native resolution)
-    c1 = layers.Conv2D(64, 3, strides=1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv1")(x14_main)
+    # Block 1: 14x14 -> 14x14 (stride-1: extract features at native resolution).
+    # Named enc14_conv1, NOT enc_conv1: phase 2's enc_conv1 runs at 28x28 with
+    # stride 2 (it is the 28->14 downsampler). Same kernel shape, different
+    # resolution -- transferring a 14x14-trained filter into it would be a
+    # 14x14 -> 28x28 transfer, which is invalid. This layer is phase-1 only.
+    c1 = layers.Conv2D(64, 3, strides=1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc14_conv1")(x14_main)
     c1 = tf.keras.layers.LayerNormalization(name='enc_14_ln')(c1)
     c1 = layers.Activation("relu")(c1)
     # Label-conditioned spatial attention (k=5, matches build_encoder for transfer;
