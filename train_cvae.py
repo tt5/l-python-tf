@@ -25,8 +25,8 @@ from utils.mnist_loader import load_data
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "synthetic" / "data"
 LATENT_DIM = 512
 PHA1_LATENT_DIM = 128
-EPOCHS = 130
-BATCH_SIZE = 256
+EPOCHS = 60
+BATCH_SIZE = 128
 NUM_CLASSES = 5
 
 parser = argparse.ArgumentParser()
@@ -46,38 +46,38 @@ SAMPLES_PER_EPOCH_PER_CLASS = args.samples_per_epoch_per_class
 PBM_DIR = Path(args.pbm_dir) if args.pbm_dir else None
 
 #PROGRESSIVE_EPOCHS = 36 # Phase 1: 14x14
-PROGRESSIVE_EPOCHS = 23 # Phase 1: 14x14
+PROGRESSIVE_EPOCHS = 20 # Phase 1: 14x14
 LR = 0.002
 LR_WARMUP_START = 0.0001
 LR_WARMUP_EPOCHS = 4
 LR_DECAY_EPOCHS = EPOCHS - LR_WARMUP_EPOCHS
 LR_END = 0.0005
-PIXEL_LOSS_WEIGHT = 0.9
-PERCEPTUAL_LOSS_WEIGHT = 0.1
-INFO_NCE_WEIGHT = 0.011
+PIXEL_LOSS_WEIGHT = 0.8
+PERCEPTUAL_LOSS_WEIGHT = 0.2
+INFO_NCE_WEIGHT = 0.01
 TEMPERATURE = 1.0
 # Foreground weight for pixel BCE. Sparse classes (e.g. class 4, ~12.6%
 # foreground) are dominated by background under plain BCE, which drags
 # the generator output below the 0.5 threshold. (1-fg)/fg ~= 7 balances
 # the positive/negative contributions at the measured coverage.
-PIXEL_POS_WEIGHT = 5.0
+PIXEL_POS_WEIGHT = 4.0
 DROPOUT = 0.3
 SPATIAL_DROPOUT = 0.0
 L2_REG = 0.00001
 # VAE-GAN hybrid (Phase 2 only): adversarial term + discriminator LR
-ADV_LAMBDA = 0.0086
-DISC_LR = 0.000001
+ADV_LAMBDA = 0.01
+DISC_LR = 0.00001
 D_BATCH_INTERVAL = 9  # update discriminator every N batches (G updates every batch)
 D_REAL_LABEL = 0.95    # one-sided label smoothing for the real class
 # Phase 2 KL schedule (configurable start)
 PHA2_KL_WARMUP_START = 0.00001
-PHA2_KL_WEIGHT_START = 0.01
-PHA2_KL_WEIGHT_TARGET = 0.001
-PHA2_KL_WARMUP_EPOCHS = 2
+PHA2_KL_WEIGHT_START = 0.1
+PHA2_KL_WEIGHT_TARGET = 0.01
+PHA2_KL_WARMUP_EPOCHS = 3
 PHA2_KL_DECAY_EPOCHS = EPOCHS
-PHA2_TRANSFER_FREEZE_EPOCHS = 1
+PHA2_TRANSFER_FREEZE_EPOCHS = 2
 # Phase 1 (14x14) specific config
-PHA1_LR = 0.0006
+PHA1_LR = 0.001
 PHA1_LR_WARMUP_START = 0.00005
 PHA1_LR_WARMUP_EPOCHS = 7
 PHA1_LR_END = 0.00005
@@ -85,7 +85,7 @@ PHA1_LR_DECAY_EPOCHS = PROGRESSIVE_EPOCHS - PHA1_LR_WARMUP_EPOCHS
 PHA1_PIXEL_LOSS_WEIGHT = 1.0
 PHA1_KL_WARMUP_EPOCHS = 3
 PHA1_KL_WARMUP_START = 0.00001
-PHA1_KL_WEIGHT_START = 0.05
+PHA1_KL_WEIGHT_START = 0.01
 PHA1_INFO_NCE_WEIGHT = 0.007
 LOG_NAME = 'logs/gen1'
 LOG_NAME_PHA1 = 'logs/gen1/phase1'
@@ -104,7 +104,7 @@ def weighted_pixel_loss(target, reconstruction):
 
 # ─── Data ──────────────────────────────────────────────────────────
 def load_data_cvae():
-    (x_train, y_train), (x_test, y_test) = load_data(DATA_DIR, NUM_CLASSES, flip_pixels=7*28, max_samples_per_class=MAX_SAMPLES_PER_CLASS, pbm_dir=PBM_DIR)
+    (x_train, y_train), (x_test, y_test) = load_data(DATA_DIR, NUM_CLASSES, flip_pixels=7*28, max_samples_per_class=MAX_SAMPLES_PER_CLASS, pbm_dir=PBM_DIR, synthetic_last_class=True)
     y_train = keras.utils.to_categorical(y_train, NUM_CLASSES)
     y_test = keras.utils.to_categorical(y_test, NUM_CLASSES)
     return x_train, y_train, x_test, y_test
@@ -713,9 +713,12 @@ class VAEGAN(VAE):
         self.optimizer.learning_rate = self.get_lr()
         kl_weight = self.get_kl_weight()
 
-        # Encode once (z is sampled here; generator decode is deterministic)
-        z_mean, z_log_var, z = self.encoder([images, labels])
-        reconstruction_d = self.generator([z, labels])
+        # Encode once for the discriminator's fake sample. Deliberately OUTSIDE
+        # any tape: this pass needs no gradients, and recording it would build
+        # a graph nobody differentiates. The encoder is called a second time
+        # inside g_tape below -- see the note there for why that is required.
+        _, _, z_d = self.encoder([images, labels])
+        reconstruction_d = self.generator([z_d, labels])
 
         # --- Train discriminator every D_BATCH_INTERVAL batches ---
         # (updating G twice as often keeps D from collapsing to 0).
@@ -740,6 +743,12 @@ class VAEGAN(VAE):
 
         # --- Train generator (encoder + decoder; adversarial flows through D) ---
         with tf.GradientTape() as g_tape:
+            # The encoder MUST be called inside this tape. z_mean/z_log_var/z
+            # feed kl_loss, info_nce_loss and the reconstruction; a forward pass
+            # executed outside the tape is a constant to it, so every encoder
+            # gradient would come back None and apply_gradients would skip it --
+            # the encoder would silently never update in phase 2.
+            z_mean, z_log_var, z = self.encoder([images, labels])
             reconstruction = self.generator([z, labels])
             d_fake = self.discriminator([reconstruction, labels])
             adv_loss = self._bce(tf.ones_like(d_fake), d_fake)
