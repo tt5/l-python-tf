@@ -52,8 +52,8 @@ LR_WARMUP_START = 0.0001
 LR_WARMUP_EPOCHS = 4
 LR_DECAY_EPOCHS = EPOCHS - LR_WARMUP_EPOCHS
 LR_END = 0.0005
-PIXEL_LOSS_WEIGHT = 0.6
-PERCEPTUAL_LOSS_WEIGHT = 0.4
+PIXEL_LOSS_WEIGHT = 0.5
+PERCEPTUAL_LOSS_WEIGHT = 0.5
 INFO_NCE_WEIGHT = 0.009
 TEMPERATURE = 1.0
 # Foreground weight for pixel BCE. Sparse classes (e.g. class 4, ~12.6%
@@ -68,7 +68,7 @@ L2_REG = 0.00001
 ADV_LAMBDA = 0.5
 DISC_LR = 0.00002
 D_BATCH_INTERVAL = 3  # update discriminator every N batches (G updates every batch)
-D_REAL_LABEL = 0.97    # one-sided label smoothing for the real class
+D_REAL_LABEL = 0.98    # one-sided label smoothing for the real class
 # Phase 2 KL schedule (configurable start)
 PHA2_KL_WARMUP_START = 0.00001
 PHA2_KL_WEIGHT_START = 0.1
@@ -77,18 +77,18 @@ PHA2_KL_WARMUP_EPOCHS = 3
 PHA2_KL_DECAY_EPOCHS = 60 - PROGRESSIVE_EPOCHS
 PHA2_TRANSFER_FREEZE_EPOCHS = 2
 # Phase 1 (14x14) specific config
-PHA1_LR = 0.002
+PHA1_LR = 0.003
 PHA1_LR_WARMUP_START = 0.00005
-PHA1_LR_WARMUP_EPOCHS = 7
-PHA1_LR_END = 0.001
-PHA1_LR_DECAY_EPOCHS = 2
+PHA1_LR_WARMUP_EPOCHS = 6
+PHA1_LR_END = 0.0001
+PHA1_LR_DECAY_EPOCHS = PROGRESSIVE_EPOCHS - PHA1_LR_WARMUP_EPOCHS
 PHA1_PIXEL_LOSS_WEIGHT = 1.0
-PHA1_KL_WARMUP_EPOCHS = 4
+PHA1_KL_WARMUP_EPOCHS = 5
 PHA1_KL_WARMUP_START = 0.001
 PHA1_KL_WEIGHT_START = 0.0001
 PHA1_INFO_NCE_WEIGHT = 0.0
-LOG_NAME = 'logs/gen1b'
-LOG_NAME_PHA1 = 'logs/gen1b/phase1'
+LOG_NAME = 'logs/gen1'
+LOG_NAME_PHA1 = 'logs/gen1/phase1'
 
 def weighted_pixel_loss(target, reconstruction):
     """Foreground-weighted pixel BCE.
@@ -147,14 +147,6 @@ def build_encoder():
         att = layers.Conv2D(1, k, padding="same", activation="sigmoid", name=name)(att_in)
         return layers.Multiply()([x, att])
 
-    # 28x28 front-end (multi-scale). Richest spatial scale, and with 1 input
-    # channel the cheapest place in the encoder to buy detail: 9 MACs/output
-    # here vs 576 for a 3x3 at 14x14 with 64ch. Parallel 3/5/7 banks give
-    # explicit primitives at three stroke widths before the stride-2 crush.
-    # 16ch per branch keeps it narrow -- channels at 28x28 get expensive fast
-    # once input channels > 1. No residual: there is no identity path from
-    # 1 channel to 48, and the old broadcast Add was either a no-op (phase 1)
-    # or an unnormalised pixel bias (phase 2).
     b3 = layers.Conv2D(16, 3, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc28_conv3")(img)
     b5 = layers.Conv2D(16, 5, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc28_conv5")(img)
     b7 = layers.Conv2D(16, 7, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc28_conv7")(img)
@@ -165,6 +157,13 @@ def build_encoder():
     # Conv block 1: 28x28 → 14x14
     c1 = layers.Conv2D(48, 3, strides=2, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv1")(x28_main)
     c1 = tf.keras.layers.LayerNormalization(name='enc_14_ln')(c1)
+    # Residual shortcut, ResNet-D style: enc_conv1 and the avg-pooled front-end
+    # both map 28x28x48 -> 14x14x48, so no spatial reshape is needed and the
+    # 1x1 conv lets the network learn the shortcut instead of forcing a plain
+    # blur. Phase-2 only -- phase 1 has no 28x28 scale, so this name has no
+    # counterpart and is deliberately not transferred.
+    sc = layers.Conv2D(48, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc28_skip_proj")(layers.AveragePooling2D(2)(x28_main))
+    c1 = layers.Add()([c1, sc])
     c1 = layers.Activation("relu")(c1)
     # Label-conditioned spatial attention at 14x14 (k=5): focus on class-relevant
     # structure before the 7x7 crush. (Early low-channel SE se1 removed here.)
