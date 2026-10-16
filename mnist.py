@@ -20,7 +20,7 @@ np.set_printoptions(threshold=sys.maxsize)
 np.set_printoptions(linewidth=np.inf)
 
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "synthetic" / "data"
-NUM_CLASSES = 5
+NUM_CLASSES = 4
 EPOCHS = 35
 BATCH_SIZE = 128
 BASE_LR = 0.00005
@@ -133,7 +133,7 @@ class AugmentGenerator(tf.keras.utils.Sequence):
 # ─── Load dataset ──────────────────────────────────────────────────
 from utils.mnist_loader import load_data
 
-(x_train, y_train), (x_test, y_test) = load_data(DATA_DIR, NUM_CLASSES, flip_pixels=7*28, max_samples_per_class=MAX_SAMPLES_PER_CLASS, pbm_dir=PBM_DIR)
+(x_train, y_train), (x_test, y_test) = load_data(DATA_DIR, NUM_CLASSES, flip_pixels=7*28, max_samples_per_class=MAX_SAMPLES_PER_CLASS, pbm_dir=PBM_DIR, synthetic_last_class=False)
 
 print(f"Train: {len(x_train)}, Test: {len(x_test)}")
 
