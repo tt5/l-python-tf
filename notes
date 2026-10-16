@@ -90,171 +90,25 @@ python train_cvae.py --samples-per-epoch-per-class 12000
   Class 2: 96.8% correctly classified (968/1000)
   Class 3: 99.7% correctly classified (997/1000)
 
-2:
+python train_cvae.py --samples-per-epoch-per-class 10000
 
-  Class 0: 83.1% correctly classified (831/1000), avg confidence: 99.7%
-  Class 1: 24.3% correctly classified (243/1000), avg confidence: 83.0%
-  Class 2: 10.0% correctly classified (100/1000), avg confidence: 93.5%
-  Class 3: 79.9% correctly classified (799/1000), avg confidence: 97.4%
-  Class 4: 88.8% correctly classified (888/1000), avg confidence: 96.2%
-  Class 5: 70.9% correctly classified (709/1000), avg confidence: 89.8%
+  Class 0: 50.7% correctly classified (507/1000), avg confidence: 98.0%
+  Class 1: 36.1% correctly classified (361/1000), avg confidence: 96.8%
+  Class 2: 81.6% correctly classified (816/1000), avg confidence: 98.0%
+  Class 3: 97.7% correctly classified (977/1000), avg confidence: 99.9%
+  Class 4: 100.0% correctly classified (1000/1000), avg confidence: 100.0%
 
-  Class 0: 86.6% correctly classified (866/1000), avg confidence: 99.8%
-  Class 1: 15.1% correctly classified (151/1000), avg confidence: 82.0%
-  Class 2: 17.1% correctly classified (171/1000), avg confidence: 93.2%
-  Class 3: 93.6% correctly classified (936/1000), avg confidence: 98.9%
-  Class 4: 95.8% correctly classified (958/1000), avg confidence: 97.8%
-  Class 5: 79.1% correctly classified (791/1000), avg confidence: 93.4%
+─── Real data classification (from synthetic project) ───
+  Class 0: 100.0% correctly classified (1000/1000)
+  Class 1: 98.5% correctly classified (985/1000)
+  Class 2: 96.8% correctly classified (968/1000)
+  Class 3: 99.7% correctly classified (997/1000)
 
-  Class 0: 98.7% correctly classified (987/1000), avg confidence: 99.7%
-  Class 1: 26.0% correctly classified (260/1000), avg confidence: 83.4%
-  Class 2: 19.8% correctly classified (198/1000), avg confidence: 94.6%
-  Class 3: 96.5% correctly classified (965/1000), avg confidence: 99.3%
-  Class 4: 95.2% correctly classified (952/1000), avg confidence: 98.3%
-  Class 5: 67.7% correctly classified (677/1000), avg confidence: 90.7%
+─── Synthetic class evaluation (generated on-the-fly) ───
+  Class 4: 100.0% correctly classified (1000/1000)
 
-  Class 0: 98.2% correctly classified (982/1000), avg confidence: 99.9%
-  Class 1: 18.7% correctly classified (187/1000), avg confidence: 81.3%
-  Class 2: 22.6% correctly classified (226/1000), avg confidence: 93.7%
-  Class 3: 98.5% correctly classified (985/1000), avg confidence: 99.7%
-  Class 4: 96.3% correctly classified (963/1000), avg confidence: 98.1%
-  Class 5: 77.2% correctly classified (772/1000), avg confidence: 93.6%
-
-  Class 0: 99.4% correctly classified (994/1000), avg confidence: 100.0%
-  Class 1: 16.4% correctly classified (164/1000), avg confidence: 78.5%
-  Class 2: 18.1% correctly classified (181/1000), avg confidence: 95.1%
-  Class 3: 96.8% correctly classified (968/1000), avg confidence: 99.0%
-  Class 4: 94.8% correctly classified (948/1000), avg confidence: 97.5%
-  Class 5: 69.1% correctly classified (691/1000), avg confidence: 90.1%
-
-  Class 0: 93.8% correctly classified (938/1000), avg confidence: 99.9%
-  Class 1: 23.6% correctly classified (236/1000), avg confidence: 82.3%
-  Class 2: 15.0% correctly classified (150/1000), avg confidence: 93.7%
-  Class 3: 98.4% correctly classified (984/1000), avg confidence: 99.7%
-  Class 4: 97.4% correctly classified (974/1000), avg confidence: 99.3%
-  Class 5: 73.5% correctly classified (735/1000), avg confidence: 92.3%
-
-  Class 0: 85.3% correctly classified (853/1000), avg confidence: 99.7%
-  Class 1: 18.1% correctly classified (181/1000), avg confidence: 79.9%
-  Class 2: 23.9% correctly classified (239/1000), avg confidence: 92.0%
-  Class 3: 94.8% correctly classified (948/1000), avg confidence: 99.1%
-  Class 4: 95.3% correctly classified (953/1000), avg confidence: 98.4%
-  Class 5: 74.0% correctly classified (740/1000), avg confidence: 92.6%
-
-  Class 0: 98.1% correctly classified (981/1000), avg confidence: 99.9%
-  Class 1: 21.8% correctly classified (218/1000), avg confidence: 82.7%
-  Class 2: 21.1% correctly classified (211/1000), avg confidence: 94.3%
-  Class 3: 93.4% correctly classified (934/1000), avg confidence: 98.8%
-  Class 4: 89.9% correctly classified (899/1000), avg confidence: 95.9%
-  Class 5: 69.1% correctly classified (691/1000), avg confidence: 91.4%
-
-  Class 0: 94.2% correctly classified (942/1000), avg confidence: 99.7%
-  Class 1: 7.9% correctly classified (79/1000), avg confidence: 84.7%
-  Class 2: 3.5% correctly classified (35/1000), avg confidence: 91.3%
-  Class 3: 71.6% correctly classified (716/1000), avg confidence: 97.2%
-  Class 4: 74.2% correctly classified (742/1000), avg confidence: 91.5%
-  Class 5: 66.0% correctly classified (660/1000), avg confidence: 87.8%
-
-  Class 0: 91.4% correctly classified (914/1000), avg confidence: 99.6%
-  Class 1: 8.2% correctly classified (82/1000), avg confidence: 85.2%
-  Class 2: 17.5% correctly classified (175/1000), avg confidence: 95.6%
-  Class 3: 96.1% correctly classified (961/1000), avg confidence: 98.9%
-  Class 4: 79.5% correctly classified (795/1000), avg confidence: 87.1%
-  Class 5: 69.7% correctly classified (697/1000), avg confidence: 89.5%
-
-  Class 0: 99.7% correctly classified (997/1000), avg confidence: 100.0%
-  Class 1: 10.4% correctly classified (104/1000), avg confidence: 82.4%
-  Class 2: 4.7% correctly classified (47/1000), avg confidence: 94.4%
-  Class 3: 51.1% correctly classified (511/1000), avg confidence: 95.0%
-  Class 4: 75.3% correctly classified (753/1000), avg confidence: 86.2%
-  Class 5: 68.5% correctly classified (685/1000), avg confidence: 88.7%
-
-  Class 0: 99.3% correctly classified (993/1000), avg confidence: 100.0%
-  Class 1: 22.3% correctly classified (223/1000), avg confidence: 85.0%
-  Class 2: 28.4% correctly classified (284/1000), avg confidence: 95.5%
-  Class 3: 97.9% correctly classified (979/1000), avg confidence: 99.6%
-  Class 4: 90.9% correctly classified (909/1000), avg confidence: 96.5%
-  Class 5: 78.0% correctly classified (780/1000), avg confidence: 93.1%
-
-  Class 0: 97.5% correctly classified (975/1000), avg confidence: 99.9%
-  Class 1: 10.7% correctly classified (107/1000), avg confidence: 79.4%
-  Class 2: 6.3% correctly classified (63/1000), avg confidence: 94.3%
-  Class 3: 86.0% correctly classified (860/1000), avg confidence: 98.1%
-  Class 4: 78.0% correctly classified (780/1000), avg confidence: 91.8%
-  Class 5: 72.7% correctly classified (727/1000), avg confidence: 85.9%
-
-  Class 0: 100.0% correctly classified (1000/1000), avg confidence: 100.0%
-  Class 1: 13.8% correctly classified (138/1000), avg confidence: 82.9%
-  Class 2: 15.1% correctly classified (151/1000), avg confidence: 94.9%
-  Class 3: 91.3% correctly classified (913/1000), avg confidence: 98.8%
-  Class 4: 13.8% correctly classified (138/1000), avg confidence: 72.8%
-  Class 5: 58.7% correctly classified (587/1000), avg confidence: 84.9%
-
-  Class 0: 99.8% correctly classified (998/1000), avg confidence: 99.9%
-  Class 1: 6.9% correctly classified (69/1000), avg confidence: 82.0%
-  Class 2: 31.9% correctly classified (319/1000), avg confidence: 94.1%
-  Class 3: 96.4% correctly classified (964/1000), avg confidence: 98.8%
-  Class 4: 89.4% correctly classified (894/1000), avg confidence: 83.8%
-  Class 5: 69.8% correctly classified (698/1000), avg confidence: 88.5%
-
-  Class 0: 45.0% correctly classified (450/1000), avg confidence: 99.0%
-  Class 1: 9.2% correctly classified (92/1000), avg confidence: 81.3%
-  Class 2: 9.4% correctly classified (94/1000), avg confidence: 89.4%
-  Class 3: 82.8% correctly classified (828/1000), avg confidence: 97.8%
-  Class 4: 90.3% correctly classified (903/1000), avg confidence: 91.4%
-  Class 5: 61.6% correctly classified (616/1000), avg confidence: 88.0%
-
----
-
-  Class 0: 3.7% correctly classified (37/1000), avg confidence: 93.8%
-  Class 1: 21.6% correctly classified (216/1000), avg confidence: 90.5%
-  Class 2: 28.3% correctly classified (283/1000), avg confidence: 94.2%
-  Class 3: 75.4% correctly classified (754/1000), avg confidence: 98.9%
-  Class 4: 30.6% correctly classified (306/1000), avg confidence: 94.8%
-  Class 5: 55.5% correctly classified (555/1000), avg confidence: 92.6%
-
-  Class 0: 2.9% correctly classified (29/1000), avg confidence: 92.6%
-  Class 1: 16.7% correctly classified (167/1000), avg confidence: 88.8%
-  Class 2: 36.1% correctly classified (361/1000), avg confidence: 94.4%
-  Class 3: 77.5% correctly classified (775/1000), avg confidence: 98.5%
-  Class 4: 51.2% correctly classified (512/1000), avg confidence: 96.0%
-  Class 5: 49.6% correctly classified (496/1000), avg confidence: 92.7%
-
----
-2
-
-  Class 0: 100.0% correctly classified (1000/1000), avg confidence: 100.0%
-  Class 1: 81.7% correctly classified (817/1000), avg confidence: 98.0%
-  Class 2: 90.0% correctly classified (900/1000), avg confidence: 97.3%
-  Class 3: 100.0% correctly classified (1000/1000), avg confidence: 100.0%
-  Class 4: 96.2% correctly classified (962/1000), avg confidence: 99.4%
-  Class 5: 0.0% correctly classified (0/1000), avg confidence: 0.0%
-
-  Class 0: 100.0% correctly classified (1000/1000), avg confidence: 100.0%
-  Class 1: 61.4% correctly classified (614/1000), avg confidence: 92.7%
-  Class 2: 22.8% correctly classified (228/1000), avg confidence: 92.3%
-  Class 3: 32.7% correctly classified (327/1000), avg confidence: 94.6%
-  Class 4: 86.9% correctly classified (869/1000), avg confidence: 98.4%
-  Class 5: 44.7% correctly classified (447/1000), avg confidence: 90.2%
-
-  Class 0: 100.0% correctly classified (1000/1000), avg confidence: 100.0%
-  Class 1: 61.5% correctly classified (615/1000), avg confidence: 92.7%
-  Class 2: 65.3% correctly classified (653/1000), avg confidence: 96.6%
-  Class 3: 100.0% correctly classified (1000/1000), avg confidence: 100.0%
-  Class 4: 83.6% correctly classified (836/1000), avg confidence: 98.4%
-  Class 5: 58.7% correctly classified (587/1000), avg confidence: 94.0%
-
----
-3
-
-  Class digit_0: 100.0% correct (5000/5000), avg confidence: 100.0%
-  Class digit_1: 42.4% correct (2120/5000), avg confidence: 98.5%
-  Class digit_2: 69.7% correct (3485/5000), avg confidence: 96.4%
-  Class digit_3: 100.0% correct (5000/5000), avg confidence: 100.0%
-  Class digit_4: 0.0% correct (0/5000), avg confidence: 0.0%
-  Class digit_5: 88.7% correct (4435/5000), avg confidence: 99.0%
-  Class low_conf: 47.6% correct (2379/5000), avg confidence: 89.4%
-
-https://www.alphaxiv.org/abs/2212.06335.md
-https://github.com/HZAI-ZJNU/SCSA
-not over-conditioning
+  Class 0: 0.5% correctly classified (5/1000), avg confidence: 100.0%
+  Class 1: 0.6% correctly classified (6/1000), avg confidence: 89.1%
+  Class 2: 0.9% correctly classified (9/1000), avg confidence: 89.7%
+  Class 3: 99.9% correctly classified (999/1000), avg confidence: 100.0%
+  Class 4: 99.9% correctly classified (999/1000), avg confidence: 100.0%
