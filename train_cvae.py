@@ -25,7 +25,7 @@ from utils.mnist_loader import load_data
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "synthetic" / "data"
 LATENT_DIM = 512
 PHA1_LATENT_DIM = 256
-EPOCHS = 80
+EPOCHS = 90
 BATCH_SIZE = 256
 NUM_CLASSES = 4
 
@@ -52,8 +52,8 @@ LR_WARMUP_START = 0.0001
 LR_WARMUP_EPOCHS = 4
 LR_DECAY_EPOCHS = EPOCHS - LR_WARMUP_EPOCHS
 LR_END = 0.0005
-PIXEL_LOSS_WEIGHT = 0.5
-PERCEPTUAL_LOSS_WEIGHT = 0.5
+PIXEL_LOSS_WEIGHT = 0.6
+PERCEPTUAL_LOSS_WEIGHT = 0.4
 INFO_NCE_WEIGHT = 0.009
 TEMPERATURE = 1.0
 # Foreground weight for pixel BCE. Sparse classes (e.g. class 4, ~12.6%
@@ -65,13 +65,13 @@ DROPOUT = 0.3
 SPATIAL_DROPOUT = 0.0
 L2_REG = 0.00001
 # VAE-GAN hybrid (Phase 2 only): adversarial term + discriminator LR
-ADV_LAMBDA = 0.5
+ADV_LAMBDA = 0.6
 DISC_LR = 0.00002
 D_BATCH_INTERVAL = 3  # update discriminator every N batches (G updates every batch)
-D_REAL_LABEL = 0.98    # one-sided label smoothing for the real class
+D_REAL_LABEL = 1.0    # one-sided label smoothing for the real class
 # Phase 2 KL schedule (configurable start)
-PHA2_KL_WARMUP_START = 0.00001
-PHA2_KL_WEIGHT_START = 0.1
+PHA2_KL_WARMUP_START = 0.0001
+PHA2_KL_WEIGHT_START = 0.2
 PHA2_KL_WEIGHT_TARGET = 0.0
 PHA2_KL_WARMUP_EPOCHS = 3
 PHA2_KL_DECAY_EPOCHS = 60 - PROGRESSIVE_EPOCHS
@@ -87,8 +87,8 @@ PHA1_KL_WARMUP_EPOCHS = 5
 PHA1_KL_WARMUP_START = 0.001
 PHA1_KL_WEIGHT_START = 0.0001
 PHA1_INFO_NCE_WEIGHT = 0.0
-LOG_NAME = 'logs/gen1'
-LOG_NAME_PHA1 = 'logs/gen1/phase1'
+LOG_NAME = 'logs/gen1b'
+LOG_NAME_PHA1 = 'logs/gen1b/phase1'
 
 def weighted_pixel_loss(target, reconstruction):
     """Foreground-weighted pixel BCE.
@@ -152,6 +152,14 @@ def build_encoder():
     b7 = layers.Conv2D(16, 7, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc28_conv7")(img)
     x28_main = layers.Concatenate(name="enc28_cat")([b3, b5, b7])   # 3 x ch @ 28x28
     x28_main = layers.LayerNormalization(name="enc28_ln")(x28_main)
+    # Residual shortcut for the front-end. Requires a LEARNED 1x1 projection:
+    # the raw image has 1 channel and x28_main has 48. The old removed version
+    # added the same scalar to every channel, so LayerNorm's per-pixel mean
+    # subtraction cancelled it exactly (measured 9.5e-07); a 1x1 projection
+    # gives each channel its own weight, so the mean shift is not uniform and
+    # the shortcut survives (measured 0.35). Phase-2 only.
+    sc28 = layers.Conv2D(48, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc28_proj")(img)
+    x28_main = layers.Add()([x28_main, sc28])
     x28_main = layers.Activation("relu")(x28_main)
 
     # Conv block 1: 28x28 → 14x14
