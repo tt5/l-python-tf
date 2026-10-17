@@ -25,7 +25,7 @@ from utils.mnist_loader import load_data
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "synthetic" / "data"
 LATENT_DIM = 512
 PHA1_LATENT_DIM = 256
-EPOCHS = 90
+EPOCHS = 100
 BATCH_SIZE = 256
 NUM_CLASSES = 4
 
@@ -51,10 +51,10 @@ LR = 0.002
 LR_WARMUP_START = 0.0001
 LR_WARMUP_EPOCHS = 4
 LR_DECAY_EPOCHS = EPOCHS - LR_WARMUP_EPOCHS
-LR_END = 0.0005
+LR_END = 0.0001
 PIXEL_LOSS_WEIGHT = 0.6
 PERCEPTUAL_LOSS_WEIGHT = 0.4
-INFO_NCE_WEIGHT = 0.009
+INFO_NCE_WEIGHT = 0.008
 TEMPERATURE = 1.0
 # Foreground weight for pixel BCE. Sparse classes (e.g. class 4, ~12.6%
 # foreground) are dominated by background under plain BCE, which drags
@@ -70,7 +70,7 @@ DISC_LR = 0.00002
 D_BATCH_INTERVAL = 3  # update discriminator every N batches (G updates every batch)
 D_REAL_LABEL = 1.0    # one-sided label smoothing for the real class
 # Phase 2 KL schedule (configurable start)
-PHA2_KL_WARMUP_START = 0.0001
+PHA2_KL_WARMUP_START = 0.0002
 PHA2_KL_WEIGHT_START = 0.2
 PHA2_KL_WEIGHT_TARGET = 0.0
 PHA2_KL_WARMUP_EPOCHS = 3
@@ -83,12 +83,14 @@ PHA1_LR_WARMUP_EPOCHS = 6
 PHA1_LR_END = 0.0001
 PHA1_LR_DECAY_EPOCHS = PROGRESSIVE_EPOCHS - PHA1_LR_WARMUP_EPOCHS
 PHA1_PIXEL_LOSS_WEIGHT = 1.0
-PHA1_KL_WARMUP_EPOCHS = 5
+PHA1_KL_WARMUP_EPOCHS = PROGRESSIVE_EPOCHS
+# start
 PHA1_KL_WARMUP_START = 0.001
-PHA1_KL_WEIGHT_START = 0.0001
+# end
+PHA1_KL_WEIGHT_START = 0.0002
 PHA1_INFO_NCE_WEIGHT = 0.0
-LOG_NAME = 'logs/gen1b'
-LOG_NAME_PHA1 = 'logs/gen1b/phase1'
+LOG_NAME = 'logs/gen1'
+LOG_NAME_PHA1 = 'logs/gen1/phase1'
 
 def weighted_pixel_loss(target, reconstruction):
     """Foreground-weighted pixel BCE.
@@ -251,7 +253,11 @@ def build_encoder_14():
     x14_main = layers.LayerNormalization(name="enc14_ln")(x14_main)
     x14_main = layers.Activation("relu")(x14_main)
 
-    c1 = label_spatial_attention(x14_main, lbl, k=5, name="enc_spatial_attn")
+    sc14 = layers.Conv2D(64, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="ph1_enc14_proj")(img)
+    x14 = layers.Add()([x14_main, sc14])
+    x14 = layers.Activation("relu")(x14)
+
+    c1 = label_spatial_attention(x14, lbl, k=5, name="enc_spatial_attn")
 
     # Block 2: 14x14 -> 7x7 (mirrored from 28x28 encoder block 2)
     c2 = layers.Conv2D(64, 3, strides=2, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv2")(c1)
