@@ -64,7 +64,7 @@ DROPOUT = 0.3
 SPATIAL_DROPOUT = 0.0
 L2_REG = 0.00001
 # VAE-GAN hybrid (Phase 2 only): adversarial term + discriminator LR
-ADV_LAMBDA = 0.6
+ADV_LAMBDA = 0.1
 DISC_LR = 0.00002
 D_BATCH_INTERVAL = 3  # update discriminator every N batches (G updates every batch)
 D_REAL_LABEL = 1.0    # one-sided label smoothing for the real class
@@ -100,16 +100,25 @@ LOG_NAME = 'logs/gen1'
 LOG_NAME_PHA1 = 'logs/gen1/phase1'
 
 def weighted_pixel_loss(target, reconstruction):
-    """Foreground-weighted pixel BCE.
+    """Foreground-weighted pixel BCE, as a PER-PIXEL MEAN.
 
     keras binary_crossentropy returns shape [B,H,W] (the channel axis is
     squeezed), while `target` is [B,H,W,1] -- so the weights are squeezed
     to match before multiplying.
+
+    This previously summed over (H, W) and averaged over the batch, so its
+    value scaled with the pixel count: ~196 at 14x14 but ~784 at 28x28, and
+    ~5 orders of magnitude larger than the perceptual loss (which is a mean).
+    It is now a mean over pixels, so it is O(1) and on the same footing as the
+    perceptual / adversarial / KL terms.
+
+    NOTE: this shrinks the pixel term by H*W, so the pixel:KL balance shifts by
+    that same factor and the loss weights need retuning to compensate.
     """
     bce = keras.losses.binary_crossentropy(target, reconstruction)
     t = tf.squeeze(target, axis=-1)
     pixel_weights = t * PIXEL_POS_WEIGHT + (1.0 - t)
-    return tf.reduce_mean(tf.reduce_sum(bce * pixel_weights, axis=(1, 2)))
+    return tf.reduce_mean(tf.reduce_mean(bce * pixel_weights, axis=(1, 2)))
 
 # ─── Data ──────────────────────────────────────────────────────────
 def load_data_cvae():
