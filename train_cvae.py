@@ -25,7 +25,7 @@ from utils.mnist_loader import load_data
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "synthetic" / "data"
 LATENT_DIM = 512
 PHA1_LATENT_DIM = 256
-EPOCHS = 100
+EPOCHS = 90
 BATCH_SIZE = 256
 NUM_CLASSES = 4
 
@@ -69,11 +69,11 @@ DISC_LR = 0.00002
 D_BATCH_INTERVAL = 3  # update discriminator every N batches (G updates every batch)
 D_REAL_LABEL = 1.0    # one-sided label smoothing for the real class
 # Phase 2 KL schedule (configurable start)
-PHA2_KL_WARMUP_START = 0.001
+PHA2_KL_WARMUP_START = 0.0
 PHA2_KL_WEIGHT_START = 0.2
 PHA2_KL_WEIGHT_TARGET = 0.0
 PHA2_KL_WARMUP_EPOCHS = 3
-PHA2_KL_DECAY_EPOCHS = 60 - PROGRESSIVE_EPOCHS
+PHA2_KL_DECAY_EPOCHS = 50 - PROGRESSIVE_EPOCHS
 # Phase 2 pixel-loss schedule. Pixel BCE is what pulls the generator toward the
 # per-pixel mean (blur); annealing it down lets the perceptual + adversarial
 # terms sharpen instead. Linear, no warmup: full weight at the start of phase 2,
@@ -94,7 +94,7 @@ PHA1_KL_WARMUP_EPOCHS = PROGRESSIVE_EPOCHS - 1
 # start
 PHA1_KL_WARMUP_START = 0.1
 # end
-PHA1_KL_WEIGHT_START = 0.001
+PHA1_KL_WEIGHT_START = 0.002
 PHA1_INFO_NCE_WEIGHT = 0.0
 LOG_NAME = 'logs/gen1'
 LOG_NAME_PHA1 = 'logs/gen1/phase1'
@@ -573,6 +573,7 @@ class VAE(keras.Model):
         self.kl_loss_tracker = keras.metrics.Mean(name="kl_loss")
         self.kl_weight_tracker = keras.metrics.Mean(name="kl_weight")
         self.pixel_weight_tracker = keras.metrics.Mean(name="pixel_weight")
+        self.perceptual_loss_tracker = keras.metrics.Mean(name="perceptual_loss")
         self.epoch_tracker = tf.Variable(0, trainable=False, dtype=tf.int32)
 
     def on_epoch_begin(self, epoch, logs=None):
@@ -639,7 +640,8 @@ class VAE(keras.Model):
     @property
     def metrics(self):
         return [self.total_loss_tracker, self.recon_loss_tracker, self.kl_loss_tracker,
-                self.kl_weight_tracker, self.pixel_weight_tracker]
+                self.kl_weight_tracker, self.pixel_weight_tracker,
+                self.perceptual_loss_tracker]
 
     def train_step(self, data):
         images, labels = data
@@ -679,12 +681,15 @@ class VAE(keras.Model):
             # Perceptual loss (multi-layer feature-level)
             real_features = self.feature_extractor(images)
             fake_features = self.feature_extractor(reconstruction)
+            # Mean over feature layers of the per-layer MSE. reduce_mean already
+            # divides by the element count, so the previous `diff / n` divided by
+            # it a second time -- and since n = batch x channels, that made the
+            # term shrink as the batch grew. It also disagreed with test_step
+            # (which never divided) by ~1600x. Both now compute the same thing.
             perceptual_loss = 0.0
             count = 0
             for rf, ff in zip(real_features, fake_features):
-                diff = tf.reduce_mean(tf.square(rf - ff))
-                n = tf.cast(tf.size(rf), tf.float32)
-                perceptual_loss += diff / n
+                perceptual_loss += tf.reduce_mean(tf.square(rf - ff))
                 count += 1
             perceptual_loss /= tf.maximum(tf.cast(count, tf.float32), 1.0)
 
@@ -702,6 +707,7 @@ class VAE(keras.Model):
         self.kl_loss_tracker.update_state(kl_loss)
         self.kl_weight_tracker.update_state(kl_weight)
         self.pixel_weight_tracker.update_state(pixel_weight)
+        self.perceptual_loss_tracker.update_state(perceptual_loss)
         return {m.name: m.result() for m in self.metrics}
 
     def test_step(self, data):
@@ -735,6 +741,7 @@ class VAE(keras.Model):
         self.kl_loss_tracker.update_state(kl_loss)
         self.kl_weight_tracker.update_state(kl_weight)
         self.pixel_weight_tracker.update_state(pixel_weight)
+        self.perceptual_loss_tracker.update_state(perceptual_loss)
         return {m.name: m.result() for m in self.metrics}
 
 
@@ -843,12 +850,15 @@ class VAEGAN(VAE):
                 tf.nn.sparse_softmax_cross_entropy_with_logits(labels=labels_ce, logits=sim_matrix))
             real_features = self.feature_extractor(images)
             fake_features = self.feature_extractor(reconstruction)
+            # Mean over feature layers of the per-layer MSE. reduce_mean already
+            # divides by the element count, so the previous `diff / n` divided by
+            # it a second time -- and since n = batch x channels, that made the
+            # term shrink as the batch grew. It also disagreed with test_step
+            # (which never divided) by ~1600x. Both now compute the same thing.
             perceptual_loss = 0.0
             count = 0
             for rf, ff in zip(real_features, fake_features):
-                diff = tf.reduce_mean(tf.square(rf - ff))
-                n = tf.cast(tf.size(rf), tf.float32)
-                perceptual_loss += diff / n
+                perceptual_loss += tf.reduce_mean(tf.square(rf - ff))
                 count += 1
             perceptual_loss /= tf.maximum(tf.cast(count, tf.float32), 1.0)
 
@@ -868,6 +878,7 @@ class VAEGAN(VAE):
         self.kl_loss_tracker.update_state(kl_loss)
         self.kl_weight_tracker.update_state(kl_weight)
         self.pixel_weight_tracker.update_state(pixel_weight)
+        self.perceptual_loss_tracker.update_state(perceptual_loss)
         self.disc_loss_tracker.update_state(d_loss)
         self.adv_loss_tracker.update_state(adv_loss)
         return {m.name: m.result() for m in self.metrics}
@@ -903,6 +914,7 @@ class VAEGAN(VAE):
         self.kl_loss_tracker.update_state(kl_loss)
         self.kl_weight_tracker.update_state(kl_weight)
         self.pixel_weight_tracker.update_state(pixel_weight)
+        self.perceptual_loss_tracker.update_state(perceptual_loss)
         self.disc_loss_tracker.update_state(d_loss)
         self.adv_loss_tracker.update_state(adv_loss)
         return {m.name: m.result() for m in self.metrics}
@@ -1030,9 +1042,26 @@ class VAE14(VAE):
         decay_lr = PHA1_LR + (PHA1_LR_END - PHA1_LR) * decay_progress
         return tf.where(epoch < warmup_epochs, warmup_lr, decay_lr)
 
+    def get_pixel_weight(self):
+        """Phase 1 has no pixel schedule. Pixel BCE is the only active term here
+        (PHA1_INFO_NCE_WEIGHT is 0 and the KL contributes ~0.1% of it), so
+        annealing the weight would just rescale the whole loss -- which is
+        indistinguishable from decaying the LR. Constant, and logged as such so
+        the metric reports the truth (1.0) instead of an untouched 0.0.
+        """
+        return tf.constant(PHA1_PIXEL_LOSS_WEIGHT, dtype=tf.float32)
+
+    @property
+    def metrics(self):
+        # No perceptual loss in phase 1 (VAE14 computes pixel + KL only), so
+        # inheriting VAE.metrics would log a permanently-zero perceptual_loss.
+        return [self.total_loss_tracker, self.recon_loss_tracker, self.kl_loss_tracker,
+                self.kl_weight_tracker, self.pixel_weight_tracker]
+
     def train_step(self, data):
         images, labels = data
         self.optimizer.learning_rate = self.get_lr()
+        pixel_weight = self.get_pixel_weight()
         with tf.GradientTape() as tape:
             z_mean, z_log_var, z = self.encoder([images, labels])
             reconstruction = self.generator([z, labels])
@@ -1051,7 +1080,7 @@ class VAE14(VAE):
             kl_warmup_epochs = tf.cast(PHA1_KL_WARMUP_EPOCHS, tf.float32)
             kl_warmup_progress = tf.minimum(1.0, epoch / kl_warmup_epochs)
             kl_weight = PHA1_KL_WARMUP_START + (PHA1_KL_WEIGHT_START - PHA1_KL_WARMUP_START) * kl_warmup_progress
-            total_loss = (PHA1_PIXEL_LOSS_WEIGHT * pixel_loss +
+            total_loss = (pixel_weight * pixel_loss +
                           kl_weight * kl_loss +
                           PHA1_INFO_NCE_WEIGHT * info_nce_loss)
         grads = tape.gradient(total_loss, self.trainable_weights)
@@ -1061,6 +1090,7 @@ class VAE14(VAE):
         self.recon_loss_tracker.update_state(pixel_loss)
         self.kl_loss_tracker.update_state(kl_loss)
         self.kl_weight_tracker.update_state(kl_weight)
+        self.pixel_weight_tracker.update_state(pixel_weight)
         return {m.name: m.result() for m in self.metrics}
 
     def test_step(self, data):
@@ -1071,15 +1101,17 @@ class VAE14(VAE):
         pixel_loss = weighted_pixel_loss(target, reconstruction)
         kl_loss = -0.5 * tf.reduce_mean(tf.reduce_sum(
             1 + z_log_var - tf.square(z_mean) - tf.exp(z_log_var), axis=1))
+        pixel_weight = self.get_pixel_weight()
         epoch = tf.cast(self.epoch_tracker, tf.float32)
         kl_warmup_epochs = tf.cast(PHA1_KL_WARMUP_EPOCHS, tf.float32)
         kl_warmup_progress = tf.minimum(1.0, epoch / kl_warmup_epochs)
         kl_weight = PHA1_KL_WARMUP_START + (PHA1_KL_WEIGHT_START - PHA1_KL_WARMUP_START) * kl_warmup_progress
-        total_loss = PHA1_PIXEL_LOSS_WEIGHT * pixel_loss + kl_weight * kl_loss
+        total_loss = pixel_weight * pixel_loss + kl_weight * kl_loss
         self.total_loss_tracker.update_state(total_loss)
         self.recon_loss_tracker.update_state(pixel_loss)
         self.kl_loss_tracker.update_state(kl_loss)
         self.kl_weight_tracker.update_state(kl_weight)
+        self.pixel_weight_tracker.update_state(pixel_weight)
         return {m.name: m.result() for m in self.metrics}
 
 vae_14 = VAE14(encoder_14, generator_14)
