@@ -52,7 +52,6 @@ LR_WARMUP_START = 0.0001
 LR_WARMUP_EPOCHS = 4
 LR_DECAY_EPOCHS = EPOCHS - LR_WARMUP_EPOCHS
 LR_END = 0.0001
-PERCEPTUAL_LOSS_WEIGHT = 100.0
 INFO_NCE_WEIGHT = 0.001
 TEMPERATURE = 1.0
 # Foreground weight for pixel BCE. Sparse classes (e.g. class 4, ~12.6%
@@ -82,6 +81,19 @@ PHA2_KL_DECAY_EPOCHS = 50 - PROGRESSIVE_EPOCHS
 PHA2_PIXEL_WEIGHT_START = 1.0 * 20
 PHA2_PIXEL_WEIGHT_TARGET = 0.5 * 20
 PHA2_PIXEL_DECAY_EPOCHS = EPOCHS - PROGRESSIVE_EPOCHS - 1
+# Phase 2 perceptual-loss schedule. The perceptual term is measured through a
+# FROZEN MNIST classifier, so early in phase 2 the generator's output is far
+# enough from real digits that its features carry no useful signal -- a strong
+# perceptual gradient then pulls toward the classifier's notion of "digit"
+# before the basic structure exists. So: 0 at the start of phase 2, warm up once
+# the pixel term has established coarse structure, then decay.
+# Note the perceptual loss is a feature-MSE (~0.015), roughly 2 orders of
+# magnitude below the pixel/KL terms, so these weights are correspondingly large.
+PHA2_PERC_WARMUP_START = 0.0
+PHA2_PERC_WEIGHT_START = 100.0   # peak, reached at the end of warmup
+PHA2_PERC_WEIGHT_TARGET = 20.0
+PHA2_PERC_WARMUP_EPOCHS = 10
+PHA2_PERC_DECAY_EPOCHS = EPOCHS - PROGRESSIVE_EPOCHS - PHA2_PERC_WARMUP_EPOCHS - 1
 PHA2_TRANSFER_FREEZE_EPOCHS = 2
 # Phase 1 (14x14) specific config
 PHA1_LR = 0.003
@@ -583,6 +595,7 @@ class VAE(keras.Model):
         self.kl_weight_tracker = keras.metrics.Mean(name="kl_weight")
         self.pixel_weight_tracker = keras.metrics.Mean(name="pixel_weight")
         self.perceptual_loss_tracker = keras.metrics.Mean(name="perceptual_loss")
+        self.perceptual_weight_tracker = keras.metrics.Mean(name="perceptual_weight")
         self.epoch_tracker = tf.Variable(0, trainable=False, dtype=tf.int32)
 
     def on_epoch_begin(self, epoch, logs=None):
@@ -646,11 +659,40 @@ class VAE(keras.Model):
             p2_epoch / tf.cast(PHA2_PIXEL_DECAY_EPOCHS, tf.float32), 0.0, 1.0)
         return start + (end - start) * progress
 
+    def get_perceptual_weight(self):
+        """Warm up then decay the perceptual-loss weight across phase 2.
+
+        The perceptual term is measured through a frozen MNIST classifier, so at
+        the start of phase 2 the generator's output is far enough from real
+        digits that the classifier's features are uninformative -- a strong
+        perceptual gradient there pulls toward "what a digit looks like" before
+        the basic structure exists. Ramp in after the pixel term has done its
+        work, then decay so it does not fight the fine detail at the end.
+
+        Same shape as get_kl_weight: constant `start` before phase 2, linear
+        warmup start->mid over PHA2_PERC_WARMUP_EPOCHS, then linear decay
+        mid->end. Continuous at the handover (both branches equal mid), and both
+        progress terms are clipped at both ends.
+        """
+        epoch = tf.cast(self.epoch_tracker, tf.float32)
+        p2_epoch = epoch - tf.cast(PROGRESSIVE_EPOCHS, tf.float32)
+        warmup_epochs = tf.cast(PHA2_PERC_WARMUP_EPOCHS, tf.float32)
+        decay_epochs = tf.cast(PHA2_PERC_DECAY_EPOCHS, tf.float32)
+        start = tf.constant(PHA2_PERC_WARMUP_START, dtype=tf.float32)
+        mid = tf.constant(PHA2_PERC_WEIGHT_START, dtype=tf.float32)
+        end = tf.constant(PHA2_PERC_WEIGHT_TARGET, dtype=tf.float32)
+        warmup_progress = tf.clip_by_value(p2_epoch / warmup_epochs, 0.0, 1.0)
+        warmup_weight = start + (mid - start) * warmup_progress
+        decay_progress = tf.clip_by_value(
+            (p2_epoch - warmup_epochs) / decay_epochs, 0.0, 1.0)
+        decay_weight = mid + (end - mid) * decay_progress
+        return tf.where(p2_epoch < warmup_epochs, warmup_weight, decay_weight)
+
     @property
     def metrics(self):
         return [self.total_loss_tracker, self.recon_loss_tracker, self.kl_loss_tracker,
                 self.kl_weight_tracker, self.pixel_weight_tracker,
-                self.perceptual_loss_tracker]
+                self.perceptual_loss_tracker, self.perceptual_weight_tracker]
 
     def train_step(self, data):
         images, labels = data
@@ -658,9 +700,10 @@ class VAE(keras.Model):
         # Update LR with warmup
         self.optimizer.learning_rate = self.get_lr()
 
-        # Get loss weights (both scheduled across phase 2)
+        # Get loss weights (all scheduled across phase 2)
         kl_weight = self.get_kl_weight()
         pixel_weight = self.get_pixel_weight()
+        perceptual_weight = self.get_perceptual_weight()
 
         with tf.GradientTape() as tape:
             z_mean, z_log_var, z = self.encoder([images, labels])
@@ -704,7 +747,7 @@ class VAE(keras.Model):
 
             # Combined loss
             total_loss = (pixel_weight * pixel_loss +
-                          PERCEPTUAL_LOSS_WEIGHT * perceptual_loss +
+                          perceptual_weight * perceptual_loss +
                           kl_weight * kl_loss +
                           INFO_NCE_WEIGHT * info_nce_loss)
 
@@ -717,6 +760,7 @@ class VAE(keras.Model):
         self.kl_weight_tracker.update_state(kl_weight)
         self.pixel_weight_tracker.update_state(pixel_weight)
         self.perceptual_loss_tracker.update_state(perceptual_loss)
+        self.perceptual_weight_tracker.update_state(perceptual_weight)
         return {m.name: m.result() for m in self.metrics}
 
     def test_step(self, data):
@@ -729,6 +773,7 @@ class VAE(keras.Model):
             1 + z_log_var - tf.square(z_mean) - tf.exp(z_log_var), axis=1))
         kl_weight = self.get_kl_weight()
         pixel_weight = self.get_pixel_weight()
+        perceptual_weight = self.get_perceptual_weight()
         batch_size = tf.shape(z)[0]
         z_norm = tf.math.l2_normalize(z, axis=1)
         sim_matrix = tf.matmul(z_norm, z_norm, transpose_b=True) / TEMPERATURE
@@ -742,7 +787,7 @@ class VAE(keras.Model):
             for rf, ff in zip(real_features, fake_features)
         ])
         total_loss = (pixel_weight * pixel_loss +
-                      PERCEPTUAL_LOSS_WEIGHT * perceptual_loss +
+                      perceptual_weight * perceptual_loss +
                       kl_weight * kl_loss +
                       INFO_NCE_WEIGHT * info_nce_loss)
         self.total_loss_tracker.update_state(total_loss)
@@ -751,6 +796,7 @@ class VAE(keras.Model):
         self.kl_weight_tracker.update_state(kl_weight)
         self.pixel_weight_tracker.update_state(pixel_weight)
         self.perceptual_loss_tracker.update_state(perceptual_loss)
+        self.perceptual_weight_tracker.update_state(perceptual_weight)
         return {m.name: m.result() for m in self.metrics}
 
 
@@ -806,6 +852,7 @@ class VAEGAN(VAE):
         self.optimizer.learning_rate = self.get_lr()
         kl_weight = self.get_kl_weight()
         pixel_weight = self.get_pixel_weight()
+        perceptual_weight = self.get_perceptual_weight()
 
         # Encode once for the discriminator's fake sample. Deliberately OUTSIDE
         # any tape: this pass needs no gradients, and recording it would build
@@ -872,7 +919,7 @@ class VAEGAN(VAE):
             perceptual_loss /= tf.maximum(tf.cast(count, tf.float32), 1.0)
 
             total_loss = (pixel_weight * pixel_loss +
-                          PERCEPTUAL_LOSS_WEIGHT * perceptual_loss +
+                          perceptual_weight * perceptual_loss +
                           kl_weight * kl_loss +
                           INFO_NCE_WEIGHT * info_nce_loss +
                           ADV_LAMBDA * adv_loss)
@@ -888,6 +935,7 @@ class VAEGAN(VAE):
         self.kl_weight_tracker.update_state(kl_weight)
         self.pixel_weight_tracker.update_state(pixel_weight)
         self.perceptual_loss_tracker.update_state(perceptual_loss)
+        self.perceptual_weight_tracker.update_state(perceptual_weight)
         self.disc_loss_tracker.update_state(d_loss)
         self.adv_loss_tracker.update_state(adv_loss)
         return {m.name: m.result() for m in self.metrics}
@@ -908,6 +956,7 @@ class VAEGAN(VAE):
             1 + z_log_var - tf.square(z_mean) - tf.exp(z_log_var), axis=1))
         kl_weight = self.get_kl_weight()
         pixel_weight = self.get_pixel_weight()
+        perceptual_weight = self.get_perceptual_weight()
         real_features = self.feature_extractor(images)
         fake_features = self.feature_extractor(reconstruction)
         perceptual_loss = tf.reduce_mean([
@@ -915,7 +964,7 @@ class VAEGAN(VAE):
             for rf, ff in zip(real_features, fake_features)
         ])
         total_loss = (pixel_weight * pixel_loss +
-                      PERCEPTUAL_LOSS_WEIGHT * perceptual_loss +
+                      perceptual_weight * perceptual_loss +
                       kl_weight * kl_loss +
                       ADV_LAMBDA * adv_loss)
         self.total_loss_tracker.update_state(total_loss)
@@ -924,6 +973,7 @@ class VAEGAN(VAE):
         self.kl_weight_tracker.update_state(kl_weight)
         self.pixel_weight_tracker.update_state(pixel_weight)
         self.perceptual_loss_tracker.update_state(perceptual_loss)
+        self.perceptual_weight_tracker.update_state(perceptual_weight)
         self.disc_loss_tracker.update_state(d_loss)
         self.adv_loss_tracker.update_state(adv_loss)
         return {m.name: m.result() for m in self.metrics}
