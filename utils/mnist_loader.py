@@ -131,13 +131,13 @@ def load_data(data_dir, num_classes=6, flip_pixels=2, image_shape=(28, 28, 1), r
             for f in train_files:
                 img = np.load(str(f)).astype(np.float32) / 255.0
                 img = np.asarray(img).reshape(image_shape)
-                img = (img > 0.5).astype(np.float32)
+                #img = (img > 0.5).astype(np.float32)
                 x_train.append(img)
                 y_train.append(c)
             for f in test_files:
                 img = np.load(str(f)).astype(np.float32) / 255.0
                 img = np.asarray(img).reshape(image_shape)
-                img = (img > 0.5).astype(np.float32)
+                #img = (img > 0.5).astype(np.float32)
                 x_test.append(img)
                 y_test.append(c)
 
