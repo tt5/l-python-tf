@@ -134,11 +134,12 @@ def build_encoder():
     img = keras.Input(shape=(28, 28, 1), name="image_input")
     lbl = keras.Input(shape=(NUM_CLASSES,), name="label_input")
 
-    # Label-conditioned spatial attention with real spatial context (CBAM-style).
-    # Channel-pool (avg+max) + broadcast label -> kxk conv -> sigmoid gate.
-    # Lets the encoder focus on class-relevant structure before the downsample
-    # crush, so e.g. line pixels are preserved into the latent.
-    def label_spatial_attention(x, lbl, k, name=None):
+    # Label-conditioned spatial gate (CBAM-style). Channel-pool (avg+max) +
+    # broadcast label -> kxk conv -> sigmoid gate. Returns the GATE (not
+    # x * gate) so it can be fused with FiLM by CollabModulation at c1 -- the
+    # same contract as build_encoder_14 and the generator's
+    # spatial_attention_map.
+    def spatial_attention_map(x, lbl, k, name=None):
         avg = tf.reduce_mean(x, axis=-1, keepdims=True)
         mx = tf.reduce_max(x, axis=-1, keepdims=True)
         pooled = layers.Concatenate()([avg, mx])
@@ -147,7 +148,7 @@ def build_encoder():
         lbl_map = layers.UpSampling2D(size=h, interpolation="nearest")(lbl_map)
         att_in = layers.Concatenate()([pooled, lbl_map])
         att = layers.Conv2D(1, k, padding="same", activation="sigmoid", name=name)(att_in)
-        return layers.Multiply()([x, att])
+        return att
 
     b3 = layers.Conv2D(16, 3, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc28_conv3")(img)
     b5 = layers.Conv2D(16, 5, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc28_conv5")(img)
@@ -175,15 +176,24 @@ def build_encoder():
     sc = layers.Conv2D(48, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc28_skip_proj")(layers.AveragePooling2D(2)(x28_main))
     c1 = layers.Add()([c1, sc])
     c1 = layers.Activation("relu")(c1)
-    # Label-conditioned spatial attention at 14x14 (k=5): focus on class-relevant
-    # structure before the 7x7 crush. (Early low-channel SE se1 removed here.)
-    c1 = label_spatial_attention(c1, lbl, k=5, name="enc_spatial_attn")
+    # Label injection at c1 -- identical mechanism to build_encoder_14:
+    # per-channel FiLM fused with the spatial gate via learned colla-factors
+    # (CAT, collab.py):
+    #     x' = x * (c_w * gamma + s_w * att) + beta
+    # Names match phase 1 deliberately. enc_collab14/c_w and /s_w are scalars,
+    # so they DO transfer. enc_film14_g/b are Dense(5->48) here vs Dense(5->64)
+    # in phase 1 (c1 is 48ch in phase 2, 64ch in phase 1), so they appear as
+    # shape skips in the transfer log instead of transferring silently.
+    att = spatial_attention_map(c1, lbl, k=5, name="enc_spatial_attn")
+    gamma14 = layers.Reshape((1, 1, 48))(2.0 * layers.Dense(48, activation="sigmoid", name="enc_film14_g")(lbl))
+    beta14 = layers.Reshape((1, 1, 48))(layers.Dense(48, name="enc_film14_b")(lbl))
+    c1 = CollabModulation(name="enc_collab14")([c1, gamma14, att, beta14])
 
     # Conv block 2: 14x14 → 7x7
-    c2 = layers.Conv2D(64, 3, strides=2, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv2")(c1)
+    c2 = layers.Conv2D(96, 3, strides=2, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv2")(c1)
     c2 = layers.Activation("relu")(c2)
     # Residual connection: project c1 (14x14x64) to match c2 (7x7x128)
-    skip = layers.Conv2D(64, 1, strides=2, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv2_skip")(c1)
+    skip = layers.Conv2D(96, 1, strides=2, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv2_skip")(c1)
     c2 = layers.Add()([c2, skip])
     c2 = layers.Activation("relu")(c2)
 
@@ -226,8 +236,11 @@ def build_encoder_14():
     img = keras.Input(shape=(14, 14, 1), name="image_input")
     lbl = keras.Input(shape=(NUM_CLASSES,), name="label_input")
 
-    # Label-conditioned spatial attention (mirrors build_encoder for name transfer)
-    def label_spatial_attention(x, lbl, k, name=None):
+    # Label-conditioned spatial gate. Returns the GATE (not x * gate) so it can
+    # be fused with FiLM by CollabModulation at c1 -- the same contract as the
+    # generator's spatial_attention_map. The Conv2D keeps its name, so
+    # enc_spatial_attn still matches phase 2 by name and shape.
+    def spatial_attention_map(x, lbl, k, name=None):
         avg = tf.reduce_mean(x, axis=-1, keepdims=True)
         mx = tf.reduce_max(x, axis=-1, keepdims=True)
         pooled = layers.Concatenate()([avg, mx])
@@ -236,7 +249,7 @@ def build_encoder_14():
         lbl_map = layers.UpSampling2D(size=h, interpolation="nearest")(lbl_map)
         att_in = layers.Concatenate()([pooled, lbl_map])
         att = layers.Conv2D(1, k, padding="same", activation="sigmoid", name=name)(att_in)
-        return layers.Multiply()([x, att])
+        return att
 
     # 14x14 front-end, phase 1. Mirrors the enc28_* front-end in build_encoder,
     # but 3/5 rather than 3/5/7: bilinear downsampling to 14x14 halves stroke
@@ -247,22 +260,36 @@ def build_encoder_14():
     # subtraction cancels it exactly) -- it is gone; (b) relu -> LN -> relu
     # clipped the pre-activations twice around the norm -- now LN sees raw
     # pre-activations with a single relu after, exactly as in phase 2.
-    b3 = layers.Conv2D(32, 3, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc14_conv3")(img)
-    b5 = layers.Conv2D(32, 5, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc14_conv5")(img)
+    b3 = layers.Conv2D(24, 3, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc14_conv3")(img)
+    b5 = layers.Conv2D(24, 5, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc14_conv5")(img)
     x14_main = layers.Concatenate(name="enc14_cat")([b3, b5])   # 2 x ch @ 14x14
     x14_main = layers.LayerNormalization(name="enc14_ln")(x14_main)
     x14_main = layers.Activation("relu")(x14_main)
 
-    sc14 = layers.Conv2D(64, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="ph1_enc14_proj")(img)
+    sc14 = layers.Conv2D(48, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="ph1_enc14_proj")(img)
     x14 = layers.Add()([x14_main, sc14])
     x14 = layers.Activation("relu")(x14)
 
-    c1 = label_spatial_attention(x14, lbl, k=5, name="enc_spatial_attn")
+    # Label injection at c1: per-channel FiLM fused with the spatial gate via
+    # learned colla-factors (CAT, collab.py):
+    #     x' = x * (c_w * gamma + s_w * att) + beta
+    # c_w=1, s_w=0 at init, so this starts as pure FiLM -- a direct linear
+    # 5->64 map from the label -- instead of only shifting a sigmoid's operating
+    # point, which is all the old `x * att` could do: lbl_map is spatially
+    # constant, so the label carried no positional information and the gate
+    # varied only by a per-class gain.
+    # Phase-1 only, deliberately: the generator already uses this mechanism at
+    # 14x14/28x28, so encoder and generator conditioning are now symmetric.
+    # enc_film14_*/enc_collab14 are phase-1-only names and do not transfer.
+    att = spatial_attention_map(x14, lbl, k=5, name="enc_spatial_attn")
+    gamma14 = layers.Reshape((1, 1, 48))(2.0 * layers.Dense(48, activation="sigmoid", name="enc_film14_g")(lbl))
+    beta14 = layers.Reshape((1, 1, 48))(layers.Dense(48, name="enc_film14_b")(lbl))
+    c1 = CollabModulation(name="enc_collab14")([x14, gamma14, att, beta14])
 
     # Block 2: 14x14 -> 7x7 (mirrored from 28x28 encoder block 2)
-    c2 = layers.Conv2D(64, 3, strides=2, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv2")(c1)
+    c2 = layers.Conv2D(96, 3, strides=2, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv2")(c1)
     c2 = layers.Activation("relu")(c2)
-    skip = layers.Conv2D(64, 1, strides=2, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv2_skip")(c1)
+    skip = layers.Conv2D(96, 1, strides=2, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv2_skip")(c1)
     c2 = layers.Add()([c2, skip])
     c2 = layers.Activation("relu")(c2)
 
