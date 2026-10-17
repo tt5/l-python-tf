@@ -52,7 +52,6 @@ LR_WARMUP_START = 0.0001
 LR_WARMUP_EPOCHS = 4
 LR_DECAY_EPOCHS = EPOCHS - LR_WARMUP_EPOCHS
 LR_END = 0.0001
-PIXEL_LOSS_WEIGHT = 0.6
 PERCEPTUAL_LOSS_WEIGHT = 0.4
 INFO_NCE_WEIGHT = 0.008
 TEMPERATURE = 1.0
@@ -75,6 +74,14 @@ PHA2_KL_WEIGHT_START = 0.2
 PHA2_KL_WEIGHT_TARGET = 0.0
 PHA2_KL_WARMUP_EPOCHS = 3
 PHA2_KL_DECAY_EPOCHS = 60 - PROGRESSIVE_EPOCHS
+# Phase 2 pixel-loss schedule. Pixel BCE is what pulls the generator toward the
+# per-pixel mean (blur); annealing it down lets the perceptual + adversarial
+# terms sharpen instead. Linear, no warmup: full weight at the start of phase 2,
+# TARGET on the last epoch actually run -- hence the -1, since phase 2 runs
+# epochs PROGRESSIVE_EPOCHS .. EPOCHS-1.
+PHA2_PIXEL_WEIGHT_START = 0.6
+PHA2_PIXEL_WEIGHT_TARGET = 0.2
+PHA2_PIXEL_DECAY_EPOCHS = EPOCHS - PROGRESSIVE_EPOCHS - 1
 PHA2_TRANSFER_FREEZE_EPOCHS = 2
 # Phase 1 (14x14) specific config
 PHA1_LR = 0.003
@@ -565,6 +572,7 @@ class VAE(keras.Model):
         self.recon_loss_tracker = keras.metrics.Mean(name="recon_loss")
         self.kl_loss_tracker = keras.metrics.Mean(name="kl_loss")
         self.kl_weight_tracker = keras.metrics.Mean(name="kl_weight")
+        self.pixel_weight_tracker = keras.metrics.Mean(name="pixel_weight")
         self.epoch_tracker = tf.Variable(0, trainable=False, dtype=tf.int32)
 
     def on_epoch_begin(self, epoch, logs=None):
@@ -605,9 +613,33 @@ class VAE(keras.Model):
         is_phase3 = tf.cast(kl_epoch >= warmup_epochs, tf.float32)
         return start * is_phase1 + warmup_weight * is_phase2 + decay_weight * is_phase3
 
+    def get_pixel_weight(self):
+        """Linear anneal of the pixel-loss weight across phase 2.
+
+        Pixel BCE is what drives the generator toward the per-pixel mean, so
+        holding it constant keeps the output blurry no matter how strong the
+        perceptual/adversarial terms get. Phase 1 deliberately has no schedule:
+        its loss is pixel + a negligible KL + info_nce=0, so pixel is the only
+        active term and decaying its weight would just rescale the whole loss --
+        indistinguishable from decaying the LR.
+
+        Progress is clipped at BOTH ends, so pre-phase-2 epochs clamp to START
+        instead of overshooting above it. (get_lr/get_kl_weight use an
+        asymmetric tf.minimum(1.0, ...) and rely on tf.where to mask the
+        out-of-range branch; no need to repeat that trap here.)
+        """
+        epoch = tf.cast(self.epoch_tracker, tf.float32)
+        p2_epoch = epoch - tf.cast(PROGRESSIVE_EPOCHS, tf.float32)
+        start = tf.constant(PHA2_PIXEL_WEIGHT_START, dtype=tf.float32)
+        end = tf.constant(PHA2_PIXEL_WEIGHT_TARGET, dtype=tf.float32)
+        progress = tf.clip_by_value(
+            p2_epoch / tf.cast(PHA2_PIXEL_DECAY_EPOCHS, tf.float32), 0.0, 1.0)
+        return start + (end - start) * progress
+
     @property
     def metrics(self):
-        return [self.total_loss_tracker, self.recon_loss_tracker, self.kl_loss_tracker, self.kl_weight_tracker]
+        return [self.total_loss_tracker, self.recon_loss_tracker, self.kl_loss_tracker,
+                self.kl_weight_tracker, self.pixel_weight_tracker]
 
     def train_step(self, data):
         images, labels = data
@@ -615,8 +647,9 @@ class VAE(keras.Model):
         # Update LR with warmup
         self.optimizer.learning_rate = self.get_lr()
 
-        # Get KL weight
+        # Get loss weights (both scheduled across phase 2)
         kl_weight = self.get_kl_weight()
+        pixel_weight = self.get_pixel_weight()
 
         with tf.GradientTape() as tape:
             z_mean, z_log_var, z = self.encoder([images, labels])
@@ -656,7 +689,7 @@ class VAE(keras.Model):
             perceptual_loss /= tf.maximum(tf.cast(count, tf.float32), 1.0)
 
             # Combined loss
-            total_loss = (PIXEL_LOSS_WEIGHT * pixel_loss +
+            total_loss = (pixel_weight * pixel_loss +
                           PERCEPTUAL_LOSS_WEIGHT * perceptual_loss +
                           kl_weight * kl_loss +
                           INFO_NCE_WEIGHT * info_nce_loss)
@@ -668,6 +701,7 @@ class VAE(keras.Model):
         self.recon_loss_tracker.update_state(pixel_loss)
         self.kl_loss_tracker.update_state(kl_loss)
         self.kl_weight_tracker.update_state(kl_weight)
+        self.pixel_weight_tracker.update_state(pixel_weight)
         return {m.name: m.result() for m in self.metrics}
 
     def test_step(self, data):
@@ -679,6 +713,7 @@ class VAE(keras.Model):
         kl_loss = -0.5 * tf.reduce_mean(tf.reduce_sum(
             1 + z_log_var - tf.square(z_mean) - tf.exp(z_log_var), axis=1))
         kl_weight = self.get_kl_weight()
+        pixel_weight = self.get_pixel_weight()
         batch_size = tf.shape(z)[0]
         z_norm = tf.math.l2_normalize(z, axis=1)
         sim_matrix = tf.matmul(z_norm, z_norm, transpose_b=True) / TEMPERATURE
@@ -691,7 +726,7 @@ class VAE(keras.Model):
             tf.reduce_mean(tf.square(rf - ff))
             for rf, ff in zip(real_features, fake_features)
         ])
-        total_loss = (PIXEL_LOSS_WEIGHT * pixel_loss +
+        total_loss = (pixel_weight * pixel_loss +
                       PERCEPTUAL_LOSS_WEIGHT * perceptual_loss +
                       kl_weight * kl_loss +
                       INFO_NCE_WEIGHT * info_nce_loss)
@@ -699,6 +734,7 @@ class VAE(keras.Model):
         self.recon_loss_tracker.update_state(pixel_loss)
         self.kl_loss_tracker.update_state(kl_loss)
         self.kl_weight_tracker.update_state(kl_weight)
+        self.pixel_weight_tracker.update_state(pixel_weight)
         return {m.name: m.result() for m in self.metrics}
 
 
@@ -753,6 +789,7 @@ class VAEGAN(VAE):
         images, labels = data
         self.optimizer.learning_rate = self.get_lr()
         kl_weight = self.get_kl_weight()
+        pixel_weight = self.get_pixel_weight()
 
         # Encode once for the discriminator's fake sample. Deliberately OUTSIDE
         # any tape: this pass needs no gradients, and recording it would build
@@ -815,7 +852,7 @@ class VAEGAN(VAE):
                 count += 1
             perceptual_loss /= tf.maximum(tf.cast(count, tf.float32), 1.0)
 
-            total_loss = (PIXEL_LOSS_WEIGHT * pixel_loss +
+            total_loss = (pixel_weight * pixel_loss +
                           PERCEPTUAL_LOSS_WEIGHT * perceptual_loss +
                           kl_weight * kl_loss +
                           INFO_NCE_WEIGHT * info_nce_loss +
@@ -830,6 +867,7 @@ class VAEGAN(VAE):
         self.recon_loss_tracker.update_state(pixel_loss)
         self.kl_loss_tracker.update_state(kl_loss)
         self.kl_weight_tracker.update_state(kl_weight)
+        self.pixel_weight_tracker.update_state(pixel_weight)
         self.disc_loss_tracker.update_state(d_loss)
         self.adv_loss_tracker.update_state(adv_loss)
         return {m.name: m.result() for m in self.metrics}
@@ -849,13 +887,14 @@ class VAEGAN(VAE):
         kl_loss = -0.5 * tf.reduce_mean(tf.reduce_sum(
             1 + z_log_var - tf.square(z_mean) - tf.exp(z_log_var), axis=1))
         kl_weight = self.get_kl_weight()
+        pixel_weight = self.get_pixel_weight()
         real_features = self.feature_extractor(images)
         fake_features = self.feature_extractor(reconstruction)
         perceptual_loss = tf.reduce_mean([
             tf.reduce_mean(tf.square(rf - ff))
             for rf, ff in zip(real_features, fake_features)
         ])
-        total_loss = (PIXEL_LOSS_WEIGHT * pixel_loss +
+        total_loss = (pixel_weight * pixel_loss +
                       PERCEPTUAL_LOSS_WEIGHT * perceptual_loss +
                       kl_weight * kl_loss +
                       ADV_LAMBDA * adv_loss)
@@ -863,6 +902,7 @@ class VAEGAN(VAE):
         self.recon_loss_tracker.update_state(pixel_loss)
         self.kl_loss_tracker.update_state(kl_loss)
         self.kl_weight_tracker.update_state(kl_weight)
+        self.pixel_weight_tracker.update_state(pixel_weight)
         self.disc_loss_tracker.update_state(d_loss)
         self.adv_loss_tracker.update_state(adv_loss)
         return {m.name: m.result() for m in self.metrics}
