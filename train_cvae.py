@@ -25,7 +25,7 @@ from utils.mnist_loader import load_data
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "synthetic" / "data"
 LATENT_DIM = 512
 PHA1_LATENT_DIM = 256
-EPOCHS = 80
+EPOCHS = 90
 BATCH_SIZE = 512
 NUM_CLASSES = 4
 
@@ -90,10 +90,10 @@ PHA2_PIXEL_DECAY_EPOCHS = EPOCHS - PROGRESSIVE_EPOCHS - 1
 # Note the perceptual loss is a feature-MSE (~0.015), roughly 2 orders of
 # magnitude below the pixel/KL terms, so these weights are correspondingly large.
 PHA2_PERC_WARMUP_START = 0.0
-PHA2_PERC_WEIGHT_START = 100.0   # peak, reached at the end of warmup
-PHA2_PERC_WEIGHT_TARGET = 20.0
-PHA2_PERC_WARMUP_EPOCHS = 10
-PHA2_PERC_DECAY_EPOCHS = EPOCHS - PROGRESSIVE_EPOCHS - PHA2_PERC_WARMUP_EPOCHS - 1
+PHA2_PERC_WEIGHT_START = 200.0   # peak, reached at the end of warmup
+PHA2_PERC_WEIGHT_TARGET = 0.0
+PHA2_PERC_WARMUP_EPOCHS = 20
+PHA2_PERC_DECAY_EPOCHS = EPOCHS - PROGRESSIVE_EPOCHS - PHA2_PERC_WARMUP_EPOCHS - 1 - 10
 PHA2_TRANSFER_FREEZE_EPOCHS = 2
 # Phase 1 (14x14) specific config
 PHA1_LR = 0.003
@@ -108,8 +108,8 @@ PHA1_KL_WARMUP_START = 0.002
 # end
 PHA1_KL_WEIGHT_START = 0.01
 PHA1_INFO_NCE_WEIGHT = 0.0
-LOG_NAME = 'logs/gen1'
-LOG_NAME_PHA1 = 'logs/gen1/phase1'
+LOG_NAME = 'logs/gen1b'
+LOG_NAME_PHA1 = 'logs/gen1b/phase1'
 
 def weighted_pixel_loss(target, reconstruction):
     """Foreground-weighted pixel BCE, as a PER-PIXEL MEAN.
