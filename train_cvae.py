@@ -63,15 +63,15 @@ DROPOUT = 0.3
 SPATIAL_DROPOUT = 0.0
 L2_REG = 0.00001
 # VAE-GAN hybrid (Phase 2 only): adversarial term + discriminator LR
-ADV_LAMBDA = 0.2
+ADV_LAMBDA = 0.3
 DISC_LR = 0.00001
 D_BATCH_INTERVAL = 2  # update discriminator every N batches (G updates every batch)
 D_REAL_LABEL = 1.0    # one-sided label smoothing for the real class
 # Phase 2 KL schedule (configurable start)
 PHA2_KL_WARMUP_START = 0.0
 PHA2_KL_WEIGHT_START = 0.1
-PHA2_KL_WEIGHT_TARGET = 0.00001
-PHA2_KL_WARMUP_EPOCHS = 3
+PHA2_KL_WEIGHT_TARGET = 0.00002
+PHA2_KL_WARMUP_EPOCHS = 10
 PHA2_KL_DECAY_EPOCHS = 50 - PROGRESSIVE_EPOCHS
 # Phase 2 pixel-loss schedule. Pixel BCE is what pulls the generator toward the
 # per-pixel mean (blur); annealing it down lets the perceptual + adversarial
@@ -79,7 +79,7 @@ PHA2_KL_DECAY_EPOCHS = 50 - PROGRESSIVE_EPOCHS
 # TARGET on the last epoch actually run -- hence the -1, since phase 2 runs
 # epochs PROGRESSIVE_EPOCHS .. EPOCHS-1.
 PHA2_PIXEL_WEIGHT_START = 1.0 * 20
-PHA2_PIXEL_WEIGHT_TARGET = 0.5 * 20
+PHA2_PIXEL_WEIGHT_TARGET = 0.3 * 20
 PHA2_PIXEL_DECAY_EPOCHS = EPOCHS - PROGRESSIVE_EPOCHS - 1
 # Phase 2 perceptual-loss schedule. The perceptual term is measured through a
 # FROZEN MNIST classifier, so early in phase 2 the generator's output is far
@@ -91,25 +91,25 @@ PHA2_PIXEL_DECAY_EPOCHS = EPOCHS - PROGRESSIVE_EPOCHS - 1
 # magnitude below the pixel/KL terms, so these weights are correspondingly large.
 PHA2_PERC_WARMUP_START = 0.0
 PHA2_PERC_WEIGHT_START = 200.0   # peak, reached at the end of warmup
-PHA2_PERC_WEIGHT_TARGET = 0.0
-PHA2_PERC_WARMUP_EPOCHS = 20
+PHA2_PERC_WEIGHT_TARGET = 1.0
+PHA2_PERC_WARMUP_EPOCHS = 25
 PHA2_PERC_DECAY_EPOCHS = EPOCHS - PROGRESSIVE_EPOCHS - PHA2_PERC_WARMUP_EPOCHS - 1 - 10
 PHA2_TRANSFER_FREEZE_EPOCHS = 2
 # Phase 1 (14x14) specific config
-PHA1_LR = 0.003
+PHA1_LR = 0.004
 PHA1_LR_WARMUP_START = 0.00005
-PHA1_LR_WARMUP_EPOCHS = 6
-PHA1_LR_END = 0.0001
+PHA1_LR_WARMUP_EPOCHS = 7
+PHA1_LR_END = 0.00005
 PHA1_LR_DECAY_EPOCHS = PROGRESSIVE_EPOCHS - PHA1_LR_WARMUP_EPOCHS
 PHA1_PIXEL_LOSS_WEIGHT = 1.0 * 20
 PHA1_KL_WARMUP_EPOCHS = PROGRESSIVE_EPOCHS - 1
 # start
 PHA1_KL_WARMUP_START = 0.002
 # end
-PHA1_KL_WEIGHT_START = 0.01
-PHA1_INFO_NCE_WEIGHT = 0.0
-LOG_NAME = 'logs/gen1b'
-LOG_NAME_PHA1 = 'logs/gen1b/phase1'
+PHA1_KL_WEIGHT_START = 0.005
+PHA1_INFO_NCE_WEIGHT = 0.001
+LOG_NAME = 'logs/gen1'
+LOG_NAME_PHA1 = 'logs/gen1/phase1'
 
 def weighted_pixel_loss(target, reconstruction):
     """Foreground-weighted pixel BCE, as a PER-PIXEL MEAN.
@@ -253,6 +253,8 @@ def build_encoder():
     # each contributes ~equally to the latent instead of fine being ~2%.
     main = layers.Flatten()(c3)
     main = layers.Concatenate()([main, lbl])
+    main = layers.Dense(512, activation="relu", name="enc28_head_dense", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(main)
+    main = layers.LayerNormalization(name="enc28_head_ln")(main)
     z_mean = layers.Dense(LATENT_DIM, name="z_mean", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(main)
     z_log_var = layers.Dense(LATENT_DIM, name="z_log_var", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(main)
     z = Sampling()([z_mean, z_log_var])
