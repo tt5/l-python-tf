@@ -64,13 +64,13 @@ SPATIAL_DROPOUT = 0.0
 L2_REG = 0.00001
 # VAE-GAN hybrid (Phase 2 only): adversarial term + discriminator LR
 ADV_LAMBDA = 0.4
-DISC_LR = 0.00007
+DISC_LR = 0.00008
 D_BATCH_INTERVAL = 1  # update discriminator every N batches (G updates every batch)
 D_REAL_LABEL = 1.0    # one-sided label smoothing for the real class
 # Phase 2 KL schedule (configurable start)
 PHA2_KL_WARMUP_START = 0.0
 PHA2_KL_WEIGHT_START = 0.02
-PHA2_KL_WEIGHT_TARGET = 0.0007
+PHA2_KL_WEIGHT_TARGET = 0.0008
 PHA2_KL_WARMUP_EPOCHS = 27
 PHA2_KL_DECAY_EPOCHS = 57 - PROGRESSIVE_EPOCHS
 # Phase 2 pixel-loss schedule. Pixel BCE is what pulls the generator toward the
@@ -108,8 +108,8 @@ PHA1_KL_WARMUP_START = 0.003
 # end
 PHA1_KL_WEIGHT_START = 0.007
 PHA1_INFO_NCE_WEIGHT = 0.001
-LOG_NAME = 'logs/gen1'
-LOG_NAME_PHA1 = 'logs/gen1/phase1'
+LOG_NAME = 'logs/gen1b'
+LOG_NAME_PHA1 = 'logs/gen1b/phase1'
 
 def weighted_pixel_loss(target, reconstruction):
     """Foreground-weighted pixel BCE, as a PER-PIXEL MEAN.
