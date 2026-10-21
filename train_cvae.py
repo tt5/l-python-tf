@@ -25,7 +25,7 @@ from utils.mnist_loader import load_data
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "synthetic" / "data"
 LATENT_DIM = 512
 PHA1_LATENT_DIM = 256
-EPOCHS = 160
+EPOCHS = 170
 BATCH_SIZE = 1024
 NUM_CLASSES = 4
 
@@ -64,15 +64,15 @@ SPATIAL_DROPOUT = 0.0
 L2_REG = 0.00001
 # VAE-GAN hybrid (Phase 2 only): adversarial term + discriminator LR
 ADV_LAMBDA = 0.4
-DISC_LR = 0.00008
+DISC_LR = 0.00009
 D_BATCH_INTERVAL = 1  # update discriminator every N batches (G updates every batch)
 D_REAL_LABEL = 1.0    # one-sided label smoothing for the real class
 # Phase 2 KL schedule (configurable start)
 PHA2_KL_WARMUP_START = 0.0
-PHA2_KL_WEIGHT_START = 0.02
-PHA2_KL_WEIGHT_TARGET = 0.0008
-PHA2_KL_WARMUP_EPOCHS = 27
-PHA2_KL_DECAY_EPOCHS = 57 - PROGRESSIVE_EPOCHS
+PHA2_KL_WEIGHT_START = 0.019
+PHA2_KL_WEIGHT_TARGET = 0.00085
+PHA2_KL_WARMUP_EPOCHS = 29
+PHA2_KL_DECAY_EPOCHS = 59 - PROGRESSIVE_EPOCHS
 # Phase 2 pixel-loss schedule. Pixel BCE is what pulls the generator toward the
 # per-pixel mean (blur); annealing it down lets the perceptual + adversarial
 # terms sharpen instead. Linear, no warmup: full weight at the start of phase 2,
@@ -89,27 +89,27 @@ PHA2_PIXEL_DECAY_EPOCHS = EPOCHS - PROGRESSIVE_EPOCHS - 1
 # the pixel term has established coarse structure, then decay.
 # Note the perceptual loss is a feature-MSE (~0.015), roughly 2 orders of
 # magnitude below the pixel/KL terms, so these weights are correspondingly large.
-PHA2_PERC_WARMUP_START = 0.0
+PHA2_PERC_WARMUP_START = 1.0
 PHA2_PERC_WEIGHT_START = 300.0   # peak, reached at the end of warmup
 PHA2_PERC_WEIGHT_TARGET = 2.0
-PHA2_PERC_WARMUP_EPOCHS = 37
+PHA2_PERC_WARMUP_EPOCHS = 39
 PHA2_PERC_DECAY_EPOCHS = EPOCHS - PROGRESSIVE_EPOCHS - PHA2_PERC_WARMUP_EPOCHS - 1 - 10
 PHA2_TRANSFER_FREEZE_EPOCHS = 1
 # Phase 1 (14x14) specific config
 PHA1_LR = 0.006
 PHA1_LR_WARMUP_START = 0.00005
 PHA1_LR_WARMUP_EPOCHS = 7
-PHA1_LR_END = 0.00005
+PHA1_LR_END = 0.00004
 PHA1_LR_DECAY_EPOCHS = PROGRESSIVE_EPOCHS - PHA1_LR_WARMUP_EPOCHS
 PHA1_PIXEL_LOSS_WEIGHT = 1.0 * 20
 PHA1_KL_WARMUP_EPOCHS = PROGRESSIVE_EPOCHS - 1
 # start
 PHA1_KL_WARMUP_START = 0.003
 # end
-PHA1_KL_WEIGHT_START = 0.007
+PHA1_KL_WEIGHT_START = 0.006
 PHA1_INFO_NCE_WEIGHT = 0.001
-LOG_NAME = 'logs/gen1b'
-LOG_NAME_PHA1 = 'logs/gen1b/phase1'
+LOG_NAME = 'logs/gen1'
+LOG_NAME_PHA1 = 'logs/gen1/phase1'
 
 def weighted_pixel_loss(target, reconstruction):
     """Foreground-weighted pixel BCE, as a PER-PIXEL MEAN.
