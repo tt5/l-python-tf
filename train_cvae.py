@@ -51,14 +51,14 @@ LR = 0.003
 LR_WARMUP_START = 0.00005
 LR_WARMUP_EPOCHS = 5
 LR_DECAY_EPOCHS = EPOCHS - LR_WARMUP_EPOCHS
-LR_END = 0.0001
-INFO_NCE_WEIGHT = 0.001
+LR_END = 0.00005
+INFO_NCE_WEIGHT = 0.0011
 TEMPERATURE = 1.0
 # Foreground weight for pixel BCE. Sparse classes (e.g. class 4, ~12.6%
 # foreground) are dominated by background under plain BCE, which drags
 # the generator output below the 0.5 threshold. (1-fg)/fg ~= 7 balances
 # the positive/negative contributions at the measured coverage.
-PIXEL_POS_WEIGHT = 2.0
+PIXEL_POS_WEIGHT = 1.0
 DROPOUT = 0.3
 SPATIAL_DROPOUT = 0.0
 L2_REG = 0.00001
@@ -69,9 +69,9 @@ D_BATCH_INTERVAL = 1  # update discriminator every N batches (G updates every ba
 D_REAL_LABEL = 1.0    # one-sided label smoothing for the real class
 # Phase 2 KL schedule (configurable start)
 PHA2_KL_WARMUP_START = 0.0
-PHA2_KL_WEIGHT_START = 0.019
-PHA2_KL_WEIGHT_TARGET = 0.00085
-PHA2_KL_WARMUP_EPOCHS = 29
+PHA2_KL_WEIGHT_START = 0.018
+PHA2_KL_WEIGHT_TARGET = 0.00087
+PHA2_KL_WARMUP_EPOCHS = 30
 PHA2_KL_DECAY_EPOCHS = 59 - PROGRESSIVE_EPOCHS
 # Phase 2 pixel-loss schedule. Pixel BCE is what pulls the generator toward the
 # per-pixel mean (blur); annealing it down lets the perceptual + adversarial
@@ -101,13 +101,13 @@ PHA1_LR_WARMUP_START = 0.00005
 PHA1_LR_WARMUP_EPOCHS = 7
 PHA1_LR_END = 0.00004
 PHA1_LR_DECAY_EPOCHS = PROGRESSIVE_EPOCHS - PHA1_LR_WARMUP_EPOCHS
-PHA1_PIXEL_LOSS_WEIGHT = 1.0 * 20
+PHA1_PIXEL_LOSS_WEIGHT = 1.0 * 18
 PHA1_KL_WARMUP_EPOCHS = PROGRESSIVE_EPOCHS - 1
 # start
-PHA1_KL_WARMUP_START = 0.003
+PHA1_KL_WARMUP_START = 0.004
 # end
 PHA1_KL_WEIGHT_START = 0.006
-PHA1_INFO_NCE_WEIGHT = 0.001
+PHA1_INFO_NCE_WEIGHT = 0.0011
 LOG_NAME = 'logs/gen1'
 LOG_NAME_PHA1 = 'logs/gen1/phase1'
 
