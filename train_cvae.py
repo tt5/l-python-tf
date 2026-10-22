@@ -70,16 +70,16 @@ D_REAL_LABEL = 1.0    # one-sided label smoothing for the real class
 # Phase 2 KL schedule (configurable start)
 PHA2_KL_WARMUP_START = 0.0
 PHA2_KL_WEIGHT_START = 0.018
-PHA2_KL_WEIGHT_TARGET = 0.00087
-PHA2_KL_WARMUP_EPOCHS = 30
-PHA2_KL_DECAY_EPOCHS = 59 - PROGRESSIVE_EPOCHS
+PHA2_KL_WEIGHT_TARGET = 0.0009
+PHA2_KL_WARMUP_EPOCHS = 32
+PHA2_KL_DECAY_EPOCHS = 60 - PROGRESSIVE_EPOCHS
 # Phase 2 pixel-loss schedule. Pixel BCE is what pulls the generator toward the
 # per-pixel mean (blur); annealing it down lets the perceptual + adversarial
 # terms sharpen instead. Linear, no warmup: full weight at the start of phase 2,
 # TARGET on the last epoch actually run -- hence the -1, since phase 2 runs
 # epochs PROGRESSIVE_EPOCHS .. EPOCHS-1.
 PHA2_PIXEL_WEIGHT_START = 1.0 * 18
-PHA2_PIXEL_WEIGHT_TARGET = 0.2 * 18
+PHA2_PIXEL_WEIGHT_TARGET = 0.25 * 18
 PHA2_PIXEL_DECAY_EPOCHS = EPOCHS - PROGRESSIVE_EPOCHS - 1
 # Phase 2 perceptual-loss schedule. The perceptual term is measured through a
 # FROZEN MNIST classifier, so early in phase 2 the generator's output is far
@@ -92,8 +92,8 @@ PHA2_PIXEL_DECAY_EPOCHS = EPOCHS - PROGRESSIVE_EPOCHS - 1
 PHA2_PERC_WARMUP_START = 1.0
 PHA2_PERC_WEIGHT_START = 300.0   # peak, reached at the end of warmup
 PHA2_PERC_WEIGHT_TARGET = 2.0
-PHA2_PERC_WARMUP_EPOCHS = 39
-PHA2_PERC_DECAY_EPOCHS = EPOCHS - PROGRESSIVE_EPOCHS - PHA2_PERC_WARMUP_EPOCHS - 1 - 10
+PHA2_PERC_WARMUP_EPOCHS = 41
+PHA2_PERC_DECAY_EPOCHS = EPOCHS - PROGRESSIVE_EPOCHS - PHA2_PERC_WARMUP_EPOCHS - 1
 PHA2_TRANSFER_FREEZE_EPOCHS = 1
 # Phase 1 (14x14) specific config
 PHA1_LR = 0.006
