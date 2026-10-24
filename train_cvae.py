@@ -25,7 +25,7 @@ from utils.mnist_loader import load_data
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "synthetic" / "data"
 LATENT_DIM = 512
 PHA1_LATENT_DIM = 256
-EPOCHS = 170
+EPOCHS = 180
 BATCH_SIZE = 1024
 NUM_CLASSES = 4
 
@@ -71,8 +71,8 @@ D_REAL_LABEL = 1.0    # one-sided label smoothing for the real class
 PHA2_KL_WARMUP_START = 0.0
 PHA2_KL_WEIGHT_START = 0.018
 PHA2_KL_WEIGHT_TARGET = 0.0009
-PHA2_KL_WARMUP_EPOCHS = 32
-PHA2_KL_DECAY_EPOCHS = 60 - PROGRESSIVE_EPOCHS
+PHA2_KL_WARMUP_EPOCHS = 40
+PHA2_KL_DECAY_EPOCHS = 70 - PROGRESSIVE_EPOCHS
 # Phase 2 pixel-loss schedule. Pixel BCE is what pulls the generator toward the
 # per-pixel mean (blur); annealing it down lets the perceptual + adversarial
 # terms sharpen instead. Linear, no warmup: full weight at the start of phase 2,
@@ -183,12 +183,6 @@ def build_encoder():
     b7 = layers.Conv2D(32, 7, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc28_conv7")(img)
     x28_main = layers.Concatenate(name="enc28_cat")([b3, b5, b7])   # 3 x ch @ 28x28
     x28_main = layers.LayerNormalization(name="enc28_ln")(x28_main)
-    # Residual shortcut for the front-end. Requires a LEARNED 1x1 projection:
-    # the raw image has 1 channel and x28_main has 48. The old removed version
-    # added the same scalar to every channel, so LayerNorm's per-pixel mean
-    # subtraction cancelled it exactly (measured 9.5e-07); a 1x1 projection
-    # gives each channel its own weight, so the mean shift is not uniform and
-    # the shortcut survives (measured 0.35). Phase-2 only.
     sc28 = layers.Conv2D(96, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc28_proj")(img)
     x28_main = layers.Add()([x28_main, sc28])
     x28_main = layers.Activation("relu")(x28_main)
@@ -196,11 +190,6 @@ def build_encoder():
     # Conv block 1: 28x28 → 14x14
     c1 = layers.Conv2D(96, 3, strides=2, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv1")(x28_main)
     c1 = tf.keras.layers.LayerNormalization(name='enc_14_ln')(c1)
-    # Residual shortcut, ResNet-D style: enc_conv1 and the avg-pooled front-end
-    # both map 28x28x48 -> 14x14x48, so no spatial reshape is needed and the
-    # 1x1 conv lets the network learn the shortcut instead of forcing a plain
-    # blur. Phase-2 only -- phase 1 has no 28x28 scale, so this name has no
-    # counterpart and is deliberately not transferred.
     sc = layers.Conv2D(96, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc28_skip_proj")(layers.AveragePooling2D(2)(x28_main))
     c1 = layers.Add()([c1, sc])
     c1 = layers.Activation("relu")(c1)
@@ -213,7 +202,6 @@ def build_encoder():
     # Conv block 2: 14x14 → 7x7
     c2 = layers.Conv2D(192, 3, strides=2, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv2")(c1)
     c2 = layers.Activation("relu")(c2)
-    # Residual connection: project c1 (14x14x64) to match c2 (7x7x128)
     skip = layers.Conv2D(192, 1, strides=2, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv2_skip")(c1)
     c2 = layers.Add()([c2, skip])
     c2 = layers.Activation("relu")(c2)
@@ -222,13 +210,9 @@ def build_encoder():
     pooled_c1 = layers.AveragePooling2D(2)(c1)
     c2 = layers.Concatenate()([c2, pooled_c1])
 
-    # Conv block 3: 7x7 -> 7x7 (stride 1). Named for the phase-1 -> phase-2
-    # transfer contract: enc_conv3 and enc_conv3_skip cannot transfer (their
-    # input width differs by phase), but enc_se3_a/b and enc_se3_skip have identical
-    # shapes in both and do transfer.
+    # Conv block 3: 7x7 -> 7x7
     c3 = layers.Conv2D(192, 3, strides=1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv3")(c2)
     c3 = layers.Activation("relu")(c3)
-    # Residual connection: 1x1 projection of c2 to c3's channel count
     skip2 = layers.Conv2D(192, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv3_skip")(c2)
     c3 = layers.Add()([c3, skip2])
     c3 = layers.Activation("relu")(c3)
@@ -243,7 +227,6 @@ def build_encoder():
     skip3 = layers.Conv2D(192, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_se3_skip")(c3_pre)
     c3 = layers.Add()([c3, skip3])
 
-    # each contributes ~equally to the latent instead of fine being ~2%.
     main = layers.Flatten()(c3)
     main = layers.Concatenate()([main, lbl])
     main = layers.Dense(512, activation="relu", name="enc28_head_dense", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(main)
@@ -274,15 +257,6 @@ def build_encoder_14():
         att = layers.Conv2D(1, k, padding="same", activation="sigmoid", name=name)(att_in)
         return att
 
-    # 14x14 front-end, phase 1. Mirrors the enc28_* front-end in build_encoder,
-    # but 3/5 rather than 3/5/7: bilinear downsampling to 14x14 halves stroke
-    # thickness, so the scale-appropriate kernel sizes are smaller. This block
-    # does NOT transfer -- phase 2's 28x28 front-end plays this role there.
-    # Fixes vs the old x14_main: (a) the Add was erased by the LayerNorm (the
-    # image is added identically to every channel, so LN's per-pixel mean
-    # subtraction cancels it exactly) -- it is gone; (b) relu -> LN -> relu
-    # clipped the pre-activations twice around the norm -- now LN sees raw
-    # pre-activations with a single relu after, exactly as in phase 2.
     b3 = layers.Conv2D(48, 3, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc14_conv3")(img)
     b5 = layers.Conv2D(48, 5, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc14_conv5")(img)
     x14_main = layers.Concatenate(name="enc14_cat")([b3, b5])   # 2 x ch @ 14x14
@@ -293,23 +267,12 @@ def build_encoder_14():
     x14 = layers.Add()([x14_main, sc14])
     x14 = layers.Activation("relu")(x14)
 
-    # Label injection at c1: per-channel FiLM fused with the spatial gate via
-    # learned colla-factors (CAT, collab.py):
-    #     x' = x * (c_w * gamma + s_w * att) + beta
-    # c_w=1, s_w=0 at init, so this starts as pure FiLM -- a direct linear
-    # 5->64 map from the label -- instead of only shifting a sigmoid's operating
-    # point, which is all the old `x * att` could do: lbl_map is spatially
-    # constant, so the label carried no positional information and the gate
-    # varied only by a per-class gain.
-    # Phase-1 only, deliberately: the generator already uses this mechanism at
-    # 14x14/28x28, so encoder and generator conditioning are now symmetric.
-    # enc_film14_*/enc_collab14 are phase-1-only names and do not transfer.
     att = spatial_attention_map(x14, lbl, k=5, name="enc_spatial_attn")
     gamma14 = layers.Reshape((1, 1, 96))(2.0 * layers.Dense(96, activation="sigmoid", name="enc_film14_g")(lbl))
     beta14 = layers.Reshape((1, 1, 96))(layers.Dense(96, name="enc_film14_b")(lbl))
     c1 = CollabModulation(name="enc_collab14")([x14, gamma14, att, beta14])
 
-    # Block 2: 14x14 -> 7x7 (mirrored from 28x28 encoder block 2)
+    # Block 2: 14x14 -> 7x7
     c2 = layers.Conv2D(192, 3, strides=2, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv2")(c1)
     c2 = layers.Activation("relu")(c2)
     skip = layers.Conv2D(192, 1, strides=2, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv2_skip")(c1)
@@ -320,14 +283,9 @@ def build_encoder_14():
     pooled_c1 = layers.AveragePooling2D(2)(c1)
     c2 = layers.Concatenate()([c2, pooled_c1])
 
-    # Conv block 3: 7x7 -> 7x7 (stride 1). Named for the phase-1 -> phase-2
-    # transfer contract: enc_conv3 and enc_conv3_skip cannot transfer (their
-    # input width differs by phase -- the c2 concat is 192ch in phase 1 and
-    # 144ch in phase 2), but enc_se3_a/b and enc_se3_skip have identical
-    # shapes in both and do transfer.
+    # Conv block 3: 7x7 -> 7x7
     c3 = layers.Conv2D(192, 3, strides=1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv3")(c2)
     c3 = layers.Activation("relu")(c3)
-    # Residual connection: 1x1 projection of c2 to c3's channel count
     skip2 = layers.Conv2D(192, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv3_skip")(c2)
     c3 = layers.Add()([c3, skip2])
     c3 = layers.Activation("relu")(c3)
