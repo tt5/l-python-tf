@@ -67,7 +67,7 @@ TV_START_WEIGHT = 0.2
 TV_PEAK_WEIGHT = 0.2
 TV_DECAY_EPOCHS = EPOCHS - TV_WARMUP_EPOCHS
 TV_END_WEIGHT = 0.2
-LOG_NAME = "train_gen2b"
+LOG_NAME = "train_gen2"
 
 def load_pbm(path):
     """Load a P4 PBM file and return a 2D numpy array of 0/1 float32."""
@@ -663,9 +663,14 @@ class CVAE(tf.keras.Model):
         self.perceptual_conv28_loss_tracker = tf.keras.metrics.Mean(name="perceptual_conv28_loss")
         self.perceptual_conv14_loss_tracker = tf.keras.metrics.Mean(name="perceptual_conv14_loss")
         self.perceptual_conv7_loss_tracker = tf.keras.metrics.Mean(name="perceptual_conv7_loss")
-        self.kl_weight = 0.0
-        self.perceptual_weight = float(PERCEPTUAL_PEAK_WEIGHT)
-        self.tv_weight = float(TV_PEAK_WEIGHT)
+        # tf.Variable, not Python float. train_step is traced once into a
+        # tf.function, so a Python float read there is baked in as a constant
+        # and later callback writes never reach the graph. A variable is read
+        # symbolically on every step, so .assign() in a callback takes effect.
+        # trainable=False keeps them out of self.trainable_weights.
+        self.kl_weight = tf.Variable(tf.constant(0.0), trainable=False, name="kl_weight")
+        self.perceptual_weight = tf.Variable(tf.constant(float(PERCEPTUAL_PEAK_WEIGHT)), trainable=False, name="perceptual_weight")
+        self.tv_weight = tf.Variable(tf.constant(float(TV_PEAK_WEIGHT)), trainable=False, name="tv_weight")
 
     @property
     def metrics(self):
@@ -724,7 +729,7 @@ class CVAE(tf.keras.Model):
                 perceptual_loss_conv7 = perceptual_scale_mse(real_feats[2], fake_feats[2])
                 perceptual_loss = (perceptual_loss_conv28 + perceptual_loss_conv14 + perceptual_loss_conv7) / 3.0
 
-            total_loss = (RECON_LOSS_WEIGHT * recon_loss) + (float(self.perceptual_weight) * perceptual_loss) + (float(self.kl_weight) * kl_loss) + float(self.tv_weight) * tv_loss
+            total_loss = (RECON_LOSS_WEIGHT * recon_loss) + (self.perceptual_weight * perceptual_loss) + (self.kl_weight * kl_loss) + self.tv_weight * tv_loss
 
         grads = tape.gradient(total_loss, self.trainable_weights)
         self.optimizer.apply_gradients(zip(grads, self.trainable_weights))
@@ -771,7 +776,7 @@ class CVAE(tf.keras.Model):
             perceptual_loss_conv7 = perceptual_scale_mse(real_feats[2], fake_feats[2])
             perceptual_loss = (perceptual_loss_conv28 + perceptual_loss_conv14 + perceptual_loss_conv7) / 3.0
 
-        total_loss = (RECON_LOSS_WEIGHT * recon_loss) + (float(self.perceptual_weight) * perceptual_loss) + (float(self.kl_weight) * kl_loss) + float(self.tv_weight) * tv_loss
+        total_loss = (RECON_LOSS_WEIGHT * recon_loss) + (self.perceptual_weight * perceptual_loss) + (self.kl_weight * kl_loss) + self.tv_weight * tv_loss
 
         self.total_loss_tracker.update_state(total_loss)
         self.recon_loss_tracker.update_state(recon_loss)
@@ -870,7 +875,7 @@ class KLWarmup(tf.keras.callbacks.Callback):
             weight = self.kl_weight_final + (self.kl_weight_end - self.kl_weight_final) * t
         else:
             weight = self.kl_weight_end
-        self.cvae.kl_weight = float(weight)
+        self.cvae.kl_weight.assign(float(weight))
 
 
 class PerceptualWarmup(tf.keras.callbacks.Callback):
@@ -890,7 +895,7 @@ class PerceptualWarmup(tf.keras.callbacks.Callback):
             weight = self.peak_weight + (self.end_weight - self.peak_weight) * t
         else:
             weight = self.end_weight
-        self.cvae.perceptual_weight = float(weight)
+        self.cvae.perceptual_weight.assign(float(weight))
 
 
 class LRWarmup(tf.keras.callbacks.Callback):
@@ -930,7 +935,7 @@ class TVWarmup(tf.keras.callbacks.Callback):
             weight = self.peak_weight + (self.end_weight - self.peak_weight) * t
         else:
             weight = self.end_weight
-        self.cvae.tv_weight = float(weight)
+        self.cvae.tv_weight.assign(float(weight))
 
 # ─── Build & train ───────────────────────────────────────────────
 def main():
