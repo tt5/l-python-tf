@@ -55,19 +55,19 @@ GEN_SPATIAL_DROPOUT = 0.0
 GEN_DENSE_DROPOUT = 0.0
 AUGMENT = True
 RECON_LOSS_WEIGHT = 1.0
-PERCEPTUAL_MULTISCALE = True
 PERCEPTUAL_WARMUP_EPOCHS = 5
 PERCEPTUAL_START_WEIGHT = 0.0
 PERCEPTUAL_PEAK_WEIGHT = 1
 PERCEPTUAL_DECAY_EPOCHS = EPOCHS - PERCEPTUAL_WARMUP_EPOCHS
 PERCEPTUAL_END_WEIGHT = 0.1
+PERCEPTUAL_EPS = 1e-8
 PERCEPTUAL_EXTRACTOR_PATH = Path(__file__).parent / "mnist2_model"
 TV_WARMUP_EPOCHS = 5
 TV_START_WEIGHT = 0.2
 TV_PEAK_WEIGHT = 0.2
 TV_DECAY_EPOCHS = EPOCHS - TV_WARMUP_EPOCHS
 TV_END_WEIGHT = 0.2
-LOG_NAME = "train_gen2"
+LOG_NAME = "train_gen2b"
 
 def load_pbm(path):
     """Load a P4 PBM file and return a 2D numpy array of 0/1 float32."""
@@ -666,10 +666,6 @@ class CVAE(tf.keras.Model):
         self.kl_weight = 0.0
         self.perceptual_weight = float(PERCEPTUAL_PEAK_WEIGHT)
         self.tv_weight = float(TV_PEAK_WEIGHT)
-        self.perceptual_scale_weights = tf.keras.Sequential([
-            tf.keras.layers.Dense(16, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG)),
-            tf.keras.layers.Dense(3, activation="softmax", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="perceptual_scale_weights"),
-        ], name="perceptual_scale_weights")
 
     @property
     def metrics(self):
@@ -717,25 +713,16 @@ class CVAE(tf.keras.Model):
             perceptual_loss_conv28 = 0.0
             perceptual_loss_conv14 = 0.0
             perceptual_loss_conv7 = 0.0
+            perceptual_loss = 0.0
             if self.perceptual_extractor is not None:
                 real_input = tf.squeeze(images, -1)
                 fake_input = tf.squeeze(reconstruction, -1)
                 real_feats = self.perceptual_extractor(real_input, training=False)
                 fake_feats = self.perceptual_extractor(fake_input, training=False)
-                perceptual_loss_conv28 = tf.reduce_mean(tf.square(real_feats[0] - fake_feats[0]))
-                perceptual_loss_conv14 = tf.reduce_mean(tf.square(real_feats[1] - fake_feats[1]))
-                perceptual_loss_conv7 = tf.reduce_mean(tf.square(real_feats[2] - fake_feats[2]))
-                perceptual_loss_conv28 = perceptual_loss_conv28 / tf.cast(tf.shape(real_feats[0])[1] * tf.shape(real_feats[0])[2], tf.float32)
-                perceptual_loss_conv14 = perceptual_loss_conv14 / tf.cast(tf.shape(real_feats[1])[1] * tf.shape(real_feats[1])[2], tf.float32)
-                perceptual_loss_conv7 = perceptual_loss_conv7 / tf.cast(tf.shape(real_feats[2])[1] * tf.shape(real_feats[2])[2], tf.float32)
-
-            if PERCEPTUAL_MULTISCALE:
-                scale_losses = tf.stack([perceptual_loss_conv28, perceptual_loss_conv14, perceptual_loss_conv7])
-                scale_losses = tf.expand_dims(scale_losses, 0)
-                scale_weights = self.perceptual_scale_weights(scale_losses)
-                perceptual_loss = tf.squeeze(tf.reduce_sum(scale_weights * scale_losses, axis=-1))
-            else:
-                perceptual_loss = perceptual_loss_conv28 + perceptual_loss_conv14 + perceptual_loss_conv7
+                perceptual_loss_conv28 = perceptual_scale_mse(real_feats[0], fake_feats[0])
+                perceptual_loss_conv14 = perceptual_scale_mse(real_feats[1], fake_feats[1])
+                perceptual_loss_conv7 = perceptual_scale_mse(real_feats[2], fake_feats[2])
+                perceptual_loss = (perceptual_loss_conv28 + perceptual_loss_conv14 + perceptual_loss_conv7) / 3.0
 
             total_loss = (RECON_LOSS_WEIGHT * recon_loss) + (float(self.perceptual_weight) * perceptual_loss) + (float(self.kl_weight) * kl_loss) + float(self.tv_weight) * tv_loss
 
@@ -773,29 +760,16 @@ class CVAE(tf.keras.Model):
         perceptual_loss_conv28 = 0.0
         perceptual_loss_conv14 = 0.0
         perceptual_loss_conv7 = 0.0
+        perceptual_loss = 0.0
         if self.perceptual_extractor is not None:
             real_input = tf.squeeze(images, -1)
             fake_input = tf.squeeze(reconstruction, -1)
             real_feats = self.perceptual_extractor(real_input, training=False)
             fake_feats = self.perceptual_extractor(fake_input, training=False)
-            perceptual_loss_conv28 = tf.reduce_mean(tf.square(real_feats[0] - fake_feats[0]))
-            perceptual_loss_conv14 = tf.reduce_mean(tf.square(real_feats[1] - fake_feats[1]))
-            perceptual_loss_conv7 = tf.reduce_mean(tf.square(real_feats[2] - fake_feats[2]))
-            perceptual_loss_conv28 = perceptual_loss_conv28 / tf.cast(tf.shape(real_feats[0])[1] * tf.shape(real_feats[0])[2], tf.float32)
-            perceptual_loss_conv14 = perceptual_loss_conv14 / tf.cast(tf.shape(real_feats[1])[1] * tf.shape(real_feats[1])[2], tf.float32)
-            perceptual_loss_conv7 = perceptual_loss_conv7 / tf.cast(tf.shape(real_feats[2])[1] * tf.shape(real_feats[2])[2], tf.float32)
-        else:
-            perceptual_loss_conv28 = tf.constant(0.0)
-            perceptual_loss_conv14 = tf.constant(0.0)
-            perceptual_loss_conv7 = tf.constant(0.0)
-
-        if PERCEPTUAL_MULTISCALE:
-            scale_losses = tf.stack([perceptual_loss_conv28, perceptual_loss_conv14, perceptual_loss_conv7])
-            scale_losses = tf.expand_dims(scale_losses, 0)
-            scale_weights = self.perceptual_scale_weights(scale_losses)
-            perceptual_loss = tf.squeeze(tf.reduce_sum(scale_weights * scale_losses, axis=-1))
-        else:
-            perceptual_loss = perceptual_loss_conv28 + perceptual_loss_conv14 + perceptual_loss_conv7
+            perceptual_loss_conv28 = perceptual_scale_mse(real_feats[0], fake_feats[0])
+            perceptual_loss_conv14 = perceptual_scale_mse(real_feats[1], fake_feats[1])
+            perceptual_loss_conv7 = perceptual_scale_mse(real_feats[2], fake_feats[2])
+            perceptual_loss = (perceptual_loss_conv28 + perceptual_loss_conv14 + perceptual_loss_conv7) / 3.0
 
         total_loss = (RECON_LOSS_WEIGHT * recon_loss) + (float(self.perceptual_weight) * perceptual_loss) + (float(self.kl_weight) * kl_loss) + float(self.tv_weight) * tv_loss
 
@@ -815,6 +789,24 @@ class CVAE(tf.keras.Model):
         if noise is None:
             noise = tf.random.normal(shape=(1, LATENT_DIM))
         return self.generator([noise, label_oh])
+
+
+def perceptual_scale_mse(real, fake):
+    """Unit-scale MSE between real and generated features at one scale.
+
+    Both sides are divided by the RMS of the REAL features, so each scale
+    contributes a relative error rather than a raw one. Without this the three
+    scales are not comparable: the previous form divided by (H*W) a second
+    time, so for the same per-element error the 28x28 / 14x14 / 7x7 taps landed
+    at a 16x spread (784:196:49), and any weighting between them was decided by
+    spatial size rather than by which scale is informative. Channel counts do
+    not matter here -- reduce_mean already normalizes them away.
+
+    The normaliser is built only from the inputs -- never from the generator --
+    and is detached, so it cannot be gamed and introduces no feedback loop.
+    """
+    denom = tf.stop_gradient(tf.sqrt(tf.reduce_mean(tf.square(real)) + PERCEPTUAL_EPS))
+    return tf.reduce_mean(tf.square((real - fake) / denom))
 
 
 def build_perceptual_extractor():
