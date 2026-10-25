@@ -21,7 +21,7 @@ np.set_printoptions(linewidth=np.inf)
 
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "synthetic" / "data"
 NUM_CLASSES = 4
-EPOCHS = 35
+EPOCHS = 40
 BATCH_SIZE = 128
 BASE_LR = 0.00005
 GRAD_ADAPTIVE_MIN_LR = 0.0000014
