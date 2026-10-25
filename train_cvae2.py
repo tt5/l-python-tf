@@ -230,14 +230,20 @@ class Sampling(tf.keras.layers.Layer):
         return z_mean + tf.exp(0.5 * z_log_var) * epsilon
 
 # ─── Encoder ─────────────────────────────────────────────────────
-def label_cross_attention(spatial, label_input, channels, l2_reg):
+def label_cross_attention(spatial, label_input, channels, l2_reg, emb=None):
     B = tf.shape(spatial)[0]
     H = int(spatial.shape[1])
     W = int(spatial.shape[2])
     flat = H * W
 
-    le = tf.keras.layers.Dense(16, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(l2_reg))(label_input)
-    le = tf.keras.layers.Dense(64, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(l2_reg))(le)
+    if emb is not None:
+        # Refine the shared embedding rather than rebuilding one from the
+        # one-hot. label_emb is already class-specific, so this adds depth
+        # while keeping the representation shared with the FiLM path.
+        le = tf.keras.layers.Dense(64, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(l2_reg))(emb)
+    else:
+        le = tf.keras.layers.Dense(16, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(l2_reg))(label_input)
+        le = tf.keras.layers.Dense(64, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(l2_reg))(le)
 
     q = tf.keras.layers.Dense(channels)(spatial)
     q = tf.reshape(q, [B, flat, channels])
@@ -534,7 +540,7 @@ def build_generator():
 
     # Class conditioning at 7x7
     x7_pre = x
-    x = label_cross_attention(x, label_input, 128, L2_REG)
+    x = label_cross_attention(x, label_input, 128, L2_REG, emb=label_emb)
     x = tf.keras.layers.Add()([
         x,
         tf.keras.layers.Conv2D(128, 1, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x7_pre),
@@ -580,7 +586,7 @@ def build_generator():
     # 14x14 block: 128 -> 64 channels
     channels14 = 64
     x14_pre = x
-    x = label_cross_attention(x, label_input, channels14, L2_REG)
+    x = label_cross_attention(x, label_input, channels14, L2_REG, emb=label_emb)
     scale, offset = make_film(channels14, emb=label_emb)(label_input)
     scale = tf.keras.layers.Reshape((1, 1, channels14))(scale)
     offset = tf.keras.layers.Reshape((1, 1, channels14))(offset)
@@ -621,7 +627,7 @@ def build_generator():
 
     channels28 = 32
     x28_pre = x
-    x = label_cross_attention(x28_pre, label_input, channels28, L2_REG)
+    x = label_cross_attention(x28_pre, label_input, channels28, L2_REG, emb=label_emb)
     scale, offset = make_film(channels28, emb=label_emb)(label_input)
     scale = tf.keras.layers.Reshape((1, 1, channels28))(scale)
     offset = tf.keras.layers.Reshape((1, 1, channels28))(offset)
