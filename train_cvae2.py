@@ -67,7 +67,7 @@ TV_START_WEIGHT = 0.2
 TV_PEAK_WEIGHT = 0.2
 TV_DECAY_EPOCHS = EPOCHS - TV_WARMUP_EPOCHS
 TV_END_WEIGHT = 0.2
-LOG_NAME = "train_gen2"
+LOG_NAME = "train_gen2b"
 
 def load_pbm(path):
     """Load a P4 PBM file and return a 2D numpy array of 0/1 float32."""
@@ -499,17 +499,15 @@ def build_encoder():
     x_direct = tf.keras.layers.Dropout(DENSE_DROPOUT, name='enc_direct_drop2')(x_direct)
 
 
-    x = tf.keras.layers.Dense(256, kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_fuse_q")(x)
-    x_k = tf.keras.layers.Dense(256, kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_fuse_k")(x_direct)
-    x_v = tf.keras.layers.Dense(256, kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_fuse_v")(x_direct)
-    x_q = tf.keras.layers.Reshape((1, 256))(x)
-    x_k = tf.keras.layers.Reshape((1, 256))(x_k)
-    x_v = tf.keras.layers.Reshape((1, 256))(x_v)
-    attn = tf.linalg.matmul(x_q, x_k, transpose_b=True)
-    attn = attn / tf.sqrt(tf.cast(tf.shape(x_q)[-1], tf.float32))
-    attn = tf.nn.softmax(attn, axis=-1)
-    x = tf.linalg.matmul(attn, x_v)
-    x = tf.keras.layers.Reshape((256,), name="enc_fuse_flat")(x)
+    # Fuse the two branches: the pooled pyramid (global, position-invariant)
+    # and the flattened 7x7 path (spatial detail). The previous version routed
+    # these through a scaled dot-product attention, but both sides were
+    # reshaped to a single token, so the softmax over one element was
+    # identically 1.0 and the pyramid branch was computed then discarded.
+    # Concatenation lets the Dense learn the combination instead of presuming
+    # a spatial reweighting.
+    x = tf.keras.layers.Concatenate(name="enc_fuse_concat")([x, x_direct])
+    x = tf.keras.layers.Dense(256, kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_fuse_proj")(x)
     x = tf.keras.layers.LayerNormalization(name="enc_ln_fused")(x)
     x = tf.keras.layers.Dropout(DENSE_DROPOUT, name="enc_drop_fused")(x)
 
