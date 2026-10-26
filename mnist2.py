@@ -37,26 +37,23 @@ except Exception:
             return super()._resource_apply_sparse(grad, var, indices, apply_state)
 
 DEFAULT_PBM_DIR = Path(__file__).resolve().parent / "../../telephonegame/data/pbm"
-TB_LOG_DIR = Path(__file__).resolve().parent / "logs" / "mnist2"
+TB_LOG_DIR = Path(__file__).resolve().parent / "logs" / "mnist2b"
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--data-dir", type=Path, default=DEFAULT_PBM_DIR, help="PBM data directory")
 args, _ = parser.parse_known_args()
 PBM_DIR = args.data_dir
-IMG_SIZE = 22
 TARGET_SIZE = 28
 LOW_CONF_THRESHOLD = 0.6
-EPOCHS = 60
+EPOCHS = 100
 SPATIAL_DROPOUT = 0.1
 DENSE_DROPOUT = 0.4
-CONV_DROPOUT = 0.3  # dropout on intermediate conv feature maps (c0, c1, c2)
 L2_REG = 0.00001
-BATCH_SIZE = 128
+BATCH_SIZE = 256
 BASE_LR = 0.0009
 LR_START = 0.00002
 LR_WARMUP_EPOCHS = 12
-LR_END = 0.00005
-LR_DECAY_EPOCHS = EPOCHS - LR_WARMUP_EPOCHS
+LR_END = 0.00006
 AUGMENT = True  # On-the-fly augmentation: random rotate/transpose
 GAUSSIAN_NOISE_STD_START = 0.00002
 GAUSSIAN_NOISE_STD_END = 0.0
@@ -393,13 +390,13 @@ def main():
     x = L.Add(name='cls_block1_add')([d1, p1])
     x = L.LayerNormalization(name='cls_block1_ln')(x)
     x = L.Activation('relu', name='cls_block1_act')(x)
-    # 2nd residual connection
-    d2 = L.Dense(128, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='cls_block2_dense')(x)
-    d2 = L.Dropout(DENSE_DROPOUT, name='cls_block2_drop')(d2)
-    p2 = L.Dense(128, kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='cls_block2_proj')(x)
-    x = L.Add(name='cls_block2_add')([d2, p2])
-    x = L.LayerNormalization(name='cls_block2_ln')(x)
-    x = L.Activation('relu', name='cls_block2_act')(x)
+    ## 2nd residual connection
+    #d2 = L.Dense(128, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='cls_block2_dense')(x)
+    #d2 = L.Dropout(DENSE_DROPOUT, name='cls_block2_drop')(d2)
+    #p2 = L.Dense(128, kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='cls_block2_proj')(x)
+    #x = L.Add(name='cls_block2_add')([d2, p2])
+    #x = L.LayerNormalization(name='cls_block2_ln')(x)
+    #x = L.Activation('relu', name='cls_block2_act')(x)
 
     outputs = L.Dense(NUM_CLASSES, name='cls_logits')(x)
     model = tf.keras.Model(inputs=inputs, outputs=outputs)
