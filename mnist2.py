@@ -288,13 +288,16 @@ def main():
     L = tf.keras.layers
     
     # CBAM: Convolutional Block Attention Module
-    def channel_attention(x, reduction=16, name_prefix='cbam'):
+    def channel_attention(x, reduction=4, name_prefix='cbam'):
         """Channel Attention (SE) - avg+max pooling."""
         channels = x.shape[-1]
+        # Floor on the squeeze: at 32 channels, channels // 16 gives 2 hidden
+        # units, too few to describe which of 32 channels matter.
+        hidden = max(4, channels // reduction)
         gap = tf.reduce_mean(x, axis=[1, 2], keepdims=True)
         gmp = tf.reduce_max(x, axis=[1, 2], keepdims=True)
         mlp = tf.keras.Sequential([
-            L.Dense(channels // reduction, activation='relu', name=f'{name_prefix}_ca_dense1'),
+            L.Dense(hidden, activation='relu', name=f'{name_prefix}_ca_dense1'),
             L.Dense(channels, activation='sigmoid', name=f'{name_prefix}_ca_dense2')
         ])
         attn = tf.add(mlp(gap), mlp(gmp))
