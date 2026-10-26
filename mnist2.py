@@ -37,7 +37,7 @@ except Exception:
             return super()._resource_apply_sparse(grad, var, indices, apply_state)
 
 DEFAULT_PBM_DIR = Path(__file__).resolve().parent / "../../telephonegame/data/pbm"
-TB_LOG_DIR = Path(__file__).resolve().parent / "logs" / "mnist2b"
+TB_LOG_DIR = Path(__file__).resolve().parent / "logs" / "mnist2"
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--data-dir", type=Path, default=DEFAULT_PBM_DIR, help="PBM data directory")
@@ -45,15 +45,15 @@ args, _ = parser.parse_known_args()
 PBM_DIR = args.data_dir
 TARGET_SIZE = 28
 LOW_CONF_THRESHOLD = 0.6
-EPOCHS = 100
+EPOCHS = 110
 SPATIAL_DROPOUT = 0.1
-DENSE_DROPOUT = 0.4
+DENSE_DROPOUT = 0.3
 L2_REG = 0.00001
-BATCH_SIZE = 256
+BATCH_SIZE = 1024
 BASE_LR = 0.0009
 LR_START = 0.00002
 LR_WARMUP_EPOCHS = 12
-LR_END = 0.00006
+LR_END = 0.00005
 AUGMENT = True  # On-the-fly augmentation: random rotate/transpose
 GAUSSIAN_NOISE_STD_START = 0.00002
 GAUSSIAN_NOISE_STD_END = 0.0
@@ -386,10 +386,11 @@ def main():
 
     d1 = L.Dense(256, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='cls_block1_dense')(x)
     d1 = L.Dropout(DENSE_DROPOUT, name='cls_block1_drop')(d1)
-    p1 = L.Dense(256, kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='cls_block1_proj')(x)
-    x = L.Add(name='cls_block1_add')([d1, p1])
-    x = L.LayerNormalization(name='cls_block1_ln')(x)
-    x = L.Activation('relu', name='cls_block1_act')(x)
+    x = d1
+    #p1 = L.Dense(256, kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='cls_block1_proj')(x)
+    #x = L.Add(name='cls_block1_add')([d1, p1])
+    #x = L.LayerNormalization(name='cls_block1_ln')(x)
+    #x = L.Activation('relu', name='cls_block1_act')(x)
     ## 2nd residual connection
     #d2 = L.Dense(128, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='cls_block2_dense')(x)
     #d2 = L.Dropout(DENSE_DROPOUT, name='cls_block2_drop')(d2)
