@@ -486,16 +486,15 @@ def build_generator():
     x = layers.Activation("relu")(x)
 
     # ─── 28x28 stage: phase-2 only, no phase-1 counterpart ──────────────
-    x = layers.Conv2D(64, 3, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="gen_conv14b")(x)
-    # FiLM for the 28x28 stage (applied at 14x14, before the upsample)
-    gamma28, beta28 = make_film(64, "gen_film14b")(lbl)
+    x = layers.Conv2D(64, 3, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="gen_conv28")(x)
+    x = upsample(x, [28, 28], name="gen_up14")
+    # FiLM for the 28x28 stage
+    gamma28, beta28 = make_film(64, "gen_film28")(lbl)
     gamma28 = layers.Reshape((1, 1, 64))(gamma28)
     beta28 = layers.Reshape((1, 1, 64))(beta28)
-    # CAT collaboration at 28x28 (k=7). No SE here (redundant with output conv).
+    # CAT collaboration at 28x28 (k=7)
     att28 = spatial_attention_map(x, lbl, k=7, name="spatial_attn_28")
     x = CollabModulation(name="collab_28")([x, gamma28, att28, beta28])
-    x = upsample(x, [28, 28], name="gen_up14")
-    x = layers.Conv2D(64, 3, padding="same", activation="relu", name="gen_conv28")(x)
     # Same concat + 1x1 fuse + LayerNorm treatment as the 14x14 skip. This one
     # is phase-2 only (no 28x28 stage in phase 1), so gen_skip14_* have no
     # counterpart and are deliberately not transferred.
