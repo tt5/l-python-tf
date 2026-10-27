@@ -24,8 +24,8 @@ from utils.mnist_loader import load_data
 # ─── Config ────────────────────────────────────────────────────────
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "synthetic" / "data"
 LATENT_DIM = 512
-EPOCHS = 180
-BATCH_SIZE = 1024
+EPOCHS = 190
+BATCH_SIZE = 512
 NUM_CLASSES = 4
 
 parser = argparse.ArgumentParser()
@@ -68,8 +68,8 @@ D_BATCH_INTERVAL = 1  # update discriminator every N batches (G updates every ba
 D_REAL_LABEL = 1.0    # one-sided label smoothing for the real class
 # Phase 2 KL schedule (configurable start)
 PHA2_KL_WARMUP_START = 0.0
-PHA2_KL_WEIGHT_START = 0.018
-PHA2_KL_WEIGHT_TARGET = 0.0009
+PHA2_KL_WEIGHT_START = 0.017
+PHA2_KL_WEIGHT_TARGET = 0.001
 PHA2_KL_WARMUP_EPOCHS = 40
 PHA2_KL_DECAY_EPOCHS = 70 - PROGRESSIVE_EPOCHS
 # Phase 2 pixel-loss schedule. Pixel BCE is what pulls the generator toward the
@@ -77,8 +77,8 @@ PHA2_KL_DECAY_EPOCHS = 70 - PROGRESSIVE_EPOCHS
 # terms sharpen instead. Linear, no warmup: full weight at the start of phase 2,
 # TARGET on the last epoch actually run -- hence the -1, since phase 2 runs
 # epochs PROGRESSIVE_EPOCHS .. EPOCHS-1.
-PHA2_PIXEL_WEIGHT_START = 1.0 * 18
-PHA2_PIXEL_WEIGHT_TARGET = 0.25 * 18
+PHA2_PIXEL_WEIGHT_START = 1.0 * 17
+PHA2_PIXEL_WEIGHT_TARGET = 0.3 * 17
 PHA2_PIXEL_DECAY_EPOCHS = EPOCHS - PROGRESSIVE_EPOCHS - 1
 # Phase 2 perceptual-loss schedule. The perceptual term is measured through a
 # FROZEN MNIST classifier, so early in phase 2 the generator's output is far
@@ -94,7 +94,7 @@ PHA2_PERC_WEIGHT_TARGET = 2.0
 PHA2_PERC_WARMUP_EPOCHS = 41
 PHA2_PERC_DECAY_EPOCHS = EPOCHS - PROGRESSIVE_EPOCHS - PHA2_PERC_WARMUP_EPOCHS - 1
 # Phase 1 (14x14) specific config
-LOG_NAME = 'logs/gen1b'
+LOG_NAME = 'logs/gen1'
 
 def weighted_pixel_loss(target, reconstruction):
     """Foreground-weighted pixel BCE, as a PER-PIXEL MEAN.
@@ -320,16 +320,14 @@ def build_generator():
     # CAT collaboration at 28x28 (k=7)
     att28 = spatial_attention_map(x, lbl, k=7, name="spatial_attn_28")
     x = CollabModulation(name="collab_28")([x, gamma28, att28, beta28])
-    # Same concat + 1x1 fuse + LayerNorm treatment as the 14x14 skip. This one
-    # is phase-2 only (no 28x28 stage in phase 1), so gen_skip14_* have no
-    # counterpart and are deliberately not transferred.
+    # Same concat + 1x1 fuse + LayerNorm treatment as the 14x14 skip.
     skip_14_up = upsample(skip_14, [28, 28], name="gen_up14_skip")
     x = layers.Concatenate(name="gen_skip14_cat")([x, skip_14_up])     # 128 @ 28x28
     x = layers.Conv2D(64, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="gen_skip14_fuse")(x)
     x = layers.LayerNormalization(name="gen_skip14_ln")(x)
     x = layers.Activation("relu")(x)
 
-    # Output conv at 28x28 (phase 1's equivalent is gen_out14 at 14x14)
+    # Output conv at 28x28
     x = layers.Conv2D(1, 3, padding="same", activation="sigmoid", dtype="float32", name="gen_out28")(x)
     return keras.Model([z, lbl], x, name="generator")
 
