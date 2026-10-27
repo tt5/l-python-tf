@@ -46,7 +46,7 @@ SAMPLES_PER_EPOCH_PER_CLASS = args.samples_per_epoch_per_class
 PBM_DIR = Path(args.pbm_dir) if args.pbm_dir else None
 
 #PROGRESSIVE_EPOCHS = 36 # Phase 1: 14x14
-PROGRESSIVE_EPOCHS = 28 # Phase 1: 14x14
+PROGRESSIVE_EPOCHS = 0 # Phase 1: 14x14
 LR = 0.003
 LR_WARMUP_START = 0.00005
 LR_WARMUP_EPOCHS = 5
@@ -108,8 +108,8 @@ PHA1_KL_WARMUP_START = 0.004
 # end
 PHA1_KL_WEIGHT_START = 0.006
 PHA1_INFO_NCE_WEIGHT = 0.0011
-LOG_NAME = 'logs/gen1'
-LOG_NAME_PHA1 = 'logs/gen1/phase1'
+LOG_NAME = 'logs/gen1b'
+LOG_NAME_PHA1 = 'logs/gen1b/phase1'
 
 def weighted_pixel_loss(target, reconstruction):
     """Foreground-weighted pixel BCE, as a PER-PIXEL MEAN.
@@ -443,27 +443,26 @@ def build_generator():
     # its bias transfers)
     x = layers.Dense(7 * 7 * 256, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="gen_proj7")(z)
     x = layers.Reshape((7, 7, 256))(x)
-    # Skip saved at the BEGINNING of the 7x7 scale (freshest features, before
-    # the conv/FiLM/attention stack processes them)
     skip_7 = layers.Conv2D(128, 1, padding="same", name="gen_skip7")(x)
-    # 7x7 block (single FiLM after conv; seed FiLM dropped to reduce over-conditioning)
     x = layers.Conv2D(256, 3, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="gen_conv7")(x)
-    # FiLM at 7x7 (after conv)
+    # FiLM at 7x7
     gamma7c, beta7c = make_film(256, "gen_film7")(lbl)
     gamma7c = layers.Reshape((1, 1, 256))(gamma7c)
     beta7c = layers.Reshape((1, 1, 256))(beta7c)
     x = layers.Multiply()([x, gamma7c])
     x = layers.Add()([x, beta7c])
-    # SE at the 7x7 bottleneck (one consolidated; high channels + semantic)
+    # SE at 7x7
     se7 = layers.GlobalAveragePooling2D()(x)
     se7 = layers.Dense(256 // 4, activation="relu", name="gen_se7_a")(se7)
     se7 = layers.Dense(256, activation="sigmoid", name="gen_se7_b")(se7)
     se7 = layers.Reshape((1, 1, 256))(se7)
     x = layers.Multiply()([x, se7])
-    # Narrow BEFORE upsampling (see build_generator_14): 256->128 at 7x7
-    # instead of at 14x14 drops this step from 173.4M to 43.4M MACs.
-    x = layers.Conv2D(128, 3, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="gen_conv14")(x)
-    x = upsample(x, [14, 14], name="gen_up7")
+
+    # 7x7 -> 14x14
+    x = tf.keras.layers.Conv2DTranspose(128, 4, strides=2, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
+    x = tf.keras.layers.LayerNormalization(center=True, scale=True)(x)
+    x = tf.keras.layers.Activation("relu")(x)
+
     # Skip saved at the BEGINNING of the 14x14 scale. Phase-2 only: it feeds
     # the 28x28 stage, which phase 1 does not have. It now taps the narrowed
     # 128ch tensor (was 256ch before the reduction moved to 7x7), so its shape
@@ -486,8 +485,10 @@ def build_generator():
     x = layers.Activation("relu")(x)
 
     # ─── 28x28 stage: phase-2 only, no phase-1 counterpart ──────────────
-    x = layers.Conv2D(64, 3, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="gen_conv28")(x)
-    x = upsample(x, [28, 28], name="gen_up14")
+    x = tf.keras.layers.Conv2DTranspose(64, 4, strides=2, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
+    x = tf.keras.layers.LayerNormalization(center=True, scale=True)(x)
+    x = tf.keras.layers.Activation("relu")(x)
+
     # FiLM for the 28x28 stage
     gamma28, beta28 = make_film(64, "gen_film28")(lbl)
     gamma28 = layers.Reshape((1, 1, 64))(gamma28)
