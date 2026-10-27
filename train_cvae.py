@@ -24,7 +24,6 @@ from utils.mnist_loader import load_data
 # ─── Config ────────────────────────────────────────────────────────
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "synthetic" / "data"
 LATENT_DIM = 512
-PHA1_LATENT_DIM = 256
 EPOCHS = 180
 BATCH_SIZE = 1024
 NUM_CLASSES = 4
@@ -46,7 +45,7 @@ SAMPLES_PER_EPOCH_PER_CLASS = args.samples_per_epoch_per_class
 PBM_DIR = Path(args.pbm_dir) if args.pbm_dir else None
 
 #PROGRESSIVE_EPOCHS = 36 # Phase 1: 14x14
-PROGRESSIVE_EPOCHS = 0 # Phase 1: 14x14
+PROGRESSIVE_EPOCHS = 0
 LR = 0.003
 LR_WARMUP_START = 0.00005
 LR_WARMUP_EPOCHS = 5
@@ -94,22 +93,8 @@ PHA2_PERC_WEIGHT_START = 300.0   # peak, reached at the end of warmup
 PHA2_PERC_WEIGHT_TARGET = 2.0
 PHA2_PERC_WARMUP_EPOCHS = 41
 PHA2_PERC_DECAY_EPOCHS = EPOCHS - PROGRESSIVE_EPOCHS - PHA2_PERC_WARMUP_EPOCHS - 1
-PHA2_TRANSFER_FREEZE_EPOCHS = 1
 # Phase 1 (14x14) specific config
-PHA1_LR = 0.006
-PHA1_LR_WARMUP_START = 0.00005
-PHA1_LR_WARMUP_EPOCHS = 7
-PHA1_LR_END = 0.00004
-PHA1_LR_DECAY_EPOCHS = PROGRESSIVE_EPOCHS - PHA1_LR_WARMUP_EPOCHS
-PHA1_PIXEL_LOSS_WEIGHT = 1.0 * 18
-PHA1_KL_WARMUP_EPOCHS = PROGRESSIVE_EPOCHS - 1
-# start
-PHA1_KL_WARMUP_START = 0.004
-# end
-PHA1_KL_WEIGHT_START = 0.006
-PHA1_INFO_NCE_WEIGHT = 0.0011
 LOG_NAME = 'logs/gen1b'
-LOG_NAME_PHA1 = 'logs/gen1b/phase1'
 
 def weighted_pixel_loss(target, reconstruction):
     """Foreground-weighted pixel BCE, as a PER-PIXEL MEAN.
@@ -141,12 +126,6 @@ def load_data_cvae():
 
 
 x_train, y_train, x_test, y_test = load_data_cvae()
-
-
-# ─── Resize helper for progressive growing ─────────────────────────
-def resize_images(images, target_size):
-    """Resize images to target_size using bilinear interpolation."""
-    return tf.image.resize(images, target_size, method='bilinear').numpy()
 
 
 # ─── Sampling Layer ────────────────────────────────────────────────
@@ -237,80 +216,6 @@ def build_encoder():
     return keras.Model([img, lbl], [z_mean, z_log_var, z], name="encoder")
 
 
-# ─── Encoder for 14×14 Phase 1 ─────────────────────────────────────
-def build_encoder_14():
-    img = keras.Input(shape=(14, 14, 1), name="image_input")
-    lbl = keras.Input(shape=(NUM_CLASSES,), name="label_input")
-
-    # Label-conditioned spatial gate. Returns the GATE (not x * gate) so it can
-    # be fused with FiLM by CollabModulation at c1 -- the same contract as the
-    # generator's spatial_attention_map. The Conv2D keeps its name, so
-    # enc_spatial_attn still matches phase 2 by name and shape.
-    def spatial_attention_map(x, lbl, k, name=None):
-        avg = tf.reduce_mean(x, axis=-1, keepdims=True)
-        mx = tf.reduce_max(x, axis=-1, keepdims=True)
-        pooled = layers.Concatenate()([avg, mx])
-        h = int(x.shape[1])
-        lbl_map = layers.Reshape((1, 1, NUM_CLASSES))(lbl)
-        lbl_map = layers.UpSampling2D(size=h, interpolation="nearest")(lbl_map)
-        att_in = layers.Concatenate()([pooled, lbl_map])
-        att = layers.Conv2D(1, k, padding="same", activation="sigmoid", name=name)(att_in)
-        return att
-
-    b3 = layers.Conv2D(48, 3, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc14_conv3")(img)
-    b5 = layers.Conv2D(48, 5, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc14_conv5")(img)
-    x14_main = layers.Concatenate(name="enc14_cat")([b3, b5])   # 2 x ch @ 14x14
-    x14_main = layers.LayerNormalization(name="enc14_ln")(x14_main)
-    x14_main = layers.Activation("relu")(x14_main)
-
-    sc14 = layers.Conv2D(96, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="ph1_enc14_proj")(img)
-    x14 = layers.Add()([x14_main, sc14])
-    x14 = layers.Activation("relu")(x14)
-
-    att = spatial_attention_map(x14, lbl, k=5, name="enc_spatial_attn")
-    gamma14 = layers.Reshape((1, 1, 96))(2.0 * layers.Dense(96, activation="sigmoid", name="enc_film14_g")(lbl))
-    beta14 = layers.Reshape((1, 1, 96))(layers.Dense(96, name="enc_film14_b")(lbl))
-    c1 = CollabModulation(name="enc_collab14")([x14, gamma14, att, beta14])
-
-    # Block 2: 14x14 -> 7x7
-    c2 = layers.Conv2D(192, 3, strides=2, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv2")(c1)
-    c2 = layers.Activation("relu")(c2)
-    skip = layers.Conv2D(192, 1, strides=2, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv2_skip")(c1)
-    c2 = layers.Add()([c2, skip])
-    c2 = layers.Activation("relu")(c2)
-
-    # Cross-scale shortcut from c1 into block 3
-    pooled_c1 = layers.AveragePooling2D(2)(c1)
-    c2 = layers.Concatenate()([c2, pooled_c1])
-
-    # Conv block 3: 7x7 -> 7x7
-    c3 = layers.Conv2D(192, 3, strides=1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv3")(c2)
-    c3 = layers.Activation("relu")(c3)
-    skip2 = layers.Conv2D(192, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv3_skip")(c2)
-    c3 = layers.Add()([c3, skip2])
-    c3 = layers.Activation("relu")(c3)
-    # SE attention 3
-    se3 = layers.GlobalAveragePooling2D()(c3)
-    se3 = layers.Dense(192 // 4, activation="relu", name="enc_se3_a")(se3)
-    se3 = layers.Dense(192, activation="sigmoid", name="enc_se3_b")(se3)
-    se3 = layers.Reshape((1, 1, 192))(se3)
-    c3_pre = c3
-    c3 = layers.Multiply()([c3, se3])
-    c3 = layers.Activation("relu")(c3)
-    skip3 = layers.Conv2D(192, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_se3_skip")(c3_pre)
-    c3 = layers.Add()([c3, skip3])
-
-    main = layers.Flatten()(c3)
-    main = layers.Concatenate()([main, lbl])
-    main = layers.Dense(256, activation="relu", name="enc14_head_dense", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(main)
-    main = layers.LayerNormalization(name="enc14_head_ln")(main)
-
-    z_mean = layers.Dense(PHA1_LATENT_DIM, name="z_mean", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(main)
-    z_log_var = layers.Dense(PHA1_LATENT_DIM, name="z_log_var", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(main)
-    z = Sampling()([z_mean, z_log_var])
-    return keras.Model([img, lbl], [z_mean, z_log_var, z], name="encoder_14")
-
-
 # ─── Upsample via Sub-pixel Convolution ────────────────────────────
 def upsample(x, target_size, name=None):
     """Upsample using sub-pixel convolution (depth_to_space).
@@ -324,87 +229,6 @@ def upsample(x, target_size, name=None):
     x = layers.Conv2D(channels * 4, 3, padding='same', activation='relu', name=name)(x)
     x = tf.nn.depth_to_space(x, 2)
     return x
-
-
-# ─── Generator for 14×14 Phase 1 ────────────────────────────────────
-def build_generator_14():
-    z = keras.Input(shape=(PHA1_LATENT_DIM,), name="latent_input")
-    lbl = keras.Input(shape=(NUM_CLASSES,), name="label_input")
-
-    def make_film(channels, tag):
-        def film_fn(label):
-            gamma = 2.0 * layers.Dense(channels, activation="sigmoid", name=f"{tag}_g")(label)  # [0,2], init ~1 (identity)
-            beta = layers.Dense(channels, name=f"{tag}_b")(label)
-            return gamma, beta
-        return film_fn
-
-    # Spatial attention map (mirrors build_generator for positional transfer).
-    # Returns the gate so it can be combined with FiLM via colla-factors (CAT).
-    def spatial_attention_map(x, lbl, k, name=None):
-        avg = tf.reduce_mean(x, axis=-1, keepdims=True)
-        mx = tf.reduce_max(x, axis=-1, keepdims=True)
-        pooled = layers.Concatenate()([avg, mx])
-        h = int(x.shape[1])
-        lbl_map = layers.Reshape((1, 1, NUM_CLASSES))(lbl)
-        lbl_map = layers.UpSampling2D(size=h, interpolation="nearest")(lbl_map)
-        att_in = layers.Concatenate()([pooled, lbl_map])
-        att = layers.Conv2D(1, k, padding="same", activation="sigmoid", name=name)(att_in)
-        return att
-
-    # Names below are the transfer contract: every layer whose role exists at
-    # the same resolution in build_generator carries the identical name, so
-    # transfer_weights_by_name copies exactly those. Layers that are phase-1
-    # only (the 14x14 output conv) carry a phase-specific name and are
-    # deliberately left untransferred.
-    #
-    # Initial projection to 7x7 (kernel shapes differ between the phases --
-    # latent dims differ -- so only its bias transfers).
-    x = layers.Dense(7 * 7 * 256, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="gen_proj7")(z)
-    x = layers.Reshape((7, 7, 256))(x)
-    # Skip at the BEGINNING of the 7x7 scale
-    skip_7 = layers.Conv2D(128, 1, padding="same", name="gen_skip7")(x)
-    # 7x7 block (single FiLM after conv; seed FiLM dropped)
-    x = layers.Conv2D(256, 3, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="gen_conv7")(x)
-    gamma7c, beta7c = make_film(256, "gen_film7")(lbl)
-    gamma7c = layers.Reshape((1, 1, 256))(gamma7c)
-    beta7c = layers.Reshape((1, 1, 256))(beta7c)
-    x = layers.Multiply()([x, gamma7c])
-    x = layers.Add()([x, beta7c])
-    # SE at the 7x7 bottleneck (one consolidated)
-    se7 = layers.GlobalAveragePooling2D()(x)
-    se7 = layers.Dense(256 // 4, activation="relu", name="gen_se7_a")(se7)
-    se7 = layers.Dense(256, activation="sigmoid", name="gen_se7_b")(se7)
-    se7 = layers.Reshape((1, 1, 256))(se7)
-    x = layers.Multiply()([x, se7])
-
-    # 7x7 → 14x14. Narrow BEFORE upsampling: the sub-pixel conv costs
-    # 36*H*W*C^2, so doing the 256->128 reduction at 7x7 rather than at 14x14
-    # drops this step from 173.4M to 43.4M MACs. gen_conv14 keeps its shape
-    # (3,3,256,128), so the phase-1 -> phase-2 transfer is unaffected.
-    x = layers.Conv2D(128, 3, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="gen_conv14")(x)
-    x = upsample(x, [14, 14], name="gen_up7")
-    gamma14, beta14 = make_film(128, "gen_film14")(lbl)
-    gamma14 = layers.Reshape((1, 1, 128))(gamma14)
-    beta14 = layers.Reshape((1, 1, 128))(beta14)
-    # CAT collaboration at 14x14 (k=5)
-    att14 = spatial_attention_map(x, lbl, k=5, name="spatial_attn_14")
-    x = CollabModulation(name="collab_14")([x, gamma14, att14, beta14])
-    # Fusion instead of Add: Concatenate keeps the two streams separate and the
-    # 1x1 conv learns an arbitrary per-channel mix of them (Add is the special
-    # case where that mixing matrix is hard-wired to [I | I]). LayerNorm
-    # afterwards follows the conv -> norm -> relu convention used elsewhere in
-    # this file. gen_skip7_fuse/gen_skip7_ln carry the same names in
-    # build_generator, so they transfer phase 1 -> phase 2.
-    skip_7_up = upsample(skip_7, [14, 14], name="gen_up7_skip")
-    x = layers.Concatenate(name="gen_skip7_cat")([x, skip_7_up])       # 256 @ 14x14
-    x = layers.Conv2D(128, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="gen_skip7_fuse")(x)
-    x = layers.LayerNormalization(name="gen_skip7_ln")(x)
-    x = layers.Activation("relu")(x)
-
-    # Output conv at 14x14. Phase 2's equivalent is gen_out28 at 28x28 with a
-    # different input width, so there is no name match and no transfer.
-    x = layers.Conv2D(1, 3, padding="same", activation="sigmoid", dtype="float32", name="gen_out14")(x)
-    return keras.Model([z, lbl], x, name="generator_14")
 
 
 # ─── Generator with FiLM Conditioning ──────────────────────────────
@@ -1045,209 +869,8 @@ callbacks = [
     keras.callbacks.TensorBoard(log_dir=LOG_NAME, histogram_freq=1),
 ]
 
-# ─── Phase 1: Train at 14×14 (progressive growing) ────────────────
-print(f"\n═══ Phase 1: Training at 14×14 for {PROGRESSIVE_EPOCHS} epochs ═══")
-x_train_14 = resize_images(x_train, [14, 14])
-x_test_14 = resize_images(x_test, [14, 14])
-# Add channel dimension if lost
-if len(x_train_14.shape) == 3:
-    x_train_14 = x_train_14[..., np.newaxis]
-    x_test_14 = x_test_14[..., np.newaxis]
-
-# Build 14×14 model for phase 1
-encoder_14 = build_encoder_14()
-generator_14 = build_generator_14()
-
-class VAE14(VAE):
-    """VAE for 14x14 phase without perceptual loss."""
-    def get_lr(self):
-        epoch = tf.cast(self.epoch_tracker, tf.float32)
-        warmup_epochs = tf.cast(PHA1_LR_WARMUP_EPOCHS, tf.float32)
-        decay_epochs = tf.cast(PHA1_LR_DECAY_EPOCHS, tf.float32)
-        warmup_progress = epoch / warmup_epochs
-        warmup_lr = PHA1_LR_WARMUP_START + (PHA1_LR - PHA1_LR_WARMUP_START) * tf.minimum(1.0, warmup_progress)
-        decay_epoch = epoch - warmup_epochs
-        decay_progress = tf.minimum(1.0, decay_epoch / tf.maximum(1.0, decay_epochs))
-        decay_lr = PHA1_LR + (PHA1_LR_END - PHA1_LR) * decay_progress
-        return tf.where(epoch < warmup_epochs, warmup_lr, decay_lr)
-
-    def get_pixel_weight(self):
-        """Phase 1 has no pixel schedule. Pixel BCE is the only active term here
-        (PHA1_INFO_NCE_WEIGHT is 0 and the KL contributes ~0.1% of it), so
-        annealing the weight would just rescale the whole loss -- which is
-        indistinguishable from decaying the LR. Constant, and logged as such so
-        the metric reports the truth (1.0) instead of an untouched 0.0.
-        """
-        return tf.constant(PHA1_PIXEL_LOSS_WEIGHT, dtype=tf.float32)
-
-    @property
-    def metrics(self):
-        # No perceptual loss in phase 1 (VAE14 computes pixel + KL only), so
-        # inheriting VAE.metrics would log a permanently-zero perceptual_loss.
-        return [self.total_loss_tracker, self.recon_loss_tracker, self.kl_loss_tracker,
-                self.kl_weight_tracker, self.pixel_weight_tracker]
-
-    def train_step(self, data):
-        images, labels = data
-        self.optimizer.learning_rate = self.get_lr()
-        pixel_weight = self.get_pixel_weight()
-        with tf.GradientTape() as tape:
-            z_mean, z_log_var, z = self.encoder([images, labels])
-            reconstruction = self.generator([z, labels])
-            target = tf.image.resize(images, tf.shape(reconstruction)[1:3])
-            pixel_loss = weighted_pixel_loss(target, reconstruction)
-            kl_loss = -0.5 * tf.reduce_mean(tf.reduce_sum(
-                1 + z_log_var - tf.square(z_mean) - tf.exp(z_log_var), axis=1))
-            batch_size = tf.shape(z)[0]
-            z_norm = tf.math.l2_normalize(z, axis=1)
-            sim_matrix = tf.matmul(z_norm, z_norm, transpose_b=True) / TEMPERATURE
-            labels_ce = tf.range(batch_size)
-            info_nce_loss = tf.reduce_mean(
-                tf.nn.sparse_softmax_cross_entropy_with_logits(labels=labels_ce, logits=sim_matrix))
-            # Phase 1 KL with configurable warmup
-            epoch = tf.cast(self.epoch_tracker, tf.float32)
-            kl_warmup_epochs = tf.cast(PHA1_KL_WARMUP_EPOCHS, tf.float32)
-            kl_warmup_progress = tf.minimum(1.0, epoch / kl_warmup_epochs)
-            kl_weight = PHA1_KL_WARMUP_START + (PHA1_KL_WEIGHT_START - PHA1_KL_WARMUP_START) * kl_warmup_progress
-            total_loss = (pixel_weight * pixel_loss +
-                          kl_weight * kl_loss +
-                          PHA1_INFO_NCE_WEIGHT * info_nce_loss)
-        grads = tape.gradient(total_loss, self.trainable_weights)
-        grads = [tf.clip_by_value(g, -1.0, 1.0) if g is not None else g for g in grads]
-        self.optimizer.apply_gradients(zip(grads, self.trainable_weights))
-        self.total_loss_tracker.update_state(total_loss)
-        self.recon_loss_tracker.update_state(pixel_loss)
-        self.kl_loss_tracker.update_state(kl_loss)
-        self.kl_weight_tracker.update_state(kl_weight)
-        self.pixel_weight_tracker.update_state(pixel_weight)
-        return {m.name: m.result() for m in self.metrics}
-
-    def test_step(self, data):
-        images, labels = data
-        z_mean, z_log_var, z = self.encoder([images, labels])
-        reconstruction = self.generator([z, labels])
-        target = tf.image.resize(images, tf.shape(reconstruction)[1:3])
-        pixel_loss = weighted_pixel_loss(target, reconstruction)
-        kl_loss = -0.5 * tf.reduce_mean(tf.reduce_sum(
-            1 + z_log_var - tf.square(z_mean) - tf.exp(z_log_var), axis=1))
-        pixel_weight = self.get_pixel_weight()
-        epoch = tf.cast(self.epoch_tracker, tf.float32)
-        kl_warmup_epochs = tf.cast(PHA1_KL_WARMUP_EPOCHS, tf.float32)
-        kl_warmup_progress = tf.minimum(1.0, epoch / kl_warmup_epochs)
-        kl_weight = PHA1_KL_WARMUP_START + (PHA1_KL_WEIGHT_START - PHA1_KL_WARMUP_START) * kl_warmup_progress
-        total_loss = pixel_weight * pixel_loss + kl_weight * kl_loss
-        self.total_loss_tracker.update_state(total_loss)
-        self.recon_loss_tracker.update_state(pixel_loss)
-        self.kl_loss_tracker.update_state(kl_loss)
-        self.kl_weight_tracker.update_state(kl_weight)
-        self.pixel_weight_tracker.update_state(pixel_weight)
-        return {m.name: m.result() for m in self.metrics}
-
-vae_14 = VAE14(encoder_14, generator_14)
-vae_14.compile(optimizer=keras.optimizers.Adam(PHA1_LR))
-# VAE14 overrides train_step directly (no perceptual loss in phase 1)
-
-train_seq_14 = CVAESequence(x_train_14, y_train, BATCH_SIZE, samples_per_epoch_per_class=SAMPLES_PER_EPOCH_PER_CLASS)
-val_seq_14 = CVAESequence(x_test_14, y_test, BATCH_SIZE, samples_per_epoch_per_class=None)
-
-callbacks_14 = [
-    keras.callbacks.EarlyStopping(monitor='val_recon_loss', patience=10, restore_best_weights=True),
-    BestEpochLogger(vae_14),
-    keras.callbacks.TensorBoard(log_dir=LOG_NAME_PHA1, histogram_freq=1),
-]
-
-history1 = vae_14.fit(train_seq_14, validation_data=val_seq_14,
-                      epochs=PROGRESSIVE_EPOCHS, batch_size=BATCH_SIZE, callbacks=callbacks_14, verbose=2)
-
-# Transfer weights from 14×14 model to 28×28 model
-print("\nTransferring weights from 14×14 model to 28×28 model...")
-
-def _dump_weights(model, title):
-    print(f"\n=== {title} ===")
-    for i, w in enumerate(model.weights):
-        print(f"{i:03d} {w.name:<60} {tuple(w.shape)}")
-    print("=" * 90)
-
-# one-shot snapshot for exact named mapping later
-_dump_weights(encoder_14, "encoder_14 weights")
-_dump_weights(encoder, " encoder weights")
-_dump_weights(generator_14, "generator_14 weights")
-_dump_weights(generator, " generator weights")
-
-def transfer_weights_by_name(src_model, dst_model, name="model"):
-    src_by_name = {w.name: w for w in src_model.weights}
-    dst_by_name = {w.name: w for w in dst_model.weights}
-    transferred = []
-    skipped = []
-    for w_name, src_w in src_by_name.items():
-        if w_name in dst_by_name:
-            dst_w = dst_by_name[w_name]
-            if tuple(src_w.shape) == tuple(dst_w.shape):
-                dst_w.assign(src_w)
-                transferred.append(dst_w)
-            else:
-                skipped.append((w_name, tuple(src_w.shape), tuple(dst_w.shape)))
-    print(f"[{name}] transferred {len(transferred)} weights by name; skipped {len(skipped)} due to shape mismatch")
-    for w_name, s_shape, d_shape in skipped:
-        print(f"  skip {w_name}: {s_shape} -> {d_shape}")
-    return transferred
-
-def transfer_weights_by_order(src_model, dst_model, name="model"):
-    """Transfer weights by construction order + shape (name-agnostic).
-
-    Walks src/dst weights in parallel by index; copies where shapes match.
-    Robust to Keras auto-naming collisions. Used for the generator, whose
-    phase-1 and phase-2 builders share the same layer sequence for the
-    7x7/14x14 trunk (differing only in the extra 28x28 stage).
-    """
-    src_w = list(src_model.weights)
-    dst_w = list(dst_model.weights)
-    transferred = []
-    skipped = []
-    n = min(len(src_w), len(dst_w))
-    for i in range(n):
-        sw, dw = src_w[i], dst_w[i]
-        if tuple(sw.shape) == tuple(dw.shape):
-            dw.assign(sw)
-            transferred.append(dw)
-        else:
-            skipped.append((i, sw.name, tuple(sw.shape), tuple(dw.shape)))
-    print(f"[{name}] transferred {len(transferred)}/{n} weights by order; "
-          f"skipped {len(skipped)} due to shape mismatch")
-    for idx, nm, s_shape, d_shape in skipped:
-        print(f"  skip #{idx} {nm}: {s_shape} -> {d_shape}")
-    return transferred
-
-
-enc_transferred = transfer_weights_by_name(encoder_14, encoder, name="encoder")
-gen_transferred = transfer_weights_by_name(generator_14, generator, name="generator")
-vae.phase1_transferred_weights = enc_transferred + gen_transferred
-print(f"Weight transfer complete. {len(vae.phase1_transferred_weights)} weights transferred.")
-
 # ─── Phase 2: Fine-tune at 28×28 ───────────────────────────────────
 print(f"\n═══ Phase 2: Fine-tuning at 28×28 for {EPOCHS - PROGRESSIVE_EPOCHS} epochs ═══")
-freeze_epochs_end = PROGRESSIVE_EPOCHS + PHA2_TRANSFER_FREEZE_EPOCHS
-
-# Epoch 6..N: transferred weights frozen
-print(f"\nPhase 2a: frozen transferred weights for {PHA2_TRANSFER_FREEZE_EPOCHS} epochs")
-frozen_weights = list(getattr(vae, 'phase1_transferred_weights', []))
-for v in frozen_weights:
-    v._trainable = False
-vae.compile(g_opt=keras.optimizers.Adam(LR), d_opt=keras.optimizers.Adam(DISC_LR))
-history2_frozen = vae.fit(
-    train_seq,
-    validation_data=val_seq,
-    epochs=min(freeze_epochs_end, EPOCHS),
-    batch_size=BATCH_SIZE,
-    callbacks=callbacks,
-    verbose=2,
-    initial_epoch=PROGRESSIVE_EPOCHS,
-)
-
-# Unfreeze transferred weights and resume
-print("\nUnfreezing transferred weights and resuming Phase 2")
-for v in frozen_weights:
-    v._trainable = True
 vae.compile(g_opt=keras.optimizers.Adam(LR), d_opt=keras.optimizers.Adam(DISC_LR))
 history2 = vae.fit(
     train_seq,
@@ -1256,7 +879,7 @@ history2 = vae.fit(
     batch_size=BATCH_SIZE,
     callbacks=callbacks,
     verbose=2,
-    initial_epoch=freeze_epochs_end,
+    initial_epoch=0,
 )
 
 # ─── Load best generator weights (in case EarlyStopping didn't trigger) ──
