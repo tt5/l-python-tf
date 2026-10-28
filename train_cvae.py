@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """train_cvae.py
 
-Simple Conditional VAE for synthetic pictogram data.
+VAEGAN for synthetic data.
 Compatible with convert_generator.py for ONNX conversion.
 
 Usage:
@@ -44,8 +44,6 @@ MAX_SAMPLES_PER_CLASS = args.max_samples_per_class
 SAMPLES_PER_EPOCH_PER_CLASS = args.samples_per_epoch_per_class
 PBM_DIR = Path(args.pbm_dir) if args.pbm_dir else None
 
-#PROGRESSIVE_EPOCHS = 36 # Phase 1: 14x14
-PROGRESSIVE_EPOCHS = 0
 LR = 0.003
 LR_WARMUP_START = 0.00005
 LR_WARMUP_EPOCHS = 5
@@ -61,40 +59,28 @@ PIXEL_POS_WEIGHT = 1.0
 DROPOUT = 0.3
 SPATIAL_DROPOUT = 0.0
 L2_REG = 0.00001
-# VAE-GAN hybrid (Phase 2 only): adversarial term + discriminator LR
-ADV_LAMBDA = 0.45
+# VAE-GAN hybrid: adversarial term + discriminator LR
+ADV_LAMBDA = 0.5
 DISC_LR = 0.0001
 D_BATCH_INTERVAL = 1  # update discriminator every N batches (G updates every batch)
 D_REAL_LABEL = 1.0    # one-sided label smoothing for the real class
-# Phase 2 KL schedule (configurable start)
-PHA2_KL_WARMUP_START = 0.0
-PHA2_KL_WEIGHT_START = 0.016
-PHA2_KL_WEIGHT_TARGET = 0.003
-PHA2_KL_WARMUP_EPOCHS = 50
-PHA2_KL_DECAY_EPOCHS = 70
-# Phase 2 pixel-loss schedule. Pixel BCE is what pulls the generator toward the
-# per-pixel mean (blur); annealing it down lets the perceptual + adversarial
-# terms sharpen instead. Linear, no warmup: full weight at the start of phase 2,
-# TARGET on the last epoch actually run -- hence the -1, since phase 2 runs
-# epochs PROGRESSIVE_EPOCHS .. EPOCHS-1.
-PHA2_PIXEL_WEIGHT_START = 1.0 * 17
-PHA2_PIXEL_WEIGHT_TARGET = 0.5 * 17
-PHA2_PIXEL_DECAY_EPOCHS = EPOCHS - PROGRESSIVE_EPOCHS - 1
-# Phase 2 perceptual-loss schedule. The perceptual term is measured through a
-# FROZEN MNIST classifier, so early in phase 2 the generator's output is far
-# enough from real digits that its features carry no useful signal -- a strong
-# perceptual gradient then pulls toward the classifier's notion of "digit"
-# before the basic structure exists. So: 0 at the start of phase 2, warm up once
-# the pixel term has established coarse structure, then decay.
-# Note the perceptual loss is a feature-MSE (~0.015), roughly 2 orders of
-# magnitude below the pixel/KL terms, so these weights are correspondingly large.
-PHA2_PERC_WARMUP_START = 0.0
-PHA2_PERC_WEIGHT_START = 500.0   # peak, reached at the end of warmup
-PHA2_PERC_WEIGHT_TARGET = 2.0
-PHA2_PERC_WARMUP_EPOCHS = 70
-PHA2_PERC_DECAY_EPOCHS = EPOCHS - PHA2_PERC_WARMUP_EPOCHS - 1
-# Phase 1 (14x14) specific config
-LOG_NAME = 'logs/gen1'
+
+KL_WARMUP_START = 0.0
+KL_WEIGHT_START = 0.016
+KL_WEIGHT_TARGET = 0.003
+KL_WARMUP_EPOCHS = 50
+KL_DECAY_EPOCHS = 70
+
+PIXEL_WEIGHT_START = 1.0 * 17
+PIXEL_WEIGHT_TARGET = 0.5 * 17
+PIXEL_DECAY_EPOCHS = EPOCHS - 1
+
+PERC_WARMUP_START = 0.0
+PERC_WEIGHT_START = 800.0
+PERC_WEIGHT_TARGET = 2.0
+PERC_WARMUP_EPOCHS = 70
+PERC_DECAY_EPOCHS = EPOCHS - 1
+LOG_NAME = 'logs/gen1b'
 
 def weighted_pixel_loss(target, reconstruction):
     """Foreground-weighted pixel BCE, as a PER-PIXEL MEAN.
@@ -102,15 +88,6 @@ def weighted_pixel_loss(target, reconstruction):
     keras binary_crossentropy returns shape [B,H,W] (the channel axis is
     squeezed), while `target` is [B,H,W,1] -- so the weights are squeezed
     to match before multiplying.
-
-    This previously summed over (H, W) and averaged over the batch, so its
-    value scaled with the pixel count: ~196 at 14x14 but ~784 at 28x28, and
-    ~5 orders of magnitude larger than the perceptual loss (which is a mean).
-    It is now a mean over pixels, so it is O(1) and on the same footing as the
-    perceptual / adversarial / KL terms.
-
-    NOTE: this shrinks the pixel term by H*W, so the pixel:KL balance shifts by
-    that same factor and the loss weights need retuning to compensate.
     """
     bce = keras.losses.binary_crossentropy(target, reconstruction)
     t = tf.squeeze(target, axis=-1)
@@ -265,14 +242,16 @@ def build_generator():
     # its bias transfers)
     x = layers.Dense(7 * 7 * 256, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="gen_proj7")(z)
     x = layers.Reshape((7, 7, 256))(x)
-    skip_7 = layers.Conv2D(128, 1, padding="same", name="gen_skip7")(x)
+
     x = layers.Conv2D(256, 3, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="gen_conv7")(x)
+
     # FiLM at 7x7
     gamma7c, beta7c = make_film(256, "gen_film7")(lbl)
     gamma7c = layers.Reshape((1, 1, 256))(gamma7c)
     beta7c = layers.Reshape((1, 1, 256))(beta7c)
     x = layers.Multiply()([x, gamma7c])
     x = layers.Add()([x, beta7c])
+
     # SE at 7x7
     se7 = layers.GlobalAveragePooling2D()(x)
     se7 = layers.Dense(256 // 4, activation="relu", name="gen_se7_a")(se7)
@@ -285,11 +264,10 @@ def build_generator():
     x = tf.keras.layers.LayerNormalization(center=True, scale=True)(x)
     x = tf.keras.layers.Activation("relu")(x)
 
-    # Skip saved at the BEGINNING of the 14x14 scale. Phase-2 only: it feeds
-    # the 28x28 stage, which phase 1 does not have. It now taps the narrowed
-    # 128ch tensor (was 256ch before the reduction moved to 7x7), so its shape
-    # becomes (1,1,128,64) instead of (1,1,256,64).
     skip_14 = layers.Conv2D(64, 1, padding="same", name="gen_skip14")(x)
+
+    x = layers.Conv2D(128, 3, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="gen_conv14")(x)
+
     # FiLM at 14x14
     gamma14, beta14 = make_film(128, "gen_film14")(lbl)
     gamma14 = layers.Reshape((1, 1, 128))(gamma14)
@@ -297,28 +275,22 @@ def build_generator():
     # CAT collaboration: learned colla-factors combine FiLM (channel) + spatial attn
     att14 = spatial_attention_map(x, lbl, k=5, name="spatial_attn_14")
     x = CollabModulation(name="collab_14")([x, gamma14, att14, beta14])
-    # Residual: project skip_7 to 14x14, then fuse by concatenation rather than
-    # Add (see build_generator_14). Same names as phase 1, so gen_skip7_fuse and
-    # gen_skip7_ln transfer in from phase 1.
-    skip_7_up = upsample(skip_7, [14, 14], name="gen_up7_skip")
-    x = layers.Concatenate(name="gen_skip7_cat")([x, skip_7_up])       # 256 @ 14x14
-    x = layers.Conv2D(128, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="gen_skip7_fuse")(x)
-    x = layers.LayerNormalization(name="gen_skip7_ln")(x)
-    x = layers.Activation("relu")(x)
 
-    # ─── 28x28 stage: phase-2 only, no phase-1 counterpart ──────────────
+    # 14x14 -> 28x28
     x = tf.keras.layers.Conv2DTranspose(64, 4, strides=2, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = tf.keras.layers.LayerNormalization(center=True, scale=True)(x)
     x = tf.keras.layers.Activation("relu")(x)
 
-    # FiLM for the 28x28 stage
+    x = layers.Conv2D(64, 3, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="gen_conv28")(x)
+
+    # FiLM at 28x28
     gamma28, beta28 = make_film(64, "gen_film28")(lbl)
     gamma28 = layers.Reshape((1, 1, 64))(gamma28)
     beta28 = layers.Reshape((1, 1, 64))(beta28)
     # CAT collaboration at 28x28 (k=7)
     att28 = spatial_attention_map(x, lbl, k=7, name="spatial_attn_28")
     x = CollabModulation(name="collab_28")([x, gamma28, att28, beta28])
-    # Same concat + 1x1 fuse + LayerNorm treatment as the 14x14 skip.
+
     skip_14_up = upsample(skip_14, [28, 28], name="gen_up14_skip")
     x = layers.Concatenate(name="gen_skip14_cat")([x, skip_14_up])     # 128 @ 28x28
     x = layers.Conv2D(64, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="gen_skip14_fuse")(x)
@@ -406,12 +378,12 @@ class VAE(keras.Model):
 
     def get_kl_weight(self):
         epoch = tf.cast(self.epoch_tracker, tf.float32)
-        kl_epoch = epoch - tf.cast(PROGRESSIVE_EPOCHS, tf.float32)
-        warmup_epochs = tf.cast(PHA2_KL_WARMUP_EPOCHS, tf.float32)
-        decay_epochs = tf.cast(PHA2_KL_DECAY_EPOCHS, tf.float32)
-        start = tf.constant(PHA2_KL_WARMUP_START, dtype=tf.float32)
-        mid = tf.constant(PHA2_KL_WEIGHT_START, dtype=tf.float32)
-        end = tf.constant(PHA2_KL_WEIGHT_TARGET, dtype=tf.float32)
+        kl_epoch = epoch - tf.cast(0, tf.float32)
+        warmup_epochs = tf.cast(KL_WARMUP_EPOCHS, tf.float32)
+        decay_epochs = tf.cast(KL_DECAY_EPOCHS, tf.float32)
+        start = tf.constant(KL_WARMUP_START, dtype=tf.float32)
+        mid = tf.constant(KL_WEIGHT_START, dtype=tf.float32)
+        end = tf.constant(KL_WEIGHT_TARGET, dtype=tf.float32)
         zero = tf.constant(0.0, dtype=tf.float32)
         warmup_progress = tf.clip_by_value(kl_epoch / warmup_epochs, 0.0, 1.0)
         warmup_weight = start + (mid - start) * warmup_progress
@@ -427,50 +399,22 @@ class VAE(keras.Model):
         return start * is_phase1 + warmup_weight * is_phase2 + decay_weight * is_phase3
 
     def get_pixel_weight(self):
-        """Linear anneal of the pixel-loss weight across phase 2.
-
-        Pixel BCE is what drives the generator toward the per-pixel mean, so
-        holding it constant keeps the output blurry no matter how strong the
-        perceptual/adversarial terms get. Phase 1 deliberately has no schedule:
-        its loss is pixel + a negligible KL + info_nce=0, so pixel is the only
-        active term and decaying its weight would just rescale the whole loss --
-        indistinguishable from decaying the LR.
-
-        Progress is clipped at BOTH ends, so pre-phase-2 epochs clamp to START
-        instead of overshooting above it. (get_lr/get_kl_weight use an
-        asymmetric tf.minimum(1.0, ...) and rely on tf.where to mask the
-        out-of-range branch; no need to repeat that trap here.)
-        """
         epoch = tf.cast(self.epoch_tracker, tf.float32)
-        p2_epoch = epoch - tf.cast(PROGRESSIVE_EPOCHS, tf.float32)
-        start = tf.constant(PHA2_PIXEL_WEIGHT_START, dtype=tf.float32)
-        end = tf.constant(PHA2_PIXEL_WEIGHT_TARGET, dtype=tf.float32)
+        p2_epoch = epoch - tf.cast(0, tf.float32)
+        start = tf.constant(PIXEL_WEIGHT_START, dtype=tf.float32)
+        end = tf.constant(PIXEL_WEIGHT_TARGET, dtype=tf.float32)
         progress = tf.clip_by_value(
-            p2_epoch / tf.cast(PHA2_PIXEL_DECAY_EPOCHS, tf.float32), 0.0, 1.0)
+            p2_epoch / tf.cast(PIXEL_DECAY_EPOCHS, tf.float32), 0.0, 1.0)
         return start + (end - start) * progress
 
     def get_perceptual_weight(self):
-        """Warm up then decay the perceptual-loss weight across phase 2.
-
-        The perceptual term is measured through a frozen MNIST classifier, so at
-        the start of phase 2 the generator's output is far enough from real
-        digits that the classifier's features are uninformative -- a strong
-        perceptual gradient there pulls toward "what a digit looks like" before
-        the basic structure exists. Ramp in after the pixel term has done its
-        work, then decay so it does not fight the fine detail at the end.
-
-        Same shape as get_kl_weight: constant `start` before phase 2, linear
-        warmup start->mid over PHA2_PERC_WARMUP_EPOCHS, then linear decay
-        mid->end. Continuous at the handover (both branches equal mid), and both
-        progress terms are clipped at both ends.
-        """
         epoch = tf.cast(self.epoch_tracker, tf.float32)
-        p2_epoch = epoch - tf.cast(PROGRESSIVE_EPOCHS, tf.float32)
-        warmup_epochs = tf.cast(PHA2_PERC_WARMUP_EPOCHS, tf.float32)
-        decay_epochs = tf.cast(PHA2_PERC_DECAY_EPOCHS, tf.float32)
-        start = tf.constant(PHA2_PERC_WARMUP_START, dtype=tf.float32)
-        mid = tf.constant(PHA2_PERC_WEIGHT_START, dtype=tf.float32)
-        end = tf.constant(PHA2_PERC_WEIGHT_TARGET, dtype=tf.float32)
+        p2_epoch = epoch - tf.cast(0, tf.float32)
+        warmup_epochs = tf.cast(PERC_WARMUP_EPOCHS, tf.float32)
+        decay_epochs = tf.cast(PERC_DECAY_EPOCHS, tf.float32)
+        start = tf.constant(PERC_WARMUP_START, dtype=tf.float32)
+        mid = tf.constant(PERC_WEIGHT_START, dtype=tf.float32)
+        end = tf.constant(PERC_WEIGHT_TARGET, dtype=tf.float32)
         warmup_progress = tf.clip_by_value(p2_epoch / warmup_epochs, 0.0, 1.0)
         warmup_weight = start + (mid - start) * warmup_progress
         decay_progress = tf.clip_by_value(
@@ -490,7 +434,6 @@ class VAE(keras.Model):
         # Update LR with warmup
         self.optimizer.learning_rate = self.get_lr()
 
-        # Get loss weights (all scheduled across phase 2)
         kl_weight = self.get_kl_weight()
         pixel_weight = self.get_pixel_weight()
         perceptual_weight = self.get_perceptual_weight()
@@ -523,11 +466,6 @@ class VAE(keras.Model):
             # Perceptual loss (multi-layer feature-level)
             real_features = self.feature_extractor(images)
             fake_features = self.feature_extractor(reconstruction)
-            # Mean over feature layers of the per-layer MSE. reduce_mean already
-            # divides by the element count, so the previous `diff / n` divided by
-            # it a second time -- and since n = batch x channels, that made the
-            # term shrink as the batch grew. It also disagreed with test_step
-            # (which never divided) by ~1600x. Both now compute the same thing.
             perceptual_loss = 0.0
             count = 0
             for rf, ff in zip(real_features, fake_features):
@@ -610,14 +548,7 @@ def build_discriminator():
     return keras.Model([img, lbl], out, name="discriminator")
 
 
-# ─── VAE-GAN hybrid (Phase 2 only) ─────────────────────────────────
 class VAEGAN(VAE):
-    """VAE with a conditional discriminator and adversarial loss.
-
-    The adversarial term forces the generator to commit to sharp output
-    instead of the KL/BCE-averaged blur. Phase 1 stays pure VAE; the
-    discriminator joins in Phase 2 (it does not transfer from Phase 1).
-    """
     def __init__(self, encoder, generator, discriminator, **kwargs):
         super().__init__(encoder, generator, **kwargs)
         self.discriminator = discriminator
@@ -674,11 +605,6 @@ class VAEGAN(VAE):
 
         # --- Train generator (encoder + decoder; adversarial flows through D) ---
         with tf.GradientTape() as g_tape:
-            # The encoder MUST be called inside this tape. z_mean/z_log_var/z
-            # feed kl_loss, info_nce_loss and the reconstruction; a forward pass
-            # executed outside the tape is a constant to it, so every encoder
-            # gradient would come back None and apply_gradients would skip it --
-            # the encoder would silently never update in phase 2.
             z_mean, z_log_var, z = self.encoder([images, labels])
             reconstruction = self.generator([z, labels])
             d_fake = self.discriminator([reconstruction, labels])
@@ -696,11 +622,6 @@ class VAEGAN(VAE):
                 tf.nn.sparse_softmax_cross_entropy_with_logits(labels=labels_ce, logits=sim_matrix))
             real_features = self.feature_extractor(images)
             fake_features = self.feature_extractor(reconstruction)
-            # Mean over feature layers of the per-layer MSE. reduce_mean already
-            # divides by the element count, so the previous `diff / n` divided by
-            # it a second time -- and since n = batch x channels, that made the
-            # term shrink as the batch grew. It also disagreed with test_step
-            # (which never divided) by ~1600x. Both now compute the same thing.
             perceptual_loss = 0.0
             count = 0
             for rf, ff in zip(real_features, fake_features):
@@ -865,8 +786,6 @@ callbacks = [
     keras.callbacks.TensorBoard(log_dir=LOG_NAME, histogram_freq=1),
 ]
 
-# ─── Phase 2: Fine-tune at 28×28 ───────────────────────────────────
-print(f"\n═══ Phase 2: Fine-tuning at 28×28 for {EPOCHS - PROGRESSIVE_EPOCHS} epochs ═══")
 vae.compile(g_opt=keras.optimizers.Adam(LR), d_opt=keras.optimizers.Adam(DISC_LR))
 history2 = vae.fit(
     train_seq,
