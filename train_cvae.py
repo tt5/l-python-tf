@@ -24,7 +24,7 @@ from utils.mnist_loader import load_data
 # ─── Config ────────────────────────────────────────────────────────
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "synthetic" / "data"
 LATENT_DIM = 512
-EPOCHS = 190
+EPOCHS = 200
 BATCH_SIZE = 512
 NUM_CLASSES = 4
 
@@ -62,7 +62,7 @@ DROPOUT = 0.3
 SPATIAL_DROPOUT = 0.0
 L2_REG = 0.00001
 # VAE-GAN hybrid (Phase 2 only): adversarial term + discriminator LR
-ADV_LAMBDA = 0.4
+ADV_LAMBDA = 0.45
 DISC_LR = 0.0001
 D_BATCH_INTERVAL = 1  # update discriminator every N batches (G updates every batch)
 D_REAL_LABEL = 1.0    # one-sided label smoothing for the real class
@@ -89,12 +89,12 @@ PHA2_PIXEL_DECAY_EPOCHS = EPOCHS - PROGRESSIVE_EPOCHS - 1
 # Note the perceptual loss is a feature-MSE (~0.015), roughly 2 orders of
 # magnitude below the pixel/KL terms, so these weights are correspondingly large.
 PHA2_PERC_WARMUP_START = 0.0
-PHA2_PERC_WEIGHT_START = 400.0   # peak, reached at the end of warmup
+PHA2_PERC_WEIGHT_START = 500.0   # peak, reached at the end of warmup
 PHA2_PERC_WEIGHT_TARGET = 2.0
-PHA2_PERC_WARMUP_EPOCHS = 50
-PHA2_PERC_DECAY_EPOCHS = EPOCHS - PROGRESSIVE_EPOCHS - PHA2_PERC_WARMUP_EPOCHS - 1
+PHA2_PERC_WARMUP_EPOCHS = 70
+PHA2_PERC_DECAY_EPOCHS = EPOCHS - PHA2_PERC_WARMUP_EPOCHS - 1
 # Phase 1 (14x14) specific config
-LOG_NAME = 'logs/gen1b'
+LOG_NAME = 'logs/gen1'
 
 def weighted_pixel_loss(target, reconstruction):
     """Foreground-weighted pixel BCE, as a PER-PIXEL MEAN.
