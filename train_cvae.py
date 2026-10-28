@@ -63,22 +63,22 @@ SPATIAL_DROPOUT = 0.0
 L2_REG = 0.00001
 # VAE-GAN hybrid (Phase 2 only): adversarial term + discriminator LR
 ADV_LAMBDA = 0.4
-DISC_LR = 0.00009
+DISC_LR = 0.0001
 D_BATCH_INTERVAL = 1  # update discriminator every N batches (G updates every batch)
 D_REAL_LABEL = 1.0    # one-sided label smoothing for the real class
 # Phase 2 KL schedule (configurable start)
 PHA2_KL_WARMUP_START = 0.0
-PHA2_KL_WEIGHT_START = 0.017
-PHA2_KL_WEIGHT_TARGET = 0.001
-PHA2_KL_WARMUP_EPOCHS = 40
-PHA2_KL_DECAY_EPOCHS = 70 - PROGRESSIVE_EPOCHS
+PHA2_KL_WEIGHT_START = 0.016
+PHA2_KL_WEIGHT_TARGET = 0.003
+PHA2_KL_WARMUP_EPOCHS = 50
+PHA2_KL_DECAY_EPOCHS = 70
 # Phase 2 pixel-loss schedule. Pixel BCE is what pulls the generator toward the
 # per-pixel mean (blur); annealing it down lets the perceptual + adversarial
 # terms sharpen instead. Linear, no warmup: full weight at the start of phase 2,
 # TARGET on the last epoch actually run -- hence the -1, since phase 2 runs
 # epochs PROGRESSIVE_EPOCHS .. EPOCHS-1.
 PHA2_PIXEL_WEIGHT_START = 1.0 * 17
-PHA2_PIXEL_WEIGHT_TARGET = 0.3 * 17
+PHA2_PIXEL_WEIGHT_TARGET = 0.5 * 17
 PHA2_PIXEL_DECAY_EPOCHS = EPOCHS - PROGRESSIVE_EPOCHS - 1
 # Phase 2 perceptual-loss schedule. The perceptual term is measured through a
 # FROZEN MNIST classifier, so early in phase 2 the generator's output is far
@@ -88,13 +88,13 @@ PHA2_PIXEL_DECAY_EPOCHS = EPOCHS - PROGRESSIVE_EPOCHS - 1
 # the pixel term has established coarse structure, then decay.
 # Note the perceptual loss is a feature-MSE (~0.015), roughly 2 orders of
 # magnitude below the pixel/KL terms, so these weights are correspondingly large.
-PHA2_PERC_WARMUP_START = 1.0
-PHA2_PERC_WEIGHT_START = 300.0   # peak, reached at the end of warmup
+PHA2_PERC_WARMUP_START = 0.0
+PHA2_PERC_WEIGHT_START = 400.0   # peak, reached at the end of warmup
 PHA2_PERC_WEIGHT_TARGET = 2.0
-PHA2_PERC_WARMUP_EPOCHS = 41
+PHA2_PERC_WARMUP_EPOCHS = 50
 PHA2_PERC_DECAY_EPOCHS = EPOCHS - PROGRESSIVE_EPOCHS - PHA2_PERC_WARMUP_EPOCHS - 1
 # Phase 1 (14x14) specific config
-LOG_NAME = 'logs/gen1'
+LOG_NAME = 'logs/gen1b'
 
 def weighted_pixel_loss(target, reconstruction):
     """Foreground-weighted pixel BCE, as a PER-PIXEL MEAN.
@@ -143,9 +143,7 @@ def build_encoder():
 
     # Label-conditioned spatial gate (CBAM-style). Channel-pool (avg+max) +
     # broadcast label -> kxk conv -> sigmoid gate. Returns the GATE (not
-    # x * gate) so it can be fused with FiLM by CollabModulation at c1 -- the
-    # same contract as build_encoder_14 and the generator's
-    # spatial_attention_map.
+    # x * gate) so it can be fused with FiLM by CollabModulation at c1
     def spatial_attention_map(x, lbl, k, name=None):
         avg = tf.reduce_mean(x, axis=-1, keepdims=True)
         mx = tf.reduce_max(x, axis=-1, keepdims=True)
