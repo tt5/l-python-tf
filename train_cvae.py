@@ -24,7 +24,7 @@ from utils.mnist_loader import load_data
 # ─── Config ────────────────────────────────────────────────────────
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "synthetic" / "data"
 LATENT_DIM = 512
-EPOCHS = 200
+EPOCHS = 210
 BATCH_SIZE = 512
 NUM_CLASSES = 4
 
@@ -49,7 +49,7 @@ LR_WARMUP_START = 0.00005
 LR_WARMUP_EPOCHS = 5
 LR_DECAY_EPOCHS = EPOCHS - LR_WARMUP_EPOCHS
 LR_END = 0.00005
-INFO_NCE_WEIGHT = 0.0011
+INFO_NCE_WEIGHT = 0.0012
 TEMPERATURE = 1.0
 # Foreground weight for pixel BCE. Sparse classes (e.g. class 4, ~12.6%
 # foreground) are dominated by background under plain BCE, which drags
@@ -61,26 +61,26 @@ SPATIAL_DROPOUT = 0.0
 L2_REG = 0.00001
 # VAE-GAN hybrid: adversarial term + discriminator LR
 ADV_LAMBDA = 0.5
-DISC_LR = 0.0001
+DISC_LR = 0.0002
 D_BATCH_INTERVAL = 1  # update discriminator every N batches (G updates every batch)
 D_REAL_LABEL = 1.0    # one-sided label smoothing for the real class
 
-KL_WARMUP_START = 0.0
+KL_WARMUP_START = 0.0001
 KL_WEIGHT_START = 0.016
 KL_WEIGHT_TARGET = 0.003
-KL_WARMUP_EPOCHS = 50
-KL_DECAY_EPOCHS = 70
+KL_WARMUP_EPOCHS = 55
+KL_DECAY_EPOCHS = 80
 
-PIXEL_WEIGHT_START = 1.0 * 17
-PIXEL_WEIGHT_TARGET = 0.5 * 17
+PIXEL_WEIGHT_START = 1.0 * 16
+PIXEL_WEIGHT_TARGET = 0.6 * 16
 PIXEL_DECAY_EPOCHS = EPOCHS - 1
 
 PERC_WARMUP_START = 0.0
-PERC_WEIGHT_START = 800.0
-PERC_WEIGHT_TARGET = 2.0
-PERC_WARMUP_EPOCHS = 70
-PERC_DECAY_EPOCHS = EPOCHS - 1
-LOG_NAME = 'logs/gen1b'
+PERC_WEIGHT_START = 1000.0
+PERC_WEIGHT_TARGET = 500.0
+PERC_WARMUP_EPOCHS = 80
+PERC_DECAY_EPOCHS = EPOCHS - PERC_WARMUP_EPOCHS - 1
+LOG_NAME = 'logs/gen1'
 
 def weighted_pixel_loss(target, reconstruction):
     """Foreground-weighted pixel BCE, as a PER-PIXEL MEAN.
@@ -132,19 +132,33 @@ def build_encoder():
         att = layers.Conv2D(1, k, padding="same", activation="sigmoid", name=name)(att_in)
         return att
 
-    b3 = layers.Conv2D(32, 3, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc28_conv3")(img)
-    b5 = layers.Conv2D(32, 5, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc28_conv5")(img)
-    b7 = layers.Conv2D(32, 7, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc28_conv7")(img)
-    x28_main = layers.Concatenate(name="enc28_cat")([b3, b5, b7])   # 3 x ch @ 28x28
-    x28_main = layers.LayerNormalization(name="enc28_ln")(x28_main)
-    sc28 = layers.Conv2D(96, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc28_proj")(img)
-    x28_main = layers.Add()([x28_main, sc28])
-    x28_main = layers.Activation("relu")(x28_main)
+    b3 = layers.Conv2D(16, 3, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc28_conv3")(img)
+    b5 = layers.Conv2D(16, 5, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc28_conv5")(img)
+    b7 = layers.Conv2D(16, 7, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc28_conv7")(img)
+    x28 = layers.Concatenate(name="enc28_cat")([b3, b5, b7])   # 3 x ch @ 28x28
+    x28 = layers.LayerNormalization(name="enc28_ln")(x28)
+    sc28 = layers.Conv2D(48, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc28_proj")(img)
+    x28 = layers.Add()([x28, sc28])
+    x28 = layers.Activation("relu")(x28)
+
+    att = spatial_attention_map(x28, lbl, k=5, name="enc28_spatial_attn")
+    gamma28 = layers.Reshape((1, 1, 48))(2.0 * layers.Dense(48, activation="sigmoid", name="enc28_film_g")(lbl))
+    beta28 = layers.Reshape((1, 1, 48))(layers.Dense(48, name="enc28_film_b")(lbl))
+    x28 = CollabModulation(name="enc28_collab")([x28, gamma28, att, beta28])
+    c0 = x28
+
+    #c0 = layers.Conv2D(48, 3, strides=1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv0")(x28)
+    #c0 = tf.keras.layers.LayerNormalization(name='enc_conv0_ln')(c0)
+    #c0 = layers.Activation("relu")(c0)
+    #skip0 = layers.Conv2D(48, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv0_skip")(x28)
+    #skip0 = tf.keras.layers.LayerNormalization(name='enc_conv0_skip_ln')(skip0)
+    #c0 = layers.Add()([c0, skip0])
+    #c0 = layers.Activation("relu")(c0)
 
     # Conv block 1: 28x28 → 14x14
-    c1 = layers.Conv2D(96, 3, strides=2, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv1")(x28_main)
+    c1 = layers.Conv2D(96, 3, strides=2, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv1")(c0)
     c1 = tf.keras.layers.LayerNormalization(name='enc_14_ln')(c1)
-    sc = layers.Conv2D(96, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc28_skip_proj")(layers.AveragePooling2D(2)(x28_main))
+    sc = layers.Conv2D(96, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc28_skip_proj")(layers.AveragePooling2D(2)(c0))
     c1 = layers.Add()([c1, sc])
     c1 = layers.Activation("relu")(c1)
 
@@ -155,21 +169,23 @@ def build_encoder():
 
     # Conv block 2: 14x14 → 7x7
     c2 = layers.Conv2D(192, 3, strides=2, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv2")(c1)
+    c2 = tf.keras.layers.LayerNormalization(name='enc_conv2_ln')(c2)
     c2 = layers.Activation("relu")(c2)
     skip = layers.Conv2D(192, 1, strides=2, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv2_skip")(c1)
+    skip = tf.keras.layers.LayerNormalization(name='enc_conv2_skip_ln')(skip)
     c2 = layers.Add()([c2, skip])
     c2 = layers.Activation("relu")(c2)
+    c3 = c2
 
-    # Cross-scale shortcut from c1 into block 3
-    pooled_c1 = layers.AveragePooling2D(2)(c1)
-    c2 = layers.Concatenate()([c2, pooled_c1])
+    ## Conv block 3: 7x7 -> 7x7
+    #c3 = layers.Conv2D(192, 3, strides=1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv3")(c2)
+    #c3 = tf.keras.layers.LayerNormalization(name='enc_conv3_ln')(c3)
+    #c3 = layers.Activation("relu")(c3)
+    #skip2 = layers.Conv2D(192, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv3_skip")(c2)
+    #skip2 = tf.keras.layers.LayerNormalization(name='enc_conv3_skip_ln')(skip2)
+    #c3 = layers.Add()([c3, skip2])
+    #c3 = layers.Activation("relu")(c3)
 
-    # Conv block 3: 7x7 -> 7x7
-    c3 = layers.Conv2D(192, 3, strides=1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv3")(c2)
-    c3 = layers.Activation("relu")(c3)
-    skip2 = layers.Conv2D(192, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv3_skip")(c2)
-    c3 = layers.Add()([c3, skip2])
-    c3 = layers.Activation("relu")(c3)
     # SE attention 3
     se3 = layers.GlobalAveragePooling2D()(c3)
     se3 = layers.Dense(192 // 4, activation="relu", name="enc_se3_a")(se3)
@@ -243,7 +259,9 @@ def build_generator():
     x = layers.Dense(7 * 7 * 256, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="gen_proj7")(z)
     x = layers.Reshape((7, 7, 256))(x)
 
-    x = layers.Conv2D(256, 3, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="gen_conv7")(x)
+    x = layers.Conv2D(256, 3, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="gen_conv7")(x)
+    x = tf.keras.layers.LayerNormalization(name='gen_conv7_ln')(x)
+    x = tf.keras.layers.Activation("relu")(x)
 
     # FiLM at 7x7
     gamma7c, beta7c = make_film(256, "gen_film7")(lbl)
@@ -266,7 +284,9 @@ def build_generator():
 
     skip_14 = layers.Conv2D(64, 1, padding="same", name="gen_skip14")(x)
 
-    x = layers.Conv2D(128, 3, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="gen_conv14")(x)
+    x = layers.Conv2D(128, 3, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="gen_conv14")(x)
+    x = tf.keras.layers.LayerNormalization(name='gen_conv14_ln')(x)
+    x = tf.keras.layers.Activation("relu")(x)
 
     # FiLM at 14x14
     gamma14, beta14 = make_film(128, "gen_film14")(lbl)
@@ -281,7 +301,9 @@ def build_generator():
     x = tf.keras.layers.LayerNormalization(center=True, scale=True)(x)
     x = tf.keras.layers.Activation("relu")(x)
 
-    x = layers.Conv2D(64, 3, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="gen_conv28")(x)
+    x = layers.Conv2D(64, 3, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="gen_conv28")(x)
+    x = tf.keras.layers.LayerNormalization(name='gen_conv28_ln')(x)
+    x = tf.keras.layers.Activation("relu")(x)
 
     # FiLM at 28x28
     gamma28, beta28 = make_film(64, "gen_film28")(lbl)
