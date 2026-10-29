@@ -61,7 +61,7 @@ SPATIAL_DROPOUT = 0.0
 L2_REG = 0.00001
 # VAE-GAN hybrid: adversarial term + discriminator LR
 ADV_LAMBDA = 0.5
-DISC_LR = 0.0002
+DISC_LR = 0.0001
 D_BATCH_INTERVAL = 1  # update discriminator every N batches (G updates every batch)
 D_REAL_LABEL = 1.0    # one-sided label smoothing for the real class
 
@@ -71,7 +71,7 @@ KL_WEIGHT_TARGET = 0.003
 KL_WARMUP_EPOCHS = 55
 KL_DECAY_EPOCHS = 80
 
-PIXEL_WEIGHT_START = 1.0 * 16
+PIXEL_WEIGHT_START = 1.1 * 16
 PIXEL_WEIGHT_TARGET = 0.6 * 16
 PIXEL_DECAY_EPOCHS = EPOCHS - 1
 
@@ -80,7 +80,7 @@ PERC_WEIGHT_START = 1000.0
 PERC_WEIGHT_TARGET = 500.0
 PERC_WARMUP_EPOCHS = 80
 PERC_DECAY_EPOCHS = EPOCHS - PERC_WARMUP_EPOCHS - 1
-LOG_NAME = 'logs/gen1'
+LOG_NAME = 'logs/gen1b'
 
 def weighted_pixel_loss(target, reconstruction):
     """Foreground-weighted pixel BCE, as a PER-PIXEL MEAN.
@@ -227,99 +227,66 @@ def build_generator():
     z = keras.Input(shape=(LATENT_DIM,), name="latent_input")
     lbl = keras.Input(shape=(NUM_CLASSES,), name="label_input")
 
-    # FiLM helper: produce scale (gamma) and shift (beta) from label
     def make_film(channels, tag):
         def film_fn(label):
-            gamma = 2.0 * layers.Dense(channels, activation="sigmoid", name=f"{tag}_g")(label)  # [0,2], init ~1 (identity)
+            gamma = 2.0 * layers.Dense(channels, activation="sigmoid", name=f"{tag}_g")(label)
             beta = layers.Dense(channels, name=f"{tag}_b")(label)
             return gamma, beta
         return film_fn
 
-    # Spatial attention map (CBAM-style): channel-pool (avg+max) + broadcast
-    # label -> kxk conv -> sigmoid gate. Returns the gate (not x*att) so it
-    # can be combined with FiLM via learned colla-factors (CAT).
-    def spatial_attention_map(x, lbl, k, name=None):
-        avg = tf.reduce_mean(x, axis=-1, keepdims=True)
-        mx = tf.reduce_max(x, axis=-1, keepdims=True)
-        pooled = layers.Concatenate()([avg, mx])                  # (B,H,W,2)
-        h = int(x.shape[1])
-        lbl_map = layers.Reshape((1, 1, NUM_CLASSES))(lbl)
-        lbl_map = layers.UpSampling2D(size=h, interpolation="nearest")(lbl_map)
-        att_in = layers.Concatenate()([pooled, lbl_map])          # (B,H,W,2+NC)
-        att = layers.Conv2D(1, k, padding="same", activation="sigmoid", name=name)(att_in)
-        return att
+    # Project latent to 1x1x1024, then double resolution each stage.
+    x = layers.Dense(1 * 1 * 1024, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="gen_proj1")(z)
+    x = layers.Reshape((1, 1, 1024))(x)
 
-    # Names are the transfer contract with build_generator_14: every layer
-    # whose role exists at the same resolution in phase 1 carries the identical
-    # name. Layers below marked "phase-2 only" have no phase-1 counterpart and
-    # are deliberately left untransferred.
-    #
-    # Initial projection (kernel shapes differ -- latent dims differ -- so only
-    # its bias transfers)
-    x = layers.Dense(7 * 7 * 256, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="gen_proj7")(z)
-    x = layers.Reshape((7, 7, 256))(x)
-
-    x = layers.Conv2D(256, 3, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="gen_conv7")(x)
-    x = tf.keras.layers.LayerNormalization(name='gen_conv7_ln')(x)
+    # 1x1 -> 2x2
+    x = layers.Conv2DTranspose(256, 4, strides=2, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="gen_up1")(x)
+    x = tf.keras.layers.LayerNormalization(center=True, scale=True)(x)
     x = tf.keras.layers.Activation("relu")(x)
+    gamma, beta = make_film(256, "gen_film2")(lbl)
+    gamma = layers.Reshape((1, 1, 256))(gamma)
+    beta = layers.Reshape((1, 1, 256))(beta)
+    x = layers.Multiply()([x, gamma])
+    x = layers.Add()([x, beta])
 
-    # FiLM at 7x7
-    gamma7c, beta7c = make_film(256, "gen_film7")(lbl)
-    gamma7c = layers.Reshape((1, 1, 256))(gamma7c)
-    beta7c = layers.Reshape((1, 1, 256))(beta7c)
-    x = layers.Multiply()([x, gamma7c])
-    x = layers.Add()([x, beta7c])
+    # 2x2 -> 4x4
+    x = layers.Conv2DTranspose(64, 4, strides=2, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="gen_up2")(x)
+    x = tf.keras.layers.LayerNormalization(center=True, scale=True)(x)
+    x = tf.keras.layers.Activation("relu")(x)
+    gamma, beta = make_film(64, "gen_film4")(lbl)
+    gamma = layers.Reshape((1, 1, 64))(gamma)
+    beta = layers.Reshape((1, 1, 64))(beta)
+    x = layers.Multiply()([x, gamma])
+    x = layers.Add()([x, beta])
 
-    # SE at 7x7
-    se7 = layers.GlobalAveragePooling2D()(x)
-    se7 = layers.Dense(256 // 4, activation="relu", name="gen_se7_a")(se7)
-    se7 = layers.Dense(256, activation="sigmoid", name="gen_se7_b")(se7)
-    se7 = layers.Reshape((1, 1, 256))(se7)
-    x = layers.Multiply()([x, se7])
+    # 4x4 -> 8x8
+    x = layers.Conv2DTranspose(32, 4, strides=2, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="gen_up3")(x)
+    x = tf.keras.layers.LayerNormalization(center=True, scale=True)(x)
+    x = tf.keras.layers.Activation("relu")(x)
+    gamma, beta = make_film(32, "gen_film8")(lbl)
+    gamma = layers.Reshape((1, 1, 32))(gamma)
+    beta = layers.Reshape((1, 1, 32))(beta)
+    x = layers.Multiply()([x, gamma])
+    x = layers.Add()([x, beta])
 
-    # 7x7 -> 14x14
-    x = tf.keras.layers.Conv2DTranspose(128, 4, strides=2, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
+    # 8x8 -> 16x16
+    x = layers.Conv2DTranspose(16, 4, strides=2, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="gen_up4")(x)
+    x = tf.keras.layers.LayerNormalization(center=True, scale=True)(x)
+    x = tf.keras.layers.Activation("relu")(x)
+    gamma, beta = make_film(16, "gen_film16")(lbl)
+    gamma = layers.Reshape((1, 1, 16))(gamma)
+    beta = layers.Reshape((1, 1, 16))(beta)
+    x = layers.Multiply()([x, gamma])
+    x = layers.Add()([x, beta])
+
+    # 16x16 -> 32x32
+    x = layers.Conv2DTranspose(8, 4, strides=2, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="gen_up5")(x)
     x = tf.keras.layers.LayerNormalization(center=True, scale=True)(x)
     x = tf.keras.layers.Activation("relu")(x)
 
-    skip_14 = layers.Conv2D(64, 1, padding="same", name="gen_skip14")(x)
+    # Crop 32x32 -> 28x28
+    x = layers.Cropping2D(cropping=((2, 2), (2, 2)))(x)
 
-    x = layers.Conv2D(128, 3, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="gen_conv14")(x)
-    x = tf.keras.layers.LayerNormalization(name='gen_conv14_ln')(x)
-    x = tf.keras.layers.Activation("relu")(x)
-
-    # FiLM at 14x14
-    gamma14, beta14 = make_film(128, "gen_film14")(lbl)
-    gamma14 = layers.Reshape((1, 1, 128))(gamma14)
-    beta14 = layers.Reshape((1, 1, 128))(beta14)
-    # CAT collaboration: learned colla-factors combine FiLM (channel) + spatial attn
-    att14 = spatial_attention_map(x, lbl, k=5, name="spatial_attn_14")
-    x = CollabModulation(name="collab_14")([x, gamma14, att14, beta14])
-
-    # 14x14 -> 28x28
-    x = tf.keras.layers.Conv2DTranspose(64, 4, strides=2, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
-    x = tf.keras.layers.LayerNormalization(center=True, scale=True)(x)
-    x = tf.keras.layers.Activation("relu")(x)
-
-    x = layers.Conv2D(64, 3, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="gen_conv28")(x)
-    x = tf.keras.layers.LayerNormalization(name='gen_conv28_ln')(x)
-    x = tf.keras.layers.Activation("relu")(x)
-
-    # FiLM at 28x28
-    gamma28, beta28 = make_film(64, "gen_film28")(lbl)
-    gamma28 = layers.Reshape((1, 1, 64))(gamma28)
-    beta28 = layers.Reshape((1, 1, 64))(beta28)
-    # CAT collaboration at 28x28 (k=7)
-    att28 = spatial_attention_map(x, lbl, k=7, name="spatial_attn_28")
-    x = CollabModulation(name="collab_28")([x, gamma28, att28, beta28])
-
-    skip_14_up = upsample(skip_14, [28, 28], name="gen_up14_skip")
-    x = layers.Concatenate(name="gen_skip14_cat")([x, skip_14_up])     # 128 @ 28x28
-    x = layers.Conv2D(64, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="gen_skip14_fuse")(x)
-    x = layers.LayerNormalization(name="gen_skip14_ln")(x)
-    x = layers.Activation("relu")(x)
-
-    # Output conv at 28x28
+    # Final refinement conv -> sigmoid
     x = layers.Conv2D(1, 3, padding="same", activation="sigmoid", dtype="float32", name="gen_out28")(x)
     return keras.Model([z, lbl], x, name="generator")
 
