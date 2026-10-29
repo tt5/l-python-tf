@@ -24,7 +24,7 @@ from utils.mnist_loader import load_data
 # ─── Config ────────────────────────────────────────────────────────
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "synthetic" / "data"
 LATENT_DIM = 512
-EPOCHS = 210
+EPOCHS = 200
 BATCH_SIZE = 512
 NUM_CLASSES = 4
 
@@ -80,7 +80,7 @@ PERC_WEIGHT_START = 1000.0
 PERC_WEIGHT_TARGET = 500.0
 PERC_WARMUP_EPOCHS = 80
 PERC_DECAY_EPOCHS = EPOCHS - PERC_WARMUP_EPOCHS - 1
-LOG_NAME = 'logs/gen1b'
+LOG_NAME = 'logs/gen1'
 
 def weighted_pixel_loss(target, reconstruction):
     """Foreground-weighted pixel BCE, as a PER-PIXEL MEAN.
@@ -239,47 +239,57 @@ def build_generator():
     x = layers.Reshape((1, 1, 1024))(x)
 
     # 1x1 -> 2x2
-    x = layers.Conv2DTranspose(256, 4, strides=2, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="gen_up1")(x)
+    x = layers.Conv2DTranspose(512, 4, strides=2, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="gen_up1")(x)
     x = tf.keras.layers.LayerNormalization(center=True, scale=True)(x)
     x = tf.keras.layers.Activation("relu")(x)
-    gamma, beta = make_film(256, "gen_film2")(lbl)
-    gamma = layers.Reshape((1, 1, 256))(gamma)
-    beta = layers.Reshape((1, 1, 256))(beta)
-    x = layers.Multiply()([x, gamma])
-    x = layers.Add()([x, beta])
+    #gamma, beta = make_film(256, "gen_film2")(lbl)
+    #gamma = layers.Reshape((1, 1, 256))(gamma)
+    #beta = layers.Reshape((1, 1, 256))(beta)
+    #x = layers.Multiply()([x, gamma])
+    #x = layers.Add()([x, beta])
 
     # 2x2 -> 4x4
-    x = layers.Conv2DTranspose(64, 4, strides=2, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="gen_up2")(x)
+    x = layers.Conv2DTranspose(256, 4, strides=2, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="gen_up2")(x)
     x = tf.keras.layers.LayerNormalization(center=True, scale=True)(x)
     x = tf.keras.layers.Activation("relu")(x)
-    gamma, beta = make_film(64, "gen_film4")(lbl)
+    #gamma, beta = make_film(64, "gen_film4")(lbl)
+    #gamma = layers.Reshape((1, 1, 64))(gamma)
+    #beta = layers.Reshape((1, 1, 64))(beta)
+    #x = layers.Multiply()([x, gamma])
+    #x = layers.Add()([x, beta])
+
+    # 4x4 -> 8x8
+    x = layers.Conv2DTranspose(128, 4, strides=2, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="gen_up3")(x)
+    x = tf.keras.layers.LayerNormalization(center=True, scale=True)(x)
+    x = tf.keras.layers.Activation("relu")(x)
+    pre = x
+    gamma, beta = make_film(128, "gen_film8")(lbl)
+    gamma = layers.Reshape((1, 1, 128))(gamma)
+    beta = layers.Reshape((1, 1, 128))(beta)
+    x = layers.Multiply()([x, gamma])
+    x = layers.Add()([x, beta])
+    x = tf.keras.layers.Add()([
+        x,
+        tf.keras.layers.Conv2D(128, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(pre),
+    ])
+
+    # 8x8 -> 16x16
+    x = layers.Conv2DTranspose(64, 4, strides=2, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="gen_up4")(x)
+    x = tf.keras.layers.LayerNormalization(center=True, scale=True)(x)
+    x = tf.keras.layers.Activation("relu")(x)
+    pre = x
+    gamma, beta = make_film(64, "gen_film16")(lbl)
     gamma = layers.Reshape((1, 1, 64))(gamma)
     beta = layers.Reshape((1, 1, 64))(beta)
     x = layers.Multiply()([x, gamma])
     x = layers.Add()([x, beta])
-
-    # 4x4 -> 8x8
-    x = layers.Conv2DTranspose(32, 4, strides=2, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="gen_up3")(x)
-    x = tf.keras.layers.LayerNormalization(center=True, scale=True)(x)
-    x = tf.keras.layers.Activation("relu")(x)
-    gamma, beta = make_film(32, "gen_film8")(lbl)
-    gamma = layers.Reshape((1, 1, 32))(gamma)
-    beta = layers.Reshape((1, 1, 32))(beta)
-    x = layers.Multiply()([x, gamma])
-    x = layers.Add()([x, beta])
-
-    # 8x8 -> 16x16
-    x = layers.Conv2DTranspose(16, 4, strides=2, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="gen_up4")(x)
-    x = tf.keras.layers.LayerNormalization(center=True, scale=True)(x)
-    x = tf.keras.layers.Activation("relu")(x)
-    gamma, beta = make_film(16, "gen_film16")(lbl)
-    gamma = layers.Reshape((1, 1, 16))(gamma)
-    beta = layers.Reshape((1, 1, 16))(beta)
-    x = layers.Multiply()([x, gamma])
-    x = layers.Add()([x, beta])
+    x = tf.keras.layers.Add()([
+        x,
+        tf.keras.layers.Conv2D(64, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(pre),
+    ])
 
     # 16x16 -> 32x32
-    x = layers.Conv2DTranspose(8, 4, strides=2, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="gen_up5")(x)
+    x = layers.Conv2DTranspose(32, 4, strides=2, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="gen_up5")(x)
     x = tf.keras.layers.LayerNormalization(center=True, scale=True)(x)
     x = tf.keras.layers.Activation("relu")(x)
 
