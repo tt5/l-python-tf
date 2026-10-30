@@ -57,6 +57,7 @@ SPATIAL_DROPOUT = 0.0
 L2_REG = 0.00001
 # VAE-GAN hybrid: adversarial term + discriminator LR
 ADV_LAMBDA = 0.5
+ADV_WARMUP_EPOCHS = 5
 DISC_LR = 0.0001
 D_BATCH_INTERVAL = 1  # update discriminator every N batches (G updates every batch)
 D_REAL_LABEL = 1.0    # one-sided label smoothing for the real class
@@ -141,15 +142,15 @@ def build_encoder():
     gamma28 = layers.Reshape((1, 1, 48))(2.0 * layers.Dense(48, activation="sigmoid", name="enc28_film_g")(lbl))
     beta28 = layers.Reshape((1, 1, 48))(layers.Dense(48, name="enc28_film_b")(lbl))
     x28 = CollabModulation(name="enc28_collab")([x28, gamma28, att, beta28])
-    c0 = x28
+    #c0 = x28
 
-    #c0 = layers.Conv2D(48, 3, strides=1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv0")(x28)
-    #c0 = tf.keras.layers.LayerNormalization(name='enc_conv0_ln')(c0)
-    #c0 = layers.Activation("relu")(c0)
-    #skip0 = layers.Conv2D(48, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv0_skip")(x28)
-    #skip0 = tf.keras.layers.LayerNormalization(name='enc_conv0_skip_ln')(skip0)
-    #c0 = layers.Add()([c0, skip0])
-    #c0 = layers.Activation("relu")(c0)
+    c0 = layers.Conv2D(48, 3, strides=1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv0")(x28)
+    c0 = tf.keras.layers.LayerNormalization(name='enc_conv0_ln')(c0)
+    c0 = layers.Activation("relu")(c0)
+    skip0 = layers.Conv2D(48, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv0_skip")(x28)
+    skip0 = tf.keras.layers.LayerNormalization(name='enc_conv0_skip_ln')(skip0)
+    c0 = layers.Add()([c0, skip0])
+    c0 = layers.Activation("relu")(c0)
 
     # Conv block 1: 28x28 → 14x14
     c1 = layers.Conv2D(96, 3, strides=2, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv1")(c0)
@@ -163,6 +164,14 @@ def build_encoder():
     beta14 = layers.Reshape((1, 1, 96))(layers.Dense(96, name="enc_film14_b")(lbl))
     c1 = CollabModulation(name="enc_collab14")([c1, gamma14, att, beta14])
 
+    c1b = layers.Conv2D(96, 3, strides=1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv1b")(c1)
+    c1b = tf.keras.layers.LayerNormalization(name='enc_conv1b_ln')(c1b)
+    c1b = layers.Activation("relu")(c1b)
+    skip1b = layers.Conv2D(96, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv1b_skip")(c1)
+    skip1b = tf.keras.layers.LayerNormalization(name='enc_conv1b_skip_ln')(skip1b)
+    c1b = layers.Add()([c1b, skip1b])
+    c1 = layers.Activation("relu")(c1b)
+
     # Conv block 2: 14x14 → 7x7
     c2 = layers.Conv2D(192, 3, strides=2, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv2")(c1)
     c2 = tf.keras.layers.LayerNormalization(name='enc_conv2_ln')(c2)
@@ -171,16 +180,16 @@ def build_encoder():
     skip = tf.keras.layers.LayerNormalization(name='enc_conv2_skip_ln')(skip)
     c2 = layers.Add()([c2, skip])
     c2 = layers.Activation("relu")(c2)
-    c3 = c2
+    #c3 = c2
 
-    ## Conv block 3: 7x7 -> 7x7
-    #c3 = layers.Conv2D(192, 3, strides=1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv3")(c2)
-    #c3 = tf.keras.layers.LayerNormalization(name='enc_conv3_ln')(c3)
-    #c3 = layers.Activation("relu")(c3)
-    #skip2 = layers.Conv2D(192, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv3_skip")(c2)
-    #skip2 = tf.keras.layers.LayerNormalization(name='enc_conv3_skip_ln')(skip2)
-    #c3 = layers.Add()([c3, skip2])
-    #c3 = layers.Activation("relu")(c3)
+    # Conv block 3: 7x7 -> 7x7
+    c3 = layers.Conv2D(192, 3, strides=1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv3")(c2)
+    c3 = tf.keras.layers.LayerNormalization(name='enc_conv3_ln')(c3)
+    c3 = layers.Activation("relu")(c3)
+    skip2 = layers.Conv2D(192, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv3_skip")(c2)
+    skip2 = tf.keras.layers.LayerNormalization(name='enc_conv3_skip_ln')(skip2)
+    c3 = layers.Add()([c3, skip2])
+    c3 = layers.Activation("relu")(c3)
 
     # SE attention 3
     se3 = layers.GlobalAveragePooling2D()(c3)
@@ -195,7 +204,7 @@ def build_encoder():
 
     main = layers.Flatten()(c3)
     main = layers.Concatenate()([main, lbl])
-    main = layers.Dense(512, activation="relu", name="enc28_head_dense", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(main)
+    main = layers.Dense(768, activation="relu", name="enc28_head_dense", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(main)
     main = layers.LayerNormalization(name="enc28_head_ln")(main)
     z_mean = layers.Dense(LATENT_DIM, name="z_mean", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(main)
     z_log_var = layers.Dense(LATENT_DIM, name="z_log_var", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(main)
@@ -306,6 +315,9 @@ def build_generator():
     gamma = layers.Reshape((1, 1, 16))(2.0 * layers.Dense(16, activation="sigmoid", name="gen28_film_g")(lbl))
     beta = layers.Reshape((1, 1, 16))(layers.Dense(16, name="gen28_film_b")(lbl))
     x = CollabModulation(name="gen_collab28")([x, gamma, att, beta])
+
+    x = tf.keras.layers.Conv2D(16, 3, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
+    x = tf.keras.layers.LayerNormalization(center=True, scale=True)(x)
 
     # Final refinement conv -> sigmoid
     x = layers.Conv2D(1, 3, padding="same", activation="sigmoid", dtype="float32", name="gen_out28")(x)
@@ -578,6 +590,12 @@ class VAEGAN(VAE):
         return tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(
             labels=labels, logits=logits))
 
+    def get_adv_weight(self):
+        epoch = tf.cast(self.epoch_tracker, tf.float32)
+        warmup_epochs = tf.cast(ADV_WARMUP_EPOCHS, tf.float32)
+        progress = tf.clip_by_value(epoch / warmup_epochs, 0.0, 1.0)
+        return tf.constant(ADV_LAMBDA, dtype=tf.float32) * progress
+
     def train_step(self, data):
         images, labels = data
         self.optimizer.learning_rate = self.get_lr()
@@ -643,7 +661,7 @@ class VAEGAN(VAE):
                           perceptual_weight * perceptual_loss +
                           kl_weight * kl_loss +
                           INFO_NCE_WEIGHT * info_nce_loss +
-                          ADV_LAMBDA * adv_loss)
+                          self.get_adv_weight() * adv_loss)
 
         g_weights = self.encoder.trainable_weights + self.generator.trainable_weights
         g_grads = g_tape.gradient(total_loss, g_weights)
@@ -687,7 +705,7 @@ class VAEGAN(VAE):
         total_loss = (pixel_weight * pixel_loss +
                       perceptual_weight * perceptual_loss +
                       kl_weight * kl_loss +
-                      ADV_LAMBDA * adv_loss)
+                      self.get_adv_weight() * adv_loss)
         self.total_loss_tracker.update_state(total_loss)
         self.recon_loss_tracker.update_state(pixel_loss)
         self.kl_loss_tracker.update_state(kl_loss)
