@@ -24,7 +24,7 @@ from utils.mnist_loader import load_data
 # ─── Config ────────────────────────────────────────────────────────
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "synthetic" / "data"
 LATENT_DIM = 512
-EPOCHS = 210
+EPOCHS = 220
 BATCH_SIZE = 512
 NUM_CLASSES = 4
 
@@ -49,12 +49,8 @@ LR_WARMUP_START = 0.00005
 LR_WARMUP_EPOCHS = 5
 LR_DECAY_EPOCHS = EPOCHS - LR_WARMUP_EPOCHS
 LR_END = 0.00005
-INFO_NCE_WEIGHT = 0.0012
+INFO_NCE_WEIGHT = 0.0013
 TEMPERATURE = 1.0
-# Foreground weight for pixel BCE. Sparse classes (e.g. class 4, ~12.6%
-# foreground) are dominated by background under plain BCE, which drags
-# the generator output below the 0.5 threshold. (1-fg)/fg ~= 7 balances
-# the positive/negative contributions at the measured coverage.
 PIXEL_POS_WEIGHT = 1.0
 DROPOUT = 0.3
 SPATIAL_DROPOUT = 0.0
@@ -66,7 +62,7 @@ D_BATCH_INTERVAL = 1  # update discriminator every N batches (G updates every ba
 D_REAL_LABEL = 1.0    # one-sided label smoothing for the real class
 
 KL_WARMUP_START = 0.0001
-KL_WEIGHT_START = 0.016
+KL_WEIGHT_START = 0.015
 KL_WEIGHT_TARGET = 0.003
 KL_WARMUP_EPOCHS = 55
 KL_DECAY_EPOCHS = 80
@@ -75,12 +71,12 @@ PIXEL_WEIGHT_START = 1.1 * 16
 PIXEL_WEIGHT_TARGET = 0.6 * 16
 PIXEL_DECAY_EPOCHS = EPOCHS - 1
 
-PERC_WARMUP_START = 0.0
-PERC_WEIGHT_START = 2000.0
+PERC_WARMUP_START = 0.01
+PERC_WEIGHT_START = 3000.0
 PERC_WEIGHT_TARGET = 500.0
 PERC_WARMUP_EPOCHS = 80
 PERC_DECAY_EPOCHS = EPOCHS - PERC_WARMUP_EPOCHS - 1
-LOG_NAME = 'logs/gen1'
+LOG_NAME = 'logs/gen1b'
 
 def weighted_pixel_loss(target, reconstruction):
     """Foreground-weighted pixel BCE, as a PER-PIXEL MEAN.
@@ -249,7 +245,7 @@ def build_generator():
         return att
 
     # Project latent to 1x1x1024, then double resolution each stage.
-    x = layers.Dense(1 * 1 * 512, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="gen_proj1")(z)
+    x = layers.Dense(1 * 1 * 512, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="gen_proj0")(z)
     x = layers.Reshape((1, 1, 512))(x)
 
     # 1x1 -> 2x2
@@ -257,7 +253,7 @@ def build_generator():
     x = tf.keras.layers.LayerNormalization(center=True, scale=True)(x)
     x = tf.keras.layers.Activation("relu")(x)
 
-    x2 = layers.Dense(2 * 2 * 256, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="gen_proj2")(z)
+    x2 = layers.Dense(2 * 2 * 256, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="gen_proj1")(z)
     x2 = layers.Reshape((2, 2, 256))(x2)
 
     x = tf.keras.layers.Add()([
@@ -270,37 +266,33 @@ def build_generator():
     x = tf.keras.layers.LayerNormalization(center=True, scale=True)(x)
     x = tf.keras.layers.Activation("relu")(x)
 
+    x2 = layers.Dense(4 * 4 * 128, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="gen_proj2")(z)
+    x2 = layers.Reshape((4, 4, 128))(x2)
+
+    x = tf.keras.layers.Add()([
+        x2,
+        tf.keras.layers.Conv2D(128, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x),
+    ])
+
     # 4x4 -> 8x8
     x = layers.Conv2DTranspose(64, 4, strides=2, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="gen_up3")(x)
     x = tf.keras.layers.LayerNormalization(center=True, scale=True)(x)
     x = tf.keras.layers.Activation("relu")(x)
 
-    pre = x
     att = spatial_attention_map(x, lbl, k=5, name="gen8_spatial_attn")
     gamma = layers.Reshape((1, 1, 64))(2.0 * layers.Dense(64, activation="sigmoid", name="gen8_film_g")(lbl))
     beta = layers.Reshape((1, 1, 64))(layers.Dense(64, name="gen8_film_b")(lbl))
     x = CollabModulation(name="gen_collab8")([x, gamma, att, beta])
-
-    x = tf.keras.layers.Add()([
-        x,
-        tf.keras.layers.Conv2D(64, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(pre),
-    ])
 
     # 8x8 -> 16x16
     x = layers.Conv2DTranspose(32, 4, strides=2, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="gen_up4")(x)
     x = tf.keras.layers.LayerNormalization(center=True, scale=True)(x)
     x = tf.keras.layers.Activation("relu")(x)
 
-    pre = x
     att = spatial_attention_map(x, lbl, k=5, name="gen16_spatial_attn")
     gamma = layers.Reshape((1, 1, 32))(2.0 * layers.Dense(32, activation="sigmoid", name="gen16_film_g")(lbl))
     beta = layers.Reshape((1, 1, 32))(layers.Dense(32, name="gen16_film_b")(lbl))
     x = CollabModulation(name="gen_collab16")([x, gamma, att, beta])
-
-    x = tf.keras.layers.Add()([
-        x,
-        tf.keras.layers.Conv2D(32, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(pre),
-    ])
 
     # 16x16 -> 32x32
     x = layers.Conv2DTranspose(16, 4, strides=2, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="gen_up5")(x)
@@ -310,16 +302,10 @@ def build_generator():
     # Crop 32x32 -> 28x28
     x = layers.Cropping2D(cropping=((2, 2), (2, 2)))(x)
 
-    pre = x
     att = spatial_attention_map(x, lbl, k=5, name="gen28_spatial_attn")
     gamma = layers.Reshape((1, 1, 16))(2.0 * layers.Dense(16, activation="sigmoid", name="gen28_film_g")(lbl))
     beta = layers.Reshape((1, 1, 16))(layers.Dense(16, name="gen28_film_b")(lbl))
     x = CollabModulation(name="gen_collab28")([x, gamma, att, beta])
-
-    x = tf.keras.layers.Add()([
-        x,
-        tf.keras.layers.Conv2D(16, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(pre),
-    ])
 
     # Final refinement conv -> sigmoid
     x = layers.Conv2D(1, 3, padding="same", activation="sigmoid", dtype="float32", name="gen_out28")(x)
