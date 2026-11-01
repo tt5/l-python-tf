@@ -49,7 +49,7 @@ LR_WARMUP_START = 0.00005
 LR_WARMUP_EPOCHS = 5
 LR_DECAY_EPOCHS = EPOCHS - LR_WARMUP_EPOCHS
 LR_END = 0.00005
-INFO_NCE_WEIGHT = 0.001
+INFO_NCE_WEIGHT = 0.0005
 TEMPERATURE = 0.8
 PIXEL_POS_WEIGHT = 1.0
 DROPOUT = 0.3
@@ -57,8 +57,8 @@ SPATIAL_DROPOUT = 0.0
 L2_REG = 0.00001
 # VAE-GAN hybrid: adversarial term + discriminator LR
 ADV_LAMBDA = 1.0
-ADV_WARMUP_EPOCHS = 10
-DISC_LR = 0.00015
+ADV_WARMUP_EPOCHS = 80
+DISC_LR = 0.00011
 D_BATCH_INTERVAL = 1  # update discriminator every N batches (G updates every batch)
 D_REAL_LABEL = 1.0    # one-sided label smoothing for the real class
 
@@ -282,6 +282,14 @@ def build_generator():
         x2,
         tf.keras.layers.Conv2D(128, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x),
     ])
+
+    att = spatial_attention_map(x, lbl, k=5, name="gen4_spatial_attn")
+    gamma = layers.Reshape((1, 1, 128))(2.0 * layers.Dense(128, activation="sigmoid", name="gen4_film_g")(lbl))
+    beta = layers.Reshape((1, 1, 128))(layers.Dense(128, name="gen4_film_b")(lbl))
+    x = CollabModulation(name="gen_collab4")([x, gamma, att, beta])
+
+    x = tf.keras.layers.Conv2D(128, 3, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
+    x = tf.keras.layers.LayerNormalization(center=True, scale=True)(x)
 
     # 4x4 -> 8x8
     x = layers.Conv2DTranspose(64, 4, strides=2, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="gen_up3")(x)
