@@ -264,6 +264,7 @@ def build_generator():
     # Project latent to 1x1x1024, then double resolution each stage.
     x = layers.Dense(1 * 1 * 512, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="gen_proj0")(z)
     x = layers.Reshape((1, 1, 512))(x)
+    x = tf.keras.layers.LayerNormalization(center=True, scale=True)(x)
 
     # 1x1 -> 2x2
     x = layers.Conv2DTranspose(256, 4, strides=2, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="gen_up1")(x)
@@ -272,6 +273,7 @@ def build_generator():
 
     x2 = layers.Dense(2 * 2 * 256, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="gen_proj1")(z)
     x2 = layers.Reshape((2, 2, 256))(x2)
+    x2 = tf.keras.layers.LayerNormalization(center=True, scale=True)(x2)
 
     x = tf.keras.layers.Add()([
         x2,
@@ -293,6 +295,7 @@ def build_generator():
 
     x2 = layers.Dense(4 * 4 * 128, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="gen_proj2")(z)
     x2 = layers.Reshape((4, 4, 128))(x2)
+    x2 = tf.keras.layers.LayerNormalization(center=True, scale=True)(x2)
 
     x = tf.keras.layers.Add()([
         x2,
@@ -314,6 +317,7 @@ def build_generator():
 
     x2 = layers.Dense(8 * 8 * 64, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="gen_proj3")(z)
     x2 = layers.Reshape((8, 8, 64))(x2)
+    x2 = tf.keras.layers.LayerNormalization(center=True, scale=True)(x2)
 
     x = tf.keras.layers.Add()([
         x2,
