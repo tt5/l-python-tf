@@ -24,7 +24,7 @@ from utils.mnist_loader import load_data
 # ─── Config ────────────────────────────────────────────────────────
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "synthetic" / "data"
 LATENT_DIM = 512
-EPOCHS = 230
+EPOCHS = 240
 BATCH_SIZE = 512
 NUM_CLASSES = 4
 
@@ -64,20 +64,20 @@ D_REAL_LABEL = 1.0    # one-sided label smoothing for the real class
 
 KL_WARMUP_START = 0.0001
 KL_WEIGHT_START = 0.014
-KL_WEIGHT_TARGET = 0.003
+KL_WEIGHT_TARGET = 0.0035
 KL_WARMUP_EPOCHS = 55
-KL_DECAY_EPOCHS = 85
+KL_DECAY_EPOCHS = 90
 
-PIXEL_WEIGHT_START = 1.2 * 16
-PIXEL_WEIGHT_TARGET = 0.65 * 16
+PIXEL_WEIGHT_START = 1.3 * 16
+PIXEL_WEIGHT_TARGET = 0.7 * 16
 PIXEL_DECAY_EPOCHS = EPOCHS - 1
 
 PERC_WARMUP_START = 0.01
-PERC_WEIGHT_START = 5000.0
+PERC_WEIGHT_START = 6000.0
 PERC_WEIGHT_TARGET = 500.0
-PERC_WARMUP_EPOCHS = 80
+PERC_WARMUP_EPOCHS = 70
 PERC_DECAY_EPOCHS = EPOCHS - PERC_WARMUP_EPOCHS - 1
-LOG_NAME = 'logs/gen1b'
+LOG_NAME = 'logs/gen1'
 
 def weighted_pixel_loss(target, reconstruction):
     """Foreground-weighted pixel BCE, as a PER-PIXEL MEAN.
@@ -202,9 +202,17 @@ def build_encoder():
     skip3 = layers.Conv2D(192, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_se3_skip")(c3_pre)
     c3 = layers.Add()([c3, skip3])
 
+    c4 = layers.Conv2D(192, 3, strides=1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv4")(c3)
+    c4 = tf.keras.layers.LayerNormalization(name='enc_conv3_ln')(c4)
+    c4 = layers.Activation("relu")(c4)
+    skip = layers.Conv2D(192, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv4_skip")(c3)
+    skip = tf.keras.layers.LayerNormalization(name='enc_conv4_skip_ln')(skip)
+    c4 = layers.Add()([c4, skip])
+    c4 = layers.Activation("relu")(c4)
+
     main = layers.Flatten()(c3)
     main = layers.Concatenate()([main, lbl])
-    main = layers.Dense(768, activation="relu", name="enc28_head_dense", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(main)
+    main = layers.Dense(896, activation="relu", name="enc28_head_dense", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(main)
     main = layers.LayerNormalization(name="enc28_head_ln")(main)
     z_mean = layers.Dense(LATENT_DIM, name="z_mean", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(main)
     z_log_var = layers.Dense(LATENT_DIM, name="z_log_var", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(main)
@@ -269,6 +277,14 @@ def build_generator():
         x2,
         tf.keras.layers.Conv2D(256, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x),
     ])
+
+    att = spatial_attention_map(x, lbl, k=5, name="gen2_spatial_attn")
+    gamma = layers.Reshape((1, 1, 256))(2.0 * layers.Dense(256, activation="sigmoid", name="gen2_film_g")(lbl))
+    beta = layers.Reshape((1, 1, 256))(layers.Dense(256, name="gen2_film_b")(lbl))
+    x = CollabModulation(name="gen_collab2")([x, gamma, att, beta])
+
+    x = tf.keras.layers.Conv2D(256, 3, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
+    x = tf.keras.layers.LayerNormalization(center=True, scale=True)(x)
 
     # 2x2 -> 4x4
     x = layers.Conv2DTranspose(128, 4, strides=2, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="gen_up2")(x)
