@@ -202,14 +202,6 @@ def build_encoder():
     skip3 = layers.Conv2D(192, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_se3_skip")(c3_pre)
     c3 = layers.Add()([c3, skip3])
 
-    c4 = layers.Conv2D(192, 3, strides=1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv4")(c3)
-    c4 = tf.keras.layers.LayerNormalization(name='enc_conv3_ln')(c4)
-    c4 = layers.Activation("relu")(c4)
-    skip = layers.Conv2D(192, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv4_skip")(c3)
-    skip = tf.keras.layers.LayerNormalization(name='enc_conv4_skip_ln')(skip)
-    c4 = layers.Add()([c4, skip])
-    c4 = layers.Activation("relu")(c4)
-
     main = layers.Flatten()(c3)
     main = layers.Concatenate()([main, lbl])
     main = layers.Dense(896, activation="relu", name="enc28_head_dense", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(main)
@@ -592,6 +584,43 @@ class VAE(keras.Model):
         return {m.name: m.result() for m in self.metrics}
 
 
+# ─── Spectral Normalization wrapper ─────────────────────────────────
+class SpectralNormalization(tf.keras.layers.Wrapper):
+    def __init__(self, layer, iteration=1, **kwargs):
+        super().__init__(layer, **kwargs)
+        self.iteration = iteration
+
+    def build(self, input_shape):
+        super().build(input_shape)
+        self.w = None
+        for weight in self.layer.weights:
+            if "kernel" in weight.name:
+                self.w = weight
+                break
+        if self.w is None:
+            raise ValueError("Wrapped layer has no kernel weight")
+        self.u = self.add_weight(
+            name="sn_u", shape=(1, self.w.shape[-1]),
+            initializer="random_normal", trainable=False, dtype=self.w.dtype)
+
+    def call(self, inputs, training=None):
+        w = self.w
+        w_mat = tf.reshape(w, [-1, w.shape[-1]])
+        u = self.u
+        for _ in range(self.iteration):
+            v = tf.math.l2_normalize(tf.matmul(u, tf.transpose(w_mat)), axis=1)
+            u = tf.math.l2_normalize(tf.matmul(v, w_mat), axis=1)
+        sigma = tf.matmul(v, tf.matmul(w_mat, tf.transpose(u)))
+        w_sn = w / sigma
+        orig = tf.identity(w)
+        w.assign(w_sn)
+        try:
+            out = self.layer(inputs, training=training)
+        finally:
+            w.assign(orig)
+        self.u.assign(u)
+        return out
+
 # ─── Discriminator (conditional critic) ────────────────────────────
 def build_discriminator():
     img = keras.Input(shape=(28, 28, 1), name="image_input")
@@ -603,12 +632,12 @@ def build_discriminator():
     x = layers.Concatenate()([img, lbl_map])
 
     for filters in (64, 128, 256):
-        x = layers.Conv2D(filters, 4, strides=2, padding="same")(x)
+        x = SpectralNormalization(layers.Conv2D(filters, 4, strides=2, padding="same"))(x)
         x = layers.LeakyReLU(0.2)(x)
     x = layers.Flatten()(x)
-    x = layers.Dense(128)(x)
+    x = SpectralNormalization(layers.Dense(128))(x)
     x = layers.LeakyReLU(0.2)(x)
-    out = layers.Dense(1)(x)  # real/fake logit
+    out = SpectralNormalization(layers.Dense(1))(x)  # real/fake logit
     return keras.Model([img, lbl], out, name="discriminator")
 
 
