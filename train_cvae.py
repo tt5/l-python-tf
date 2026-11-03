@@ -24,7 +24,7 @@ from utils.mnist_loader import load_data
 # ─── Config ────────────────────────────────────────────────────────
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "synthetic" / "data"
 LATENT_DIM = 512
-EPOCHS = 240
+EPOCHS = 250
 BATCH_SIZE = 512
 NUM_CLASSES = 4
 
@@ -63,7 +63,7 @@ D_BATCH_INTERVAL = 1  # update discriminator every N batches (G updates every ba
 D_REAL_LABEL = 1.0    # one-sided label smoothing for the real class
 
 KL_WARMUP_START = 0.0001
-KL_WEIGHT_START = 0.014
+KL_WEIGHT_START = 0.01
 KL_WEIGHT_TARGET = 0.0035
 KL_WARMUP_EPOCHS = 55
 KL_DECAY_EPOCHS = 90
