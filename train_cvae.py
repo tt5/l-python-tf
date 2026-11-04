@@ -24,7 +24,7 @@ from utils.mnist_loader import load_data
 # ─── Config ────────────────────────────────────────────────────────
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "synthetic" / "data"
 LATENT_DIM = 512
-EPOCHS = 250
+EPOCHS = 260
 BATCH_SIZE = 512
 NUM_CLASSES = 4
 
@@ -63,10 +63,10 @@ D_BATCH_INTERVAL = 1  # update discriminator every N batches (G updates every ba
 D_REAL_LABEL = 1.0    # one-sided label smoothing for the real class
 
 KL_WARMUP_START = 0.0002
-KL_WEIGHT_START = 0.01
+KL_WEIGHT_START = 0.007
 KL_WEIGHT_TARGET = 0.0036
-KL_WARMUP_EPOCHS = 60
-KL_DECAY_EPOCHS = 100
+KL_WARMUP_EPOCHS = 80
+KL_DECAY_EPOCHS = 110
 
 PIXEL_WEIGHT_START = 1.3 * 15
 PIXEL_WEIGHT_TARGET = 0.8 * 15
@@ -137,12 +137,19 @@ def build_encoder():
     sc28 = layers.Conv2D(48, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc28_proj")(img)
     x28 = layers.Add()([x28, sc28])
     x28 = layers.Activation("relu")(x28)
+    #pre_cat = x28
 
-    att = spatial_attention_map(x28, lbl, k=5, name="enc28_spatial_attn")
-    gamma28 = layers.Reshape((1, 1, 48))(2.0 * layers.Dense(48, activation="sigmoid", name="enc28_film_g")(lbl))
-    beta28 = layers.Reshape((1, 1, 48))(layers.Dense(48, name="enc28_film_b")(lbl))
-    x28 = CollabModulation(name="enc28_collab")([x28, gamma28, att, beta28])
-    #c0 = x28
+
+    #att = spatial_attention_map(x28, lbl, k=5, name="enc28_spatial_attn")
+    #gamma28 = layers.Reshape((1, 1, 48))(2.0 * layers.Dense(48, activation="sigmoid", name="enc28_film_g")(lbl))
+    #beta28 = layers.Reshape((1, 1, 48))(layers.Dense(48, name="enc28_film_b")(lbl))
+    #x28 = CollabModulation(name="enc28_collab")([x28, gamma28, att, beta28])
+    ##c0 = x28
+
+    #x28 = tf.keras.layers.Add()([
+    #    pre_cat,
+    #    tf.keras.layers.Conv2D(96, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(c1),
+    #])
 
     c0 = layers.Conv2D(48, 3, strides=1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv0")(x28)
     c0 = tf.keras.layers.LayerNormalization(name='enc_conv0_ln')(c0)
@@ -158,11 +165,18 @@ def build_encoder():
     sc = layers.Conv2D(96, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc28_skip_proj")(layers.AveragePooling2D(2)(c0))
     c1 = layers.Add()([c1, sc])
     c1 = layers.Activation("relu")(c1)
+    pre_cat = c1
 
     att = spatial_attention_map(c1, lbl, k=5, name="enc_spatial_attn")
     gamma14 = layers.Reshape((1, 1, 96))(2.0 * layers.Dense(96, activation="sigmoid", name="enc_film14_g")(lbl))
     beta14 = layers.Reshape((1, 1, 96))(layers.Dense(96, name="enc_film14_b")(lbl))
     c1 = CollabModulation(name="enc_collab14")([c1, gamma14, att, beta14])
+
+    c1 = tf.keras.layers.Add()([
+        pre_cat,
+        tf.keras.layers.Conv2D(96, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(c1),
+    ])
+
 
     c1b = layers.Conv2D(96, 3, strides=1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv1b")(c1)
     c1b = tf.keras.layers.LayerNormalization(name='enc_conv1b_ln')(c1b)
@@ -420,6 +434,7 @@ class VAE(keras.Model):
         self.pixel_weight_tracker = keras.metrics.Mean(name="pixel_weight")
         self.perceptual_loss_tracker = keras.metrics.Mean(name="perceptual_loss")
         self.perceptual_weight_tracker = keras.metrics.Mean(name="perceptual_weight")
+        self.info_nce_loss_tracker = keras.metrics.Mean(name="info_nce_loss")
         self.epoch_tracker = tf.Variable(0, trainable=False, dtype=tf.int32)
 
     def on_epoch_begin(self, epoch, logs=None):
@@ -488,7 +503,8 @@ class VAE(keras.Model):
     def metrics(self):
         return [self.total_loss_tracker, self.recon_loss_tracker, self.kl_loss_tracker,
                 self.kl_weight_tracker, self.pixel_weight_tracker,
-                self.perceptual_loss_tracker, self.perceptual_weight_tracker]
+                self.perceptual_loss_tracker, self.perceptual_weight_tracker,
+                self.info_nce_loss_tracker]
 
     def train_step(self, data):
         images, labels = data
@@ -549,6 +565,7 @@ class VAE(keras.Model):
         self.kl_loss_tracker.update_state(kl_loss)
         self.kl_weight_tracker.update_state(kl_weight)
         self.pixel_weight_tracker.update_state(pixel_weight)
+        self.info_nce_loss_tracker.update_state(info_nce_loss)
         self.perceptual_loss_tracker.update_state(perceptual_loss)
         self.perceptual_weight_tracker.update_state(perceptual_weight)
         return {m.name: m.result() for m in self.metrics}
@@ -585,6 +602,7 @@ class VAE(keras.Model):
         self.kl_loss_tracker.update_state(kl_loss)
         self.kl_weight_tracker.update_state(kl_weight)
         self.pixel_weight_tracker.update_state(pixel_weight)
+        self.info_nce_loss_tracker.update_state(info_nce_loss)
         self.perceptual_loss_tracker.update_state(perceptual_loss)
         self.perceptual_weight_tracker.update_state(perceptual_weight)
         return {m.name: m.result() for m in self.metrics}
@@ -750,6 +768,7 @@ class VAEGAN(VAE):
         self.kl_loss_tracker.update_state(kl_loss)
         self.kl_weight_tracker.update_state(kl_weight)
         self.pixel_weight_tracker.update_state(pixel_weight)
+        self.info_nce_loss_tracker.update_state(info_nce_loss)
         self.perceptual_loss_tracker.update_state(perceptual_loss)
         self.perceptual_weight_tracker.update_state(perceptual_weight)
         self.disc_loss_tracker.update_state(d_loss)
@@ -773,6 +792,12 @@ class VAEGAN(VAE):
         kl_weight = self.get_kl_weight()
         pixel_weight = self.get_pixel_weight()
         perceptual_weight = self.get_perceptual_weight()
+        batch_size = tf.shape(z)[0]
+        z_norm = tf.math.l2_normalize(z, axis=1)
+        sim_matrix = tf.matmul(z_norm, z_norm, transpose_b=True) / TEMPERATURE
+        labels_ce = tf.range(batch_size)
+        info_nce_loss = tf.reduce_mean(
+            tf.nn.sparse_softmax_cross_entropy_with_logits(labels=labels_ce, logits=sim_matrix))
         real_features = self.feature_extractor(images)
         fake_features = self.feature_extractor(reconstruction)
         perceptual_loss = tf.reduce_mean([
@@ -788,6 +813,7 @@ class VAEGAN(VAE):
         self.kl_loss_tracker.update_state(kl_loss)
         self.kl_weight_tracker.update_state(kl_weight)
         self.pixel_weight_tracker.update_state(pixel_weight)
+        self.info_nce_loss_tracker.update_state(info_nce_loss)
         self.perceptual_loss_tracker.update_state(perceptual_loss)
         self.perceptual_weight_tracker.update_state(perceptual_weight)
         self.disc_loss_tracker.update_state(d_loss)
