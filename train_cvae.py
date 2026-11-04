@@ -44,36 +44,36 @@ MAX_SAMPLES_PER_CLASS = args.max_samples_per_class
 SAMPLES_PER_EPOCH_PER_CLASS = args.samples_per_epoch_per_class
 PBM_DIR = Path(args.pbm_dir) if args.pbm_dir else None
 
-LR = 0.003
+LR = 0.0025
 LR_WARMUP_START = 0.00005
-LR_WARMUP_EPOCHS = 5
+LR_WARMUP_EPOCHS = 10
 LR_DECAY_EPOCHS = EPOCHS - LR_WARMUP_EPOCHS
 LR_END = 0.00005
 INFO_NCE_WEIGHT = 0.0005
-TEMPERATURE = 0.8
+TEMPERATURE = 0.9
 PIXEL_POS_WEIGHT = 1.0
 DROPOUT = 0.3
 SPATIAL_DROPOUT = 0.0
-L2_REG = 0.00001
+L2_REG = 0.00002
 # VAE-GAN hybrid: adversarial term + discriminator LR
-ADV_LAMBDA = 1.0
-ADV_WARMUP_EPOCHS = 80
-DISC_LR = 0.00011
+ADV_LAMBDA = 2.0
+ADV_WARMUP_EPOCHS = 100
+DISC_LR = 0.00012
 D_BATCH_INTERVAL = 1  # update discriminator every N batches (G updates every batch)
 D_REAL_LABEL = 1.0    # one-sided label smoothing for the real class
 
-KL_WARMUP_START = 0.0001
+KL_WARMUP_START = 0.0002
 KL_WEIGHT_START = 0.01
-KL_WEIGHT_TARGET = 0.0035
-KL_WARMUP_EPOCHS = 55
-KL_DECAY_EPOCHS = 90
+KL_WEIGHT_TARGET = 0.0036
+KL_WARMUP_EPOCHS = 60
+KL_DECAY_EPOCHS = 100
 
-PIXEL_WEIGHT_START = 1.3 * 16
-PIXEL_WEIGHT_TARGET = 0.7 * 16
+PIXEL_WEIGHT_START = 1.3 * 15
+PIXEL_WEIGHT_TARGET = 0.8 * 15
 PIXEL_DECAY_EPOCHS = EPOCHS - 1
 
 PERC_WARMUP_START = 0.01
-PERC_WEIGHT_START = 6000.0
+PERC_WEIGHT_START = 7000.0
 PERC_WEIGHT_TARGET = 500.0
 PERC_WARMUP_EPOCHS = 70
 PERC_DECAY_EPOCHS = EPOCHS - PERC_WARMUP_EPOCHS - 1
@@ -190,6 +190,7 @@ def build_encoder():
     skip2 = tf.keras.layers.LayerNormalization(name='enc_conv3_skip_ln')(skip2)
     c3 = layers.Add()([c3, skip2])
     c3 = layers.Activation("relu")(c3)
+    pre_se = c3
 
     # SE attention 3
     se3 = layers.GlobalAveragePooling2D()(c3)
@@ -201,6 +202,11 @@ def build_encoder():
     c3 = layers.Activation("relu")(c3)
     skip3 = layers.Conv2D(192, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_se3_skip")(c3_pre)
     c3 = layers.Add()([c3, skip3])
+
+    c3 = tf.keras.layers.Add()([
+        pre_se,
+        tf.keras.layers.Conv2D(192, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(c3),
+    ])
 
     main = layers.Flatten()(c3)
     main = layers.Concatenate()([main, lbl])
