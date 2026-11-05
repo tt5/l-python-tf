@@ -130,77 +130,84 @@ def build_encoder():
         return att
 
     b3 = layers.Conv2D(16, 3, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc28_conv3")(img)
-    b5 = layers.Conv2D(16, 5, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc28_conv5")(img)
-    b7 = layers.Conv2D(16, 7, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc28_conv7")(img)
-    x28 = layers.Concatenate(name="enc28_cat")([b3, b5, b7])   # 3 x ch @ 28x28
-    x28 = layers.LayerNormalization(name="enc28_ln")(x28)
-    sc28 = layers.Conv2D(48, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc28_proj")(img)
-    x28 = layers.Add()([x28, sc28])
-    x28 = layers.Activation("relu")(x28)
-    #pre_cat = x28
 
+    b5 = layers.Conv2D(16, 7, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc28_conv5")(img)
+    b5 = layers.Concatenate(name="enc_front5_concat")([b3, b5])   # 3 x ch @ 28x28
+    b5 = tf.keras.layers.Add()([
+        img,
+        tf.keras.layers.Conv2D(32, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(b5),
+    ])
 
-    #att = spatial_attention_map(x28, lbl, k=5, name="enc28_spatial_attn")
-    #gamma28 = layers.Reshape((1, 1, 48))(2.0 * layers.Dense(48, activation="sigmoid", name="enc28_film_g")(lbl))
-    #beta28 = layers.Reshape((1, 1, 48))(layers.Dense(48, name="enc28_film_b")(lbl))
-    #x28 = CollabModulation(name="enc28_collab")([x28, gamma28, att, beta28])
-    ##c0 = x28
+    b7 = layers.Conv2D(32, 11, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc28_conv7")(img)
+    b7 = layers.Concatenate(name="enc_front7_concat")([b5, b7])   # 3 x ch @ 28x28
+    b7 = tf.keras.layers.Add()([
+        img,
+        tf.keras.layers.Conv2D(64, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(b7),
+    ])
 
-    #x28 = tf.keras.layers.Add()([
-    #    pre_cat,
-    #    tf.keras.layers.Conv2D(96, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(c1),
-    #])
+    pre_cat = b7
 
-    c0 = layers.Conv2D(48, 3, strides=1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv0")(x28)
+    att = spatial_attention_map(b7, lbl, k=5, name="enc28_spatial_attn")
+    gamma28 = layers.Reshape((1, 1, 64))(2.0 * layers.Dense(64, activation="sigmoid", name="enc28_film_g")(lbl))
+    beta28 = layers.Reshape((1, 1, 64))(layers.Dense(64, name="enc28_film_b")(lbl))
+    x28 = CollabModulation(name="enc28_collab")([b7, gamma28, att, beta28])
+    #c0 = x28
+
+    x28 = tf.keras.layers.Add()([
+        pre_cat,
+        tf.keras.layers.Conv2D(64, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x28),
+    ])
+
+    c0 = layers.Conv2D(64, 3, strides=1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv0")(x28)
     c0 = tf.keras.layers.LayerNormalization(name='enc_conv0_ln')(c0)
     c0 = layers.Activation("relu")(c0)
-    skip0 = layers.Conv2D(48, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv0_skip")(x28)
+    skip0 = layers.Conv2D(64, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv0_skip")(x28)
     skip0 = tf.keras.layers.LayerNormalization(name='enc_conv0_skip_ln')(skip0)
     c0 = layers.Add()([c0, skip0])
     c0 = layers.Activation("relu")(c0)
 
     # Conv block 1: 28x28 → 14x14
-    c1 = layers.Conv2D(96, 3, strides=2, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv1")(c0)
+    c1 = layers.Conv2D(128, 3, strides=2, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv1")(c0)
     c1 = tf.keras.layers.LayerNormalization(name='enc_14_ln')(c1)
-    sc = layers.Conv2D(96, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc28_skip_proj")(layers.AveragePooling2D(2)(c0))
+    sc = layers.Conv2D(128, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc28_skip_proj")(layers.AveragePooling2D(2)(c0))
     c1 = layers.Add()([c1, sc])
     c1 = layers.Activation("relu")(c1)
     pre_cat = c1
 
     att = spatial_attention_map(c1, lbl, k=5, name="enc_spatial_attn")
-    gamma14 = layers.Reshape((1, 1, 96))(2.0 * layers.Dense(96, activation="sigmoid", name="enc_film14_g")(lbl))
-    beta14 = layers.Reshape((1, 1, 96))(layers.Dense(96, name="enc_film14_b")(lbl))
+    gamma14 = layers.Reshape((1, 1, 128))(2.0 * layers.Dense(128, activation="sigmoid", name="enc_film14_g")(lbl))
+    beta14 = layers.Reshape((1, 1, 128))(layers.Dense(128, name="enc_film14_b")(lbl))
     c1 = CollabModulation(name="enc_collab14")([c1, gamma14, att, beta14])
 
     c1 = tf.keras.layers.Add()([
         pre_cat,
-        tf.keras.layers.Conv2D(96, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(c1),
+        tf.keras.layers.Conv2D(128, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(c1),
     ])
 
 
-    c1b = layers.Conv2D(96, 3, strides=1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv1b")(c1)
+    c1b = layers.Conv2D(128, 3, strides=1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv1b")(c1)
     c1b = tf.keras.layers.LayerNormalization(name='enc_conv1b_ln')(c1b)
     c1b = layers.Activation("relu")(c1b)
-    skip1b = layers.Conv2D(96, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv1b_skip")(c1)
+    skip1b = layers.Conv2D(128, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv1b_skip")(c1)
     skip1b = tf.keras.layers.LayerNormalization(name='enc_conv1b_skip_ln')(skip1b)
     c1b = layers.Add()([c1b, skip1b])
     c1 = layers.Activation("relu")(c1b)
 
     # Conv block 2: 14x14 → 7x7
-    c2 = layers.Conv2D(192, 3, strides=2, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv2")(c1)
+    c2 = layers.Conv2D(256, 3, strides=2, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv2")(c1)
     c2 = tf.keras.layers.LayerNormalization(name='enc_conv2_ln')(c2)
     c2 = layers.Activation("relu")(c2)
-    skip = layers.Conv2D(192, 1, strides=2, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv2_skip")(c1)
+    skip = layers.Conv2D(256, 1, strides=2, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv2_skip")(c1)
     skip = tf.keras.layers.LayerNormalization(name='enc_conv2_skip_ln')(skip)
     c2 = layers.Add()([c2, skip])
     c2 = layers.Activation("relu")(c2)
     #c3 = c2
 
     # Conv block 3: 7x7 -> 7x7
-    c3 = layers.Conv2D(192, 3, strides=1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv3")(c2)
+    c3 = layers.Conv2D(256, 3, strides=1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv3")(c2)
     c3 = tf.keras.layers.LayerNormalization(name='enc_conv3_ln')(c3)
     c3 = layers.Activation("relu")(c3)
-    skip2 = layers.Conv2D(192, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv3_skip")(c2)
+    skip2 = layers.Conv2D(256, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv3_skip")(c2)
     skip2 = tf.keras.layers.LayerNormalization(name='enc_conv3_skip_ln')(skip2)
     c3 = layers.Add()([c3, skip2])
     c3 = layers.Activation("relu")(c3)
@@ -208,22 +215,22 @@ def build_encoder():
 
     # SE attention 3
     se3 = layers.GlobalAveragePooling2D()(c3)
-    se3 = layers.Dense(192 // 4, activation="relu", name="enc_se3_a")(se3)
-    se3 = layers.Dense(192, activation="sigmoid", name="enc_se3_b")(se3)
-    se3 = layers.Reshape((1, 1, 192))(se3)
+    se3 = layers.Dense(256 // 4, activation="relu", name="enc_se3_a")(se3)
+    se3 = layers.Dense(256, activation="sigmoid", name="enc_se3_b")(se3)
+    se3 = layers.Reshape((1, 1, 256))(se3)
     c3_pre = c3
     c3 = layers.Multiply()([c3, se3])
     c3 = layers.Activation("relu")(c3)
-    skip3 = layers.Conv2D(192, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_se3_skip")(c3_pre)
+    skip3 = layers.Conv2D(256, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_se3_skip")(c3_pre)
     c3 = layers.Add()([c3, skip3])
 
     c3 = tf.keras.layers.Add()([
         pre_se,
-        tf.keras.layers.Conv2D(192, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(c3),
+        tf.keras.layers.Conv2D(256, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(c3),
     ])
 
     main = layers.Flatten()(c3)
-    main = layers.Concatenate()([main, lbl])
+    #main = layers.Concatenate()([main, lbl])
     main = layers.Dense(896, activation="relu", name="enc28_head_dense", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(main)
     main = layers.LayerNormalization(name="enc28_head_ln")(main)
     z_mean = layers.Dense(LATENT_DIM, name="z_mean", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(main)
