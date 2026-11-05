@@ -435,6 +435,11 @@ class VAE(keras.Model):
         self.feature_extractor = build_feature_extractor()
         # Freeze feature extractor weights
         self.feature_extractor.trainable = False
+        # Learnable decoder variance (Rybkin et al. 2021)
+        self.log_sigma = self.add_weight(name="log_sigma", shape=(), initializer="zeros", trainable=True)
+        # Conditional prior p(z|y): per-class mean and log-variance (normalizing-flow-free approximation)
+        self.prior_mean = self.add_weight(name="prior_mean", shape=(NUM_CLASSES, LATENT_DIM), initializer="zeros", trainable=True)
+        self.prior_log_var = self.add_weight(name="prior_log_var", shape=(NUM_CLASSES, LATENT_DIM), initializer="zeros", trainable=True)
         self.total_loss_tracker = keras.metrics.Mean(name="total_loss")
         self.recon_loss_tracker = keras.metrics.Mean(name="recon_loss")
         self.kl_loss_tracker = keras.metrics.Mean(name="kl_loss")
@@ -532,11 +537,16 @@ class VAE(keras.Model):
             # sparse classes aren't dominated by background pixels.
             # Resize target to match reconstruction size (no-op if same size)
             target = tf.image.resize(images, tf.shape(reconstruction)[1:3])
-            pixel_loss = weighted_pixel_loss(target, reconstruction)
+            sigma = tf.exp(self.log_sigma)
+            mse = tf.reduce_mean(tf.square(target - reconstruction))
+            pixel_loss = mse / (2.0 * sigma * sigma) + tf.math.log(sigma)
 
             # KL divergence
-            kl_loss = -0.5 * tf.reduce_mean(tf.reduce_sum(
-                1 + z_log_var - tf.square(z_mean) - tf.exp(z_log_var), axis=1))
+            label_idx = tf.argmax(labels, axis=1)
+            prior_mu = tf.gather(self.prior_mean, label_idx)
+            prior_lv = tf.gather(self.prior_log_var, label_idx)
+            kl_loss = 0.5 * tf.reduce_mean(tf.reduce_sum(
+                prior_lv - z_log_var + (tf.exp(z_log_var) + tf.square(z_mean - prior_mu)) / tf.exp(prior_lv) - 1.0, axis=1))
 
             # InfoNCE: ensure encoder utilizes latent space
             # For each batch, compute pairwise similarities
@@ -583,9 +593,14 @@ class VAE(keras.Model):
         z_mean, z_log_var, z = self.encoder([images, labels])
         reconstruction = self.generator([z, labels])
         target = tf.image.resize(images, tf.shape(reconstruction)[1:3])
-        pixel_loss = weighted_pixel_loss(target, reconstruction)
-        kl_loss = -0.5 * tf.reduce_mean(tf.reduce_sum(
-            1 + z_log_var - tf.square(z_mean) - tf.exp(z_log_var), axis=1))
+        sigma = tf.exp(self.log_sigma)
+        mse = tf.reduce_mean(tf.square(target - reconstruction))
+        pixel_loss = mse / (2.0 * sigma * sigma) + tf.math.log(sigma)
+        label_idx = tf.argmax(labels, axis=1)
+        prior_mu = tf.gather(self.prior_mean, label_idx)
+        prior_lv = tf.gather(self.prior_log_var, label_idx)
+        kl_loss = 0.5 * tf.reduce_mean(tf.reduce_sum(
+            prior_lv - z_log_var + (tf.exp(z_log_var) + tf.square(z_mean - prior_mu)) / tf.exp(prior_lv) - 1.0, axis=1))
         kl_weight = self.get_kl_weight()
         pixel_weight = self.get_pixel_weight()
         perceptual_weight = self.get_perceptual_weight()
@@ -748,9 +763,14 @@ class VAEGAN(VAE):
             adv_loss = self._bce(tf.ones_like(d_fake), d_fake)
 
             target = tf.image.resize(images, tf.shape(reconstruction)[1:3])
-            pixel_loss = weighted_pixel_loss(target, reconstruction)
-            kl_loss = -0.5 * tf.reduce_mean(tf.reduce_sum(
-                1 + z_log_var - tf.square(z_mean) - tf.exp(z_log_var), axis=1))
+            sigma = tf.exp(self.log_sigma)
+            mse = tf.reduce_mean(tf.square(target - reconstruction))
+            pixel_loss = mse / (2.0 * sigma * sigma) + tf.math.log(sigma)
+            label_idx = tf.argmax(labels, axis=1)
+            prior_mu = tf.gather(self.prior_mean, label_idx)
+            prior_lv = tf.gather(self.prior_log_var, label_idx)
+            kl_loss = 0.5 * tf.reduce_mean(tf.reduce_sum(
+                prior_lv - z_log_var + (tf.exp(z_log_var) + tf.square(z_mean - prior_mu)) / tf.exp(prior_lv) - 1.0, axis=1))
             batch_size = tf.shape(z)[0]
             z_norm = tf.math.l2_normalize(z, axis=1)
             sim_matrix = tf.matmul(z_norm, z_norm, transpose_b=True) / TEMPERATURE
@@ -800,9 +820,14 @@ class VAEGAN(VAE):
         adv_loss = self._bce(tf.ones_like(d_fake), d_fake)
 
         target = tf.image.resize(images, tf.shape(reconstruction)[1:3])
-        pixel_loss = weighted_pixel_loss(target, reconstruction)
-        kl_loss = -0.5 * tf.reduce_mean(tf.reduce_sum(
-            1 + z_log_var - tf.square(z_mean) - tf.exp(z_log_var), axis=1))
+        sigma = tf.exp(self.log_sigma)
+        mse = tf.reduce_mean(tf.square(target - reconstruction))
+        pixel_loss = mse / (2.0 * sigma * sigma) + tf.math.log(sigma)
+        label_idx = tf.argmax(labels, axis=1)
+        prior_mu = tf.gather(self.prior_mean, label_idx)
+        prior_lv = tf.gather(self.prior_log_var, label_idx)
+        kl_loss = 0.5 * tf.reduce_mean(tf.reduce_sum(
+            prior_lv - z_log_var + (tf.exp(z_log_var) + tf.square(z_mean - prior_mu)) / tf.exp(prior_lv) - 1.0, axis=1))
         kl_weight = self.get_kl_weight()
         pixel_weight = self.get_pixel_weight()
         perceptual_weight = self.get_perceptual_weight()
