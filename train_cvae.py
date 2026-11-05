@@ -24,7 +24,7 @@ from utils.mnist_loader import load_data
 # ─── Config ────────────────────────────────────────────────────────
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "synthetic" / "data"
 LATENT_DIM = 512
-EPOCHS = 260
+EPOCHS = 270
 BATCH_SIZE = 512
 NUM_CLASSES = 4
 
@@ -58,7 +58,8 @@ L2_REG = 0.00002
 # VAE-GAN hybrid: adversarial term + discriminator LR
 ADV_LAMBDA = 2.0
 ADV_WARMUP_EPOCHS = 100
-DISC_LR = 0.00012
+DISC_LR = 0.0001
+DISC_LR_END = 0.00001
 D_BATCH_INTERVAL = 1  # update discriminator every N batches (G updates every batch)
 D_REAL_LABEL = 1.0    # one-sided label smoothing for the real class
 
@@ -77,7 +78,7 @@ PERC_WEIGHT_START = 7000.0
 PERC_WEIGHT_TARGET = 500.0
 PERC_WARMUP_EPOCHS = 70
 PERC_DECAY_EPOCHS = EPOCHS - PERC_WARMUP_EPOCHS - 1
-LOG_NAME = 'logs/gen1'
+LOG_NAME = 'logs/gen1b'
 
 def weighted_pixel_loss(target, reconstruction):
     """Foreground-weighted pixel BCE, as a PER-PIXEL MEAN.
@@ -160,18 +161,18 @@ def build_encoder():
 
     c0 = layers.Conv2D(64, 3, strides=1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv0")(x28)
     c0 = tf.keras.layers.LayerNormalization(name='enc_conv0_ln')(c0)
-    c0 = layers.Activation("relu")(c0)
+    c0 = layers.LeakyReLU(0.2)(c0)
     skip0 = layers.Conv2D(64, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv0_skip")(x28)
     skip0 = tf.keras.layers.LayerNormalization(name='enc_conv0_skip_ln')(skip0)
     c0 = layers.Add()([c0, skip0])
-    c0 = layers.Activation("relu")(c0)
+    c0 = layers.LeakyReLU(0.2)(c0)
 
     # Conv block 1: 28x28 → 14x14
     c1 = layers.Conv2D(128, 3, strides=2, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv1")(c0)
     c1 = tf.keras.layers.LayerNormalization(name='enc_14_ln')(c1)
     sc = layers.Conv2D(128, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc28_skip_proj")(layers.AveragePooling2D(2)(c0))
     c1 = layers.Add()([c1, sc])
-    c1 = layers.Activation("relu")(c1)
+    c1 = layers.LeakyReLU(0.2)(c1)
     pre_cat = c1
 
     att = spatial_attention_map(c1, lbl, k=5, name="enc_spatial_attn")
@@ -187,40 +188,40 @@ def build_encoder():
 
     c1b = layers.Conv2D(128, 3, strides=1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv1b")(c1)
     c1b = tf.keras.layers.LayerNormalization(name='enc_conv1b_ln')(c1b)
-    c1b = layers.Activation("relu")(c1b)
+    c1b = layers.LeakyReLU(0.2)(c1b)
     skip1b = layers.Conv2D(128, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv1b_skip")(c1)
     skip1b = tf.keras.layers.LayerNormalization(name='enc_conv1b_skip_ln')(skip1b)
     c1b = layers.Add()([c1b, skip1b])
-    c1 = layers.Activation("relu")(c1b)
+    c1 = layers.LeakyReLU(0.2)(c1b)
 
     # Conv block 2: 14x14 → 7x7
     c2 = layers.Conv2D(256, 3, strides=2, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv2")(c1)
     c2 = tf.keras.layers.LayerNormalization(name='enc_conv2_ln')(c2)
-    c2 = layers.Activation("relu")(c2)
+    c2 = layers.LeakyReLU(0.2)(c2)
     skip = layers.Conv2D(256, 1, strides=2, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv2_skip")(c1)
     skip = tf.keras.layers.LayerNormalization(name='enc_conv2_skip_ln')(skip)
     c2 = layers.Add()([c2, skip])
-    c2 = layers.Activation("relu")(c2)
+    c2 = layers.LeakyReLU(0.2)(c2)
     #c3 = c2
 
     # Conv block 3: 7x7 -> 7x7
     c3 = layers.Conv2D(256, 3, strides=1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv3")(c2)
     c3 = tf.keras.layers.LayerNormalization(name='enc_conv3_ln')(c3)
-    c3 = layers.Activation("relu")(c3)
+    c3 = layers.LeakyReLU(0.2)(c3)
     skip2 = layers.Conv2D(256, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_conv3_skip")(c2)
     skip2 = tf.keras.layers.LayerNormalization(name='enc_conv3_skip_ln')(skip2)
     c3 = layers.Add()([c3, skip2])
-    c3 = layers.Activation("relu")(c3)
+    c3 = layers.LeakyReLU(0.2)(c3)
     pre_se = c3
 
     # SE attention 3
     se3 = layers.GlobalAveragePooling2D()(c3)
-    se3 = layers.Dense(256 // 4, activation="relu", name="enc_se3_a")(se3)
+    se3 = layers.Dense(256 // 4, activation="leaky_relu", name="enc_se3_a")(se3)
     se3 = layers.Dense(256, activation="sigmoid", name="enc_se3_b")(se3)
     se3 = layers.Reshape((1, 1, 256))(se3)
     c3_pre = c3
     c3 = layers.Multiply()([c3, se3])
-    c3 = layers.Activation("relu")(c3)
+    c3 = layers.LeakyReLU(0.2)(c3)
     skip3 = layers.Conv2D(256, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_se3_skip")(c3_pre)
     c3 = layers.Add()([c3, skip3])
 
@@ -231,7 +232,7 @@ def build_encoder():
 
     main = layers.Flatten()(c3)
     #main = layers.Concatenate()([main, lbl])
-    main = layers.Dense(896, activation="relu", name="enc28_head_dense", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(main)
+    main = layers.Dense(896, activation="leaky_relu", name="enc28_head_dense", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(main)
     main = layers.LayerNormalization(name="enc28_head_ln")(main)
     z_mean = layers.Dense(LATENT_DIM, name="z_mean", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(main)
     z_log_var = layers.Dense(LATENT_DIM, name="z_log_var", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(main)
@@ -281,16 +282,16 @@ def build_generator():
         return att
 
     # Project latent to 1x1x1024, then double resolution each stage.
-    x = layers.Dense(1 * 1 * 512, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="gen_proj0")(z)
+    x = layers.Dense(1 * 1 * 512, activation="leaky_relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="gen_proj0")(z)
     x = layers.Reshape((1, 1, 512))(x)
     x = tf.keras.layers.LayerNormalization(center=True, scale=True)(x)
 
     # 1x1 -> 2x2
     x = layers.Conv2DTranspose(256, 4, strides=2, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="gen_up1")(x)
     x = tf.keras.layers.LayerNormalization(center=True, scale=True)(x)
-    x = tf.keras.layers.Activation("relu")(x)
+    x = tf.keras.layers.LeakyReLU(0.2)(x)
 
-    x2 = layers.Dense(2 * 2 * 256, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="gen_proj1")(z)
+    x2 = layers.Dense(2 * 2 * 256, activation="leaky_relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="gen_proj1")(z)
     x2 = layers.Reshape((2, 2, 256))(x2)
     x2 = tf.keras.layers.LayerNormalization(center=True, scale=True)(x2)
 
@@ -304,15 +305,15 @@ def build_generator():
     beta = layers.Reshape((1, 1, 256))(layers.Dense(256, name="gen2_film_b")(lbl))
     x = CollabModulation(name="gen_collab2")([x, gamma, att, beta])
 
-    x = tf.keras.layers.Conv2D(256, 3, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
+    x = tf.keras.layers.Conv2D(256, 3, padding="same", activation="leaky_relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = tf.keras.layers.LayerNormalization(center=True, scale=True)(x)
 
     # 2x2 -> 4x4
     x = layers.Conv2DTranspose(128, 4, strides=2, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="gen_up2")(x)
     x = tf.keras.layers.LayerNormalization(center=True, scale=True)(x)
-    x = tf.keras.layers.Activation("relu")(x)
+    x = tf.keras.layers.LeakyReLU(0.2)(x)
 
-    x2 = layers.Dense(4 * 4 * 128, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="gen_proj2")(z)
+    x2 = layers.Dense(4 * 4 * 128, activation="leaky_relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="gen_proj2")(z)
     x2 = layers.Reshape((4, 4, 128))(x2)
     x2 = tf.keras.layers.LayerNormalization(center=True, scale=True)(x2)
 
@@ -326,15 +327,15 @@ def build_generator():
     beta = layers.Reshape((1, 1, 128))(layers.Dense(128, name="gen4_film_b")(lbl))
     x = CollabModulation(name="gen_collab4")([x, gamma, att, beta])
 
-    x = tf.keras.layers.Conv2D(128, 3, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
+    x = tf.keras.layers.Conv2D(128, 3, padding="same", activation="leaky_relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = tf.keras.layers.LayerNormalization(center=True, scale=True)(x)
 
     # 4x4 -> 8x8
     x = layers.Conv2DTranspose(64, 4, strides=2, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="gen_up3")(x)
     x = tf.keras.layers.LayerNormalization(center=True, scale=True)(x)
-    x = tf.keras.layers.Activation("relu")(x)
+    x = tf.keras.layers.LeakyReLU(0.2)(x)
 
-    x2 = layers.Dense(8 * 8 * 64, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="gen_proj3")(z)
+    x2 = layers.Dense(8 * 8 * 64, activation="leaky_relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="gen_proj3")(z)
     x2 = layers.Reshape((8, 8, 64))(x2)
     x2 = tf.keras.layers.LayerNormalization(center=True, scale=True)(x2)
 
@@ -348,26 +349,26 @@ def build_generator():
     beta = layers.Reshape((1, 1, 64))(layers.Dense(64, name="gen8_film_b")(lbl))
     x = CollabModulation(name="gen_collab8")([x, gamma, att, beta])
 
-    x = tf.keras.layers.Conv2D(64, 3, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
+    x = tf.keras.layers.Conv2D(64, 3, padding="same", activation="leaky_relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = tf.keras.layers.LayerNormalization(center=True, scale=True)(x)
 
     # 8x8 -> 16x16
     x = layers.Conv2DTranspose(32, 4, strides=2, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="gen_up4")(x)
     x = tf.keras.layers.LayerNormalization(center=True, scale=True)(x)
-    x = tf.keras.layers.Activation("relu")(x)
+    x = tf.keras.layers.LeakyReLU(0.2)(x)
 
     att = spatial_attention_map(x, lbl, k=5, name="gen16_spatial_attn")
     gamma = layers.Reshape((1, 1, 32))(2.0 * layers.Dense(32, activation="sigmoid", name="gen16_film_g")(lbl))
     beta = layers.Reshape((1, 1, 32))(layers.Dense(32, name="gen16_film_b")(lbl))
     x = CollabModulation(name="gen_collab16")([x, gamma, att, beta])
 
-    x = tf.keras.layers.Conv2D(32, 3, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
+    x = tf.keras.layers.Conv2D(32, 3, padding="same", activation="leaky_relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = tf.keras.layers.LayerNormalization(center=True, scale=True)(x)
 
     # 16x16 -> 32x32
     x = layers.Conv2DTranspose(16, 4, strides=2, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="gen_up5")(x)
     x = tf.keras.layers.LayerNormalization(center=True, scale=True)(x)
-    x = tf.keras.layers.Activation("relu")(x)
+    x = tf.keras.layers.LeakyReLU(0.2)(x)
 
     # Crop 32x32 -> 28x28
     x = layers.Cropping2D(cropping=((2, 2), (2, 2)))(x)
@@ -377,7 +378,7 @@ def build_generator():
     beta = layers.Reshape((1, 1, 16))(layers.Dense(16, name="gen28_film_b")(lbl))
     x = CollabModulation(name="gen_collab28")([x, gamma, att, beta])
 
-    x = tf.keras.layers.Conv2D(16, 3, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
+    x = tf.keras.layers.Conv2D(16, 3, padding="same", activation="leaky_relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = tf.keras.layers.LayerNormalization(center=True, scale=True)(x)
 
     # Final refinement conv -> sigmoid
@@ -698,8 +699,14 @@ class VAEGAN(VAE):
         progress = tf.clip_by_value(epoch / warmup_epochs, 0.0, 1.0)
         return tf.constant(ADV_LAMBDA, dtype=tf.float32) * progress
 
+    def get_disc_lr(self):
+        epoch = tf.cast(self.epoch_tracker, tf.float32)
+        progress = tf.clip_by_value(epoch / tf.cast(EPOCHS, tf.float32), 0.0, 1.0)
+        return tf.constant(DISC_LR, dtype=tf.float32) * (1.0 - progress) + tf.constant(DISC_LR_END, dtype=tf.float32) * progress
+
     def train_step(self, data):
         images, labels = data
+        self.d_opt.learning_rate = self.get_disc_lr()
         self.optimizer.learning_rate = self.get_lr()
         kl_weight = self.get_kl_weight()
         pixel_weight = self.get_pixel_weight()
