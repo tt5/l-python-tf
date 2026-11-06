@@ -37,7 +37,7 @@ except Exception:
             return super()._resource_apply_sparse(grad, var, indices, apply_state)
 
 DEFAULT_PBM_DIR = Path(__file__).resolve().parent / "../../telephonegame/data/pbm"
-TB_LOG_DIR = Path(__file__).resolve().parent / "logs" / "mnist2"
+TB_LOG_DIR = Path(__file__).resolve().parent / "logs" / "mnist2b"
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--data-dir", type=Path, default=DEFAULT_PBM_DIR, help="PBM data directory")
@@ -322,12 +322,12 @@ def main():
     x = noise_layer(x)
 
     # Conv block 0: 28x28 -> 28x28
-    c0 = L.SeparableConv2D(32, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv28')(x)
+    c0 = L.Conv2D(32, 3, padding='same', activation='leaky_relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv28')(x)
     c0_res = c0
-    c0 = L.SeparableConv2D(32, 3, padding='same', activation=None, kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv28_second')(c0)
+    c0 = L.Conv2D(32, 3, padding='same', activation=None, kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv28_second')(c0)
     c0 = L.LayerNormalization(name='enc_ln28_2')(c0)
     c0 = L.Add()([c0, c0_res])
-    c0 = L.Activation('relu')(c0)
+    c0 = L.Activation('leaky_relu')(c0)
     c0 = L.SpatialDropout2D(SPATIAL_DROPOUT)(c0)
     c0 = L.Add()([c0, cbam_block(c0, name_prefix='cbam28')])
 

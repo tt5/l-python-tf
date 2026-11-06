@@ -312,9 +312,9 @@ def build_encoder():
 
     # Alternative path: transferred mnist2 layers + CBAM
     x28_alt = image_input
+    x28_alt = tf.keras.layers.Conv2D(32, 3, padding='same', activation='leaky_relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv28')(x28_alt)
     x28_alt_res = x28_alt
-    x28_alt = tf.keras.layers.SeparableConv2D(32, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv28')(x28_alt)
-    x28_alt = tf.keras.layers.SeparableConv2D(32, 3, padding='same', activation=None, kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv28_second')(x28_alt)
+    x28_alt = tf.keras.layers.Conv2D(32, 3, padding='same', activation=None, kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv28_second')(x28_alt)
     x28_alt = tf.keras.layers.LayerNormalization(name='enc_ln28_2')(x28_alt)
     x28_alt = tf.keras.layers.Add()([x28_alt, x28_alt_res])
     x28_alt = tf.keras.layers.Activation('relu')(x28_alt)
