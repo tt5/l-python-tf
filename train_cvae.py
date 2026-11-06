@@ -49,7 +49,7 @@ LR_WARMUP_START = 0.00005
 LR_WARMUP_EPOCHS = 10
 LR_DECAY_EPOCHS = EPOCHS - LR_WARMUP_EPOCHS
 LR_END = 0.00005
-INFO_NCE_WEIGHT = 0.0005
+INFO_NCE_WEIGHT = 0.01
 TEMPERATURE = 0.9
 PIXEL_POS_WEIGHT = 1.0
 DROPOUT = 0.3
@@ -58,19 +58,19 @@ L2_REG = 0.00002
 # VAE-GAN hybrid: adversarial term + discriminator LR
 ADV_LAMBDA = 1.0 # warmup from 0
 ADV_WARMUP_EPOCHS = 100
-DISC_LR = 0.0001
-DISC_LR_END = 0.00001
+DISC_LR = 0.0002
+DISC_LR_END = 0.00005
 D_BATCH_INTERVAL = 1  # update discriminator every N batches (G updates every batch)
 D_REAL_LABEL = 1.0    # one-sided label smoothing for the real class
 
 KL_WARMUP_START = 0.0002
-KL_WEIGHT_START = 0.007
-KL_WEIGHT_TARGET = 0.0036
+KL_WEIGHT_START = 0.005
+KL_WEIGHT_TARGET = 0.0037
 KL_WARMUP_EPOCHS = 80
-KL_DECAY_EPOCHS = 110
+KL_DECAY_EPOCHS = 120
 
 PIXEL_WEIGHT_START = 1.3 * 50
-PIXEL_WEIGHT_TARGET = 0.8 * 50
+PIXEL_WEIGHT_TARGET = 0.7 * 50
 PIXEL_DECAY_EPOCHS = EPOCHS - 1
 
 #PERC_WARMUP_START = 0.01
@@ -81,7 +81,7 @@ PERC_WEIGHT_START = 0.0
 PERC_WEIGHT_TARGET = 0.0
 PERC_WARMUP_EPOCHS = 70
 PERC_DECAY_EPOCHS = EPOCHS - PERC_WARMUP_EPOCHS - 1
-LOG_NAME = 'logs/gen1n'
+LOG_NAME = 'logs/gen1'
 
 def weighted_pixel_loss(target, reconstruction):
     """Foreground-weighted pixel BCE, as a PER-PIXEL MEAN.
@@ -136,25 +136,31 @@ def build_encoder():
     b3 = layers.Conv2D(16, 3, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc28_conv3")(img)
 
     b5 = layers.Conv2D(16, 7, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc28_conv5")(img)
-    b5 = layers.Concatenate(name="enc_front5_concat")([b3, b5])   # 3 x ch @ 28x28
+    b5 = layers.Concatenate(name="enc_front5_concat")([b3, b5])
+    b5 = layers.Conv2D(32, 3, strides=1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_front5_conv2")(b5)
+    b5 = tf.keras.layers.LayerNormalization(name='enc_front5_ln1')(b5)
+    b5 = layers.LeakyReLU(0.2)(b5)
     b5 = tf.keras.layers.Add()([
-        img,
-        tf.keras.layers.Conv2D(32, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(b5),
+        b5,
+        tf.keras.layers.Conv2D(32, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(img),
     ])
 
-    b7 = layers.Conv2D(32, 11, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc28_conv7")(img)
-    b7 = layers.Concatenate(name="enc_front7_concat")([b5, b7])   # 3 x ch @ 28x28
-    b7 = tf.keras.layers.Add()([
-        img,
-        tf.keras.layers.Conv2D(64, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(b7),
+    b11 = layers.Conv2D(32, 11, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc28_conv7")(img)
+    b11 = layers.Concatenate(name="enc_front7_concat")([b5, b11])   # 3 x ch @ 28x28
+    b11 = layers.Conv2D(64, 3, strides=1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_front11_conv2")(b11)
+    b11 = tf.keras.layers.LayerNormalization(name='enc_front11_ln1')(b11)
+    b11 = layers.LeakyReLU(0.2)(b11)
+    b11 = tf.keras.layers.Add()([
+        b11,
+        tf.keras.layers.Conv2D(64, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(img),
     ])
 
-    pre_cat = b7
+    pre_cat = b11
 
-    att = spatial_attention_map(b7, lbl, k=5, name="enc28_spatial_attn")
+    att = spatial_attention_map(b11, lbl, k=5, name="enc28_spatial_attn")
     gamma28 = layers.Reshape((1, 1, 64))(2.0 * layers.Dense(64, activation="sigmoid", name="enc28_film_g")(lbl))
     beta28 = layers.Reshape((1, 1, 64))(layers.Dense(64, name="enc28_film_b")(lbl))
-    x28 = CollabModulation(name="enc28_collab")([b7, gamma28, att, beta28])
+    x28 = CollabModulation(name="enc28_collab")([b11, gamma28, att, beta28])
     #c0 = x28
 
     x28 = tf.keras.layers.Add()([
