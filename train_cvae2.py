@@ -67,7 +67,7 @@ TV_START_WEIGHT = 0.2
 TV_PEAK_WEIGHT = 0.2
 TV_DECAY_EPOCHS = EPOCHS - TV_WARMUP_EPOCHS
 TV_END_WEIGHT = 0.2
-LOG_NAME = "train_gen2b"
+LOG_NAME = "train_gen2"
 
 def load_pbm(path):
     """Load a P4 PBM file and return a 2D numpy array of 0/1 float32."""
@@ -313,11 +313,6 @@ def build_encoder():
     # Alternative path: transferred mnist2 layers + CBAM
     x28_alt = image_input
     x28_alt = tf.keras.layers.Conv2D(32, 3, padding='same', activation='leaky_relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv28')(x28_alt)
-    x28_alt_res = x28_alt
-    x28_alt = tf.keras.layers.Conv2D(32, 3, padding='same', activation=None, kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv28_second')(x28_alt)
-    x28_alt = tf.keras.layers.LayerNormalization(name='enc_ln28_2')(x28_alt)
-    x28_alt = tf.keras.layers.Add()([x28_alt, x28_alt_res])
-    x28_alt = tf.keras.layers.Activation('relu')(x28_alt)
     x28_alt = tf.keras.layers.Add()([x28_alt, cbam_block(x28_alt, name_prefix='cbam28')])
 
     # Main path at 28x28
@@ -379,15 +374,6 @@ def build_encoder():
 
     x14_alt = tf.keras.layers.SeparableConv2D(64, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv14_pre')(x28)
     x14_alt = tf.keras.layers.MaxPooling2D(2)(x14_alt)
-    x14_alt_res = x14_alt
-    x14_alt = tf.keras.layers.SeparableConv2D(64, 3, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv14_res1')(x14_alt)
-    x14_alt = tf.keras.layers.Add()([x14_alt, x14_alt_res])
-    x14_alt = tf.keras.layers.Activation('relu')(x14_alt)
-    x14_alt_res2 = x14_alt
-    x14_alt = tf.keras.layers.SeparableConv2D(64, 3, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv14_res2')(x14_alt)
-    x14_alt = tf.keras.layers.LayerNormalization(name='enc_ln14_2')(x14_alt)
-    x14_alt = tf.keras.layers.Add()([x14_alt, x14_alt_res2])
-    x14_alt = tf.keras.layers.Activation('relu')(x14_alt)
     x14_alt = tf.keras.layers.Add()([x14_alt, cbam_block(x14_alt, name_prefix='cbam14')])
     x14 = x14_alt
 
@@ -442,10 +428,6 @@ def build_encoder():
     x7_alt_shallow = x7_alt
     x7_alt = tf.keras.layers.SeparableConv2D(128, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv7_deep2')(x7_alt)
     x7_alt = tf.keras.layers.LayerNormalization(name='enc_ln7_1')(x7_alt)
-    x7_alt_res = x7_alt
-    x7_alt = tf.keras.layers.SeparableConv2D(128, 3, padding='same', activation=None, kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv7_res1')(x7_alt)
-    x7_alt = tf.keras.layers.Add()([x7_alt, x7_alt_res])
-    x7_alt = tf.keras.layers.Activation('relu', name='enc_act7')(x7_alt)
     x7_alt = tf.keras.layers.Add(name='enc_add7')([x7_alt_shallow, x7_alt])
     x7_alt = tf.keras.layers.Conv2D(128, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_fuse7')(x7_alt)
     x7_alt = tf.keras.layers.LayerNormalization(name='enc_fuse7_ln')(x7_alt)

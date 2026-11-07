@@ -321,27 +321,17 @@ def main():
     noise_layer = GaussianNoiseInput(std=GAUSSIAN_NOISE_STD_START)
     x = noise_layer(x)
 
-    # Conv block 0: 28x28 -> 28x28
-    c0 = L.Conv2D(32, 3, padding='same', activation='leaky_relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv28')(x)
-    c0_res = c0
-    c0 = L.Conv2D(32, 3, padding='same', activation=None, kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv28_second')(c0)
-    c0 = L.LayerNormalization(name='enc_ln28_2')(c0)
-    c0 = L.Add()([c0, c0_res])
-    c0 = L.Activation('leaky_relu')(c0)
+    # Conv block 0: 28x28 -> 28x28 (dilated / ASPP stem)
+    d1 = L.Conv2D(32, 3, padding='same', dilation_rate=1, activation='leaky_relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv28_d1')(x)
+    d2 = L.Conv2D(32, 3, padding='same', dilation_rate=2, activation='leaky_relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv28_d2')(x)
+    d4 = L.Conv2D(32, 3, padding='same', dilation_rate=4, activation='leaky_relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv28_d4')(x)
+    c0 = L.Concatenate(name='conv28_aspp_cat')([d1, d2, d4])
+    c0 = L.Conv2D(32, 1, padding='same', activation='leaky_relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv28_fuse')(c0)
     c0 = L.Add()([c0, cbam_block(c0, name_prefix='cbam28')])
 
     # Conv block 1: 28x28 -> 14x14
     c1 = L.SeparableConv2D(64, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv14_pre')(c0)
     c1 = L.MaxPooling2D(2)(c1)
-    c1_res = c1
-    c1 = L.SeparableConv2D(64, 3, padding='same', activation=None, kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv14_res1')(c1)
-    c1 = L.Add()([c1, c1_res])
-    c1 = L.Activation('relu')(c1)
-    c1_res2 = c1
-    c1 = L.SeparableConv2D(64, 3, padding='same', activation=None, kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv14_res2')(c1)
-    c1 = L.LayerNormalization(name='enc_ln14_2')(c1)
-    c1 = L.Add()([c1, c1_res2])
-    c1 = L.Activation('relu')(c1)
     c1 = L.SpatialDropout2D(SPATIAL_DROPOUT)(c1)
     c1 = L.Add()([c1, cbam_block(c1, name_prefix='cbam14')])
 
@@ -350,15 +340,12 @@ def main():
     c2 = L.MaxPooling2D(2)(c2)
     c2 = L.SpatialDropout2D(SPATIAL_DROPOUT)(c2)
     c2 = L.Add()([c2, cbam_block(c2, name_prefix='cbam7')])
+    c2 = L.LayerNormalization(name='enc_ln7_1')(c2)
 
     # Conv block 3: 7x7 → 7x7 (no pooling)
     c3 = L.SeparableConv2D(128, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv7_deep2')(c2)
     c3 = L.SpatialDropout2D(SPATIAL_DROPOUT)(c3)
-    c3 = L.LayerNormalization(name='enc_ln7_1')(c3)
-    c3_res = c3
-    c3 = L.SeparableConv2D(128, 3, padding='same', activation=None, kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv7_res1')(c3)
-    c3 = L.Add()([c3, c3_res])
-    c3 = L.Activation('relu')(c3)
+    c3 = L.LayerNormalization(name='enc_ln7_2')(c3)
 
     # Progressive pyramid fusion: c3 -> c2 -> c1 -> c0
     # Step 1: merge c3 + c2 (both 7x7, 128ch)
