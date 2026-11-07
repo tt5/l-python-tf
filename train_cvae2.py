@@ -57,9 +57,11 @@ AUGMENT = True
 RECON_LOSS_WEIGHT = 1.0
 PERCEPTUAL_WARMUP_EPOCHS = 5
 PERCEPTUAL_START_WEIGHT = 0.0
-PERCEPTUAL_PEAK_WEIGHT = 1
+#PERCEPTUAL_PEAK_WEIGHT = 1
+PERCEPTUAL_PEAK_WEIGHT = 0
 PERCEPTUAL_DECAY_EPOCHS = EPOCHS - PERCEPTUAL_WARMUP_EPOCHS
-PERCEPTUAL_END_WEIGHT = 0.1
+#PERCEPTUAL_END_WEIGHT = 0.1
+PERCEPTUAL_END_WEIGHT = 0.0
 PERCEPTUAL_EPS = 1e-8
 PERCEPTUAL_EXTRACTOR_PATH = Path(__file__).parent / "mnist2_model"
 TV_WARMUP_EPOCHS = 5
@@ -376,8 +378,8 @@ def build_encoder():
     se14 = tf.keras.layers.Dense(64, activation='sigmoid', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_se14_dense2')(se14)
     x14_main = tf.keras.layers.Multiply()([x14_main, se14])
 
-    x14_alt = tf.keras.layers.SeparableConv2D(64, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv14_pre')(x28)
-    x14_alt = tf.keras.layers.MaxPooling2D(2)(x14_alt)
+    x14_alt = tf.keras.layers.Conv2D(64, 3, strides=2, padding='same', activation='leaky_relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv14_down')(x28)
+    x14_alt = tf.keras.layers.LayerNormalization(name='enc_ln14_1')(x14_alt)
     x14_alt = tf.keras.layers.Add()([x14_alt, cbam_block(x14_alt, name_prefix='cbam14')])
     x14 = x14_alt
 
@@ -426,12 +428,12 @@ def build_encoder():
     se7 = tf.keras.layers.Dense(128, activation='sigmoid', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_se7_dense2')(se7)
     x7_main = tf.keras.layers.Multiply()([x7_main, se7])
 
-    x7_alt = tf.keras.layers.SeparableConv2D(128, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv7')(x14)
-    x7_alt = tf.keras.layers.MaxPooling2D(2)(x7_alt)
+    x7_alt = tf.keras.layers.Conv2D(128, 3, strides=2, padding='same', activation='leaky_relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv7_down')(x14)
+    x7_alt = tf.keras.layers.LayerNormalization(name='enc_ln7_1')(x7_alt)
     x7_alt = tf.keras.layers.Add()([x7_alt, cbam_block(x7_alt, name_prefix='cbam7')])
     x7_alt_shallow = x7_alt
     x7_alt = tf.keras.layers.SeparableConv2D(128, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv7_deep2')(x7_alt)
-    x7_alt = tf.keras.layers.LayerNormalization(name='enc_ln7_1')(x7_alt)
+    x7_alt = tf.keras.layers.LayerNormalization(name='enc_ln7_2')(x7_alt)
     x7_alt = tf.keras.layers.Add(name='enc_add7')([x7_alt_shallow, x7_alt])
     x7_alt = tf.keras.layers.Conv2D(128, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_fuse7')(x7_alt)
     x7_alt = tf.keras.layers.LayerNormalization(name='enc_fuse7_ln')(x7_alt)
@@ -811,9 +813,9 @@ def build_perceptual_extractor():
     base = tf.keras.models.load_model(str(PERCEPTUAL_EXTRACTOR_PATH), compile=False)
     base.trainable = False
 
-    conv28_layer = base.get_layer(name='conv28').output
-    fine_layer = base.get_layer(name='conv14_pre').output
-    coarse_layer = base.get_layer(name='conv7').output
+    conv28_layer = base.get_layer(name='conv28_fuse').output
+    fine_layer = base.get_layer(name='conv14_down').output
+    coarse_layer = base.get_layer(name='conv7_deep2').output
 
     extractor = tf.keras.Model(inputs=base.input, outputs=[conv28_layer, fine_layer, coarse_layer], name='perceptual_extractor')
     return extractor
@@ -946,16 +948,17 @@ def main():
         #'enc_fuse28',
         #'enc_fuse28_ln',
         # alt path conv / res blocks
-        'conv28',
-        'conv28_second',
-        'enc_ln28_2',
-        'conv14_pre',
-        'conv14_res1',
-        'conv14_res2',
-        'enc_ln14_2',
-        'conv7',
-        'conv7_deep2',
+        'conv28_d1',
+        'conv28_d2',
+        'conv28_d4',
+        'conv28_fuse',
+        'enc_ln28',
+        'conv14_down',
+        'enc_ln14_1',
+        'conv7_down',
         'enc_ln7_1',
+        'conv7_deep2',
+        'enc_ln7_2',
         'conv7_res1',
         # CBAM sublayers
         'cbam28_ca_dense1',

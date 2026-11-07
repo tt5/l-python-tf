@@ -327,18 +327,20 @@ def main():
     d4 = L.Conv2D(16, 3, padding='same', dilation_rate=4, activation='leaky_relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv28_d4')(x)
     c0 = L.Concatenate(name='conv28_aspp_cat')([d1, d2, d4])
     c0 = L.Conv2D(32, 1, padding='same', activation='leaky_relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv28_fuse')(c0)
+    c2 = L.LayerNormalization(name='enc_ln28_1')(c2)
     c0 = L.Add()([c0, cbam_block(c0, name_prefix='cbam28')])
 
     # Conv block 1: 28x28 -> 14x14
     c1 = L.Conv2D(64, 3, strides=2, padding='same', activation='leaky_relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv14_down')(c0)
     #c1 = L.SpatialDropout2D(SPATIAL_DROPOUT)(c1)
+    c2 = L.LayerNormalization(name='enc_ln14_1')(c2)
     c1 = L.Add()([c1, cbam_block(c1, name_prefix='cbam14')])
 
     # Conv block 2: 14x14 -> 7x7
     c2 = L.Conv2D(128, 3, strides=2, padding='same', activation='leaky_relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv7_down')(c1)
     c2 = L.SpatialDropout2D(SPATIAL_DROPOUT)(c2)
-    c2 = L.Add()([c2, cbam_block(c2, name_prefix='cbam7')])
     c2 = L.LayerNormalization(name='enc_ln7_1')(c2)
+    c2 = L.Add()([c2, cbam_block(c2, name_prefix='cbam7')])
 
     # Conv block 3: 7x7 → 7x7 (no pooling)
     c3 = L.SeparableConv2D(128, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv7_deep2')(c2)
