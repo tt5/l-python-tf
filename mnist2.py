@@ -37,7 +37,7 @@ except Exception:
             return super()._resource_apply_sparse(grad, var, indices, apply_state)
 
 DEFAULT_PBM_DIR = Path(__file__).resolve().parent / "../../telephonegame/data/pbm"
-TB_LOG_DIR = Path(__file__).resolve().parent / "logs" / "mnist2"
+TB_LOG_DIR = Path(__file__).resolve().parent / "logs" / "mnist2b"
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--data-dir", type=Path, default=DEFAULT_PBM_DIR, help="PBM data directory")
@@ -45,9 +45,9 @@ args, _ = parser.parse_known_args()
 PBM_DIR = args.data_dir
 TARGET_SIZE = 28
 LOW_CONF_THRESHOLD = 0.6
-EPOCHS = 110
-SPATIAL_DROPOUT = 0.1
-DENSE_DROPOUT = 0.3
+EPOCHS = 120
+SPATIAL_DROPOUT = 0.2
+DENSE_DROPOUT = 0.5
 L2_REG = 0.00001
 BATCH_SIZE = 1024
 BASE_LR = 0.0009
@@ -331,7 +331,7 @@ def main():
 
     # Conv block 1: 28x28 -> 14x14
     c1 = L.Conv2D(64, 3, strides=2, padding='same', activation='leaky_relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv14_down')(c0)
-    c1 = L.SpatialDropout2D(SPATIAL_DROPOUT)(c1)
+    #c1 = L.SpatialDropout2D(SPATIAL_DROPOUT)(c1)
     c1 = L.Add()([c1, cbam_block(c1, name_prefix='cbam14')])
 
     # Conv block 2: 14x14 -> 7x7
