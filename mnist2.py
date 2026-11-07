@@ -322,9 +322,9 @@ def main():
     x = noise_layer(x)
 
     # Conv block 0: 28x28 -> 28x28 (dilated / ASPP stem)
-    d1 = L.Conv2D(32, 3, padding='same', dilation_rate=1, activation='leaky_relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv28_d1')(x)
-    d2 = L.Conv2D(32, 3, padding='same', dilation_rate=2, activation='leaky_relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv28_d2')(x)
-    d4 = L.Conv2D(32, 3, padding='same', dilation_rate=4, activation='leaky_relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv28_d4')(x)
+    d1 = L.Conv2D(16, 3, padding='same', dilation_rate=1, activation='leaky_relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv28_d1')(x)
+    d2 = L.Conv2D(16, 3, padding='same', dilation_rate=2, activation='leaky_relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv28_d2')(x)
+    d4 = L.Conv2D(16, 3, padding='same', dilation_rate=4, activation='leaky_relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv28_d4')(x)
     c0 = L.Concatenate(name='conv28_aspp_cat')([d1, d2, d4])
     c0 = L.Conv2D(32, 1, padding='same', activation='leaky_relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv28_fuse')(c0)
     c0 = L.Add()([c0, cbam_block(c0, name_prefix='cbam28')])
