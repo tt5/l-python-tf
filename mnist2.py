@@ -37,7 +37,7 @@ except Exception:
             return super()._resource_apply_sparse(grad, var, indices, apply_state)
 
 DEFAULT_PBM_DIR = Path(__file__).resolve().parent / "../../telephonegame/data/pbm"
-TB_LOG_DIR = Path(__file__).resolve().parent / "logs" / "mnist2b"
+TB_LOG_DIR = Path(__file__).resolve().parent / "logs" / "mnist2"
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--data-dir", type=Path, default=DEFAULT_PBM_DIR, help="PBM data directory")
@@ -328,7 +328,6 @@ def main():
     c0 = L.LayerNormalization(name='enc_ln28_2')(c0)
     c0 = L.Add()([c0, c0_res])
     c0 = L.Activation('leaky_relu')(c0)
-    c0 = L.SpatialDropout2D(SPATIAL_DROPOUT)(c0)
     c0 = L.Add()([c0, cbam_block(c0, name_prefix='cbam28')])
 
     # Conv block 1: 28x28 -> 14x14
@@ -384,7 +383,7 @@ def main():
     # Single pooled feature vector
     x = L.GlobalAveragePooling2D(name='cls_gap')(up28)
 
-    d1 = L.Dense(256, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='cls_block1_dense')(x)
+    d1 = L.Dense(512, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='cls_block1_dense')(x)
     d1 = L.Dropout(DENSE_DROPOUT, name='cls_block1_drop')(d1)
     x = d1
     #p1 = L.Dense(256, kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='cls_block1_proj')(x)
