@@ -312,8 +312,12 @@ def build_encoder():
 
     # Alternative path: transferred mnist2 layers + CBAM
     x28_alt = image_input
-    x28_alt = tf.keras.layers.Conv2D(32, 3, padding='same', activation='leaky_relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv28')(x28_alt)
-    x28_alt = tf.keras.layers.Add()([x28_alt, cbam_block(x28_alt, name_prefix='cbam28')])
+
+    x28_alt_d1 = tf.keras.layers.Conv2D(16, 3, padding='same', dilation_rate=1, activation='leaky_relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv28_d1')(x28_alt)
+    x28_alt_d2 = tf.keras.layers.Conv2D(16, 3, padding='same', dilation_rate=2, activation='leaky_relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv28_d2')(x28_alt)
+    x28_alt_d4 = tf.keras.layers.Conv2D(16, 3, padding='same', dilation_rate=4, activation='leaky_relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv28_d4')(x28_alt)
+    x28_alt = tf.keras.layers.Concatenate(name='conv28_aspp_cat')([x28_alt_d1, x28_alt_d2, x28_alt_d4])
+    x28_alt = tf.keras.layers.Conv2D(32, 1, padding='same', activation='leaky_relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv28_fuse')(x28_alt)
 
     # Main path at 28x28
     x28_main = image_input

@@ -368,7 +368,7 @@ def main():
     # Single pooled feature vector
     x = L.GlobalAveragePooling2D(name='cls_gap')(up28)
 
-    d1 = L.Dense(512, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='cls_block1_dense')(x)
+    d1 = L.Dense(1024, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='cls_block1_dense')(x)
     d1 = L.Dropout(DENSE_DROPOUT, name='cls_block1_drop')(d1)
     x = d1
     #p1 = L.Dense(256, kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='cls_block1_proj')(x)
