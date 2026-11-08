@@ -658,6 +658,7 @@ class CVAE(tf.keras.Model):
         self.perceptual_conv28_loss_tracker = tf.keras.metrics.Mean(name="perceptual_conv28_loss")
         self.perceptual_conv14_loss_tracker = tf.keras.metrics.Mean(name="perceptual_conv14_loss")
         self.perceptual_conv7_loss_tracker = tf.keras.metrics.Mean(name="perceptual_conv7_loss")
+        self.tv_loss_tracker = tf.keras.metrics.Mean(name="tv_loss")
         # tf.Variable, not Python float. train_step is traced once into a
         # tf.function, so a Python float read there is baked in as a constant
         # and later callback writes never reach the graph. A variable is read
@@ -677,6 +678,7 @@ class CVAE(tf.keras.Model):
             self.perceptual_conv28_loss_tracker,
             self.perceptual_conv14_loss_tracker,
             self.perceptual_conv7_loss_tracker,
+            self.tv_loss_tracker,
         ]
 
     def train_step(self, data):
@@ -736,6 +738,7 @@ class CVAE(tf.keras.Model):
         self.perceptual_conv28_loss_tracker.update_state(perceptual_loss_conv28)
         self.perceptual_conv14_loss_tracker.update_state(perceptual_loss_conv14)
         self.perceptual_conv7_loss_tracker.update_state(perceptual_loss_conv7)
+        self.tv_loss_tracker.update_state(tv_loss)
 
         return {m.name: m.result() for m in self.metrics}
 
@@ -780,6 +783,7 @@ class CVAE(tf.keras.Model):
         self.perceptual_conv28_loss_tracker.update_state(perceptual_loss_conv28)
         self.perceptual_conv14_loss_tracker.update_state(perceptual_loss_conv14)
         self.perceptual_conv7_loss_tracker.update_state(perceptual_loss_conv7)
+        self.tv_loss_tracker.update_state(tv_loss)
 
         return {m.name: m.result() for m in self.metrics}
 
