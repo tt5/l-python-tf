@@ -69,7 +69,7 @@ TV_START_WEIGHT = 0.2
 TV_PEAK_WEIGHT = 0.2
 TV_DECAY_EPOCHS = EPOCHS - TV_WARMUP_EPOCHS
 TV_END_WEIGHT = 0.2
-LOG_NAME = "train_gen2"
+LOG_NAME = "train_gen2b"
 
 def load_pbm(path):
     """Load a P4 PBM file and return a 2D numpy array of 0/1 float32."""
@@ -315,9 +315,9 @@ def build_encoder():
     # Alternative path: transferred mnist2 layers + CBAM
     x28_alt = image_input
 
-    x28_alt_d1 = tf.keras.layers.Conv2D(16, 3, padding='same', dilation_rate=1, activation='leaky_relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv28_d1')(x28_alt)
-    x28_alt_d2 = tf.keras.layers.Conv2D(16, 3, padding='same', dilation_rate=2, activation='leaky_relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv28_d2')(x28_alt)
-    x28_alt_d4 = tf.keras.layers.Conv2D(16, 3, padding='same', dilation_rate=4, activation='leaky_relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv28_d4')(x28_alt)
+    x28_alt_d1 = tf.keras.layers.Conv2D(32, 3, padding='same', dilation_rate=1, activation='leaky_relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv28_d1')(x28_alt)
+    x28_alt_d2 = tf.keras.layers.Conv2D(32, 3, padding='same', dilation_rate=2, activation='leaky_relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv28_d2')(x28_alt)
+    x28_alt_d4 = tf.keras.layers.Conv2D(32, 3, padding='same', dilation_rate=4, activation='leaky_relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv28_d4')(x28_alt)
     x28_alt = tf.keras.layers.Concatenate(name='conv28_aspp_cat')([x28_alt_d1, x28_alt_d2, x28_alt_d4])
     x28_alt = tf.keras.layers.Conv2D(32, 1, padding='same', activation='leaky_relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv28_fuse')(x28_alt)
 
@@ -464,18 +464,19 @@ def build_encoder():
     x7 = tf.keras.layers.UpSampling2D(2, name='enc_up7_14')(x7)
     x14_proj = tf.keras.layers.Conv2D(128, 1, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_proj14')(x14)
     x7 = tf.keras.layers.Add()([x7, x14_proj])
-    x7 = tf.keras.layers.Conv2D(128, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_fuse14')(x7)
+    x7 = tf.keras.layers.Conv2D(64, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_fuse14')(x7)
     x7 = tf.keras.layers.LayerNormalization(name='enc_fuse14_ln')(x7)
 
     # 14x14 -> 28x28
     x7 = tf.keras.layers.UpSampling2D(2, name='enc_up14_28')(x7)
-    x28_proj = tf.keras.layers.Conv2D(128, 1, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_proj28')(x28)
+    x28_proj = tf.keras.layers.Conv2D(64, 1, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_proj28')(x28)
     x7 = tf.keras.layers.Add()([x7, x28_proj])
-    x7 = tf.keras.layers.Conv2D(128, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_fuse28')(x7)
+    x7 = tf.keras.layers.Conv2D(32, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_fuse28')(x7)
     x7 = tf.keras.layers.LayerNormalization(name='enc_fuse28_ln')(x7)
 
     # Pool to vector
-    x = tf.keras.layers.GlobalAveragePooling2D(name='enc_gap_fused')(x7)
+    x = tf.keras.layers.Conv2D(16, 1, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='cls_bottleneck')(x7)
+    x = tf.keras.layers.Flatten(name='cls_flatten')(x)
     x = tf.keras.layers.Dense(256, kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_main_proj')(x)
     x = tf.keras.layers.LayerNormalization(name='enc_main_ln')(x)
     x = tf.keras.layers.Dropout(DENSE_DROPOUT, name='enc_main_drop')(x)
