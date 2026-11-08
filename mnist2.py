@@ -37,7 +37,7 @@ except Exception:
             return super()._resource_apply_sparse(grad, var, indices, apply_state)
 
 DEFAULT_PBM_DIR = Path(__file__).resolve().parent / "../../telephonegame/data/pbm"
-TB_LOG_DIR = Path(__file__).resolve().parent / "logs" / "mnist2b"
+TB_LOG_DIR = Path(__file__).resolve().parent / "logs" / "mnist2"
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--data-dir", type=Path, default=DEFAULT_PBM_DIR, help="PBM data directory")
@@ -45,19 +45,19 @@ args, _ = parser.parse_known_args()
 PBM_DIR = args.data_dir
 TARGET_SIZE = 28
 LOW_CONF_THRESHOLD = 0.6
-EPOCHS = 120
-SPATIAL_DROPOUT = 0.2
-DENSE_DROPOUT = 0.5
-L2_REG = 0.00001
-BATCH_SIZE = 1024
-BASE_LR = 0.0009
-LR_START = 0.00002
-LR_WARMUP_EPOCHS = 12
-LR_END = 0.00005
+EPOCHS = 130
+SPATIAL_DROPOUT = 0.1
+DENSE_DROPOUT = 0.45
+L2_REG = 0.00002
+BATCH_SIZE = 512
+BASE_LR = 0.001
+LR_START = 0.00001
+LR_WARMUP_EPOCHS = 10
+LR_END = 0.0001
 AUGMENT = True  # On-the-fly augmentation: random rotate/transpose
-GAUSSIAN_NOISE_STD_START = 0.00002
+GAUSSIAN_NOISE_STD_START = 0.00003
 GAUSSIAN_NOISE_STD_END = 0.0
-GAUSSIAN_NOISE_DECAY_EPOCHS = EPOCHS // 4
+GAUSSIAN_NOISE_DECAY_EPOCHS = 2
 
 
 class GaussianNoiseInput(tf.keras.layers.Layer):
@@ -327,52 +327,56 @@ def main():
     d4 = L.Conv2D(16, 3, padding='same', dilation_rate=4, activation='leaky_relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv28_d4')(x)
     c0 = L.Concatenate(name='conv28_aspp_cat')([d1, d2, d4])
     c0 = L.Conv2D(32, 1, padding='same', activation='leaky_relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv28_fuse')(c0)
-    c2 = L.LayerNormalization(name='enc_ln28_1')(c2)
+    c0 = L.LayerNormalization(name='enc_ln28_1')(c0)
     c0 = L.Add()([c0, cbam_block(c0, name_prefix='cbam28')])
 
     # Conv block 1: 28x28 -> 14x14
     c1 = L.Conv2D(64, 3, strides=2, padding='same', activation='leaky_relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv14_down')(c0)
     #c1 = L.SpatialDropout2D(SPATIAL_DROPOUT)(c1)
-    c2 = L.LayerNormalization(name='enc_ln14_1')(c2)
+    c1 = L.LayerNormalization(name='enc_ln14_1')(c1)
     c1 = L.Add()([c1, cbam_block(c1, name_prefix='cbam14')])
 
     # Conv block 2: 14x14 -> 7x7
     c2 = L.Conv2D(128, 3, strides=2, padding='same', activation='leaky_relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv7_down')(c1)
     c2 = L.SpatialDropout2D(SPATIAL_DROPOUT)(c2)
     c2 = L.LayerNormalization(name='enc_ln7_1')(c2)
+    pre_c2 = c2
     c2 = L.Add()([c2, cbam_block(c2, name_prefix='cbam7')])
 
-    # Conv block 3: 7x7 → 7x7 (no pooling)
+    # Conv block 3: 7x7
     c3 = L.SeparableConv2D(128, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='conv7_deep2')(c2)
     c3 = L.SpatialDropout2D(SPATIAL_DROPOUT)(c3)
     c3 = L.LayerNormalization(name='enc_ln7_2')(c3)
 
     # Progressive pyramid fusion: c3 -> c2 -> c1 -> c0
     # Step 1: merge c3 + c2 (both 7x7, 128ch)
-    merged7 = L.Add(name='enc_add7')([c3, c2])
+    merged7 = L.Add(name='enc_add7')([c3, pre_c2])
     merged7 = L.Conv2D(128, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_fuse7')(merged7)
     merged7 = L.LayerNormalization(name='enc_fuse7_ln')(merged7)
 
     # Step 2: upsample to 14x14, project c1 to 128ch, fuse
-    up14 = L.UpSampling2D(2, name='enc_up7_14')(merged7)  # 14x14x128
+    up14 = L.UpSampling2D(2, name='enc_up7_14')(merged7)
     c1_proj = L.Conv2D(128, 1, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_proj14')(c1)
     up14 = L.Add()([up14, c1_proj])
-    up14 = L.Conv2D(128, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_fuse14')(up14)
+    up14 = L.Conv2D(64, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_fuse14')(up14)
     up14 = L.LayerNormalization(name='enc_fuse14_ln')(up14)
 
     # Step 3: upsample to 28x28, project c0 to 128ch, fuse
-    up28 = L.UpSampling2D(2, name='enc_up14_28')(up14)  # 28x28x128
-    c0_proj = L.Conv2D(128, 1, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_proj28')(c0)
+    up28 = L.UpSampling2D(2, name='enc_up14_28')(up14)
+    c0_proj = L.Conv2D(64, 1, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_proj28')(c0)
     up28 = L.Add()([up28, c0_proj])
-    up28 = L.Conv2D(128, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_fuse28')(up28)
+    up28 = L.Conv2D(32, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_fuse28')(up28)
     up28 = L.LayerNormalization(name='enc_fuse28_ln')(up28)
 
-    # Single pooled feature vector
-    x = L.GlobalAveragePooling2D(name='cls_gap')(up28)
+    # Flatten with channel bottleneck for spatial detail
+    x = L.Conv2D(16, 1, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='cls_bottleneck')(up28)
+    x = L.Flatten(name='cls_flatten')(x)
 
-    d1 = L.Dense(1024, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='cls_block1_dense')(x)
+    d1 = L.Dense(256, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='cls_block1_dense')(x)
     d1 = L.Dropout(DENSE_DROPOUT, name='cls_block1_drop')(d1)
-    x = d1
+    d2 = L.Dense(128, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='cls_block2_dense')(d1)
+    d2 = L.Dropout(DENSE_DROPOUT, name='cls_block2_drop')(d2)
+    x = d2
     #p1 = L.Dense(256, kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='cls_block1_proj')(x)
     #x = L.Add(name='cls_block1_add')([d1, p1])
     #x = L.LayerNormalization(name='cls_block1_ln')(x)
