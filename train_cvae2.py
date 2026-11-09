@@ -37,11 +37,11 @@ FREEZE_EPOCHS = 1
 NUM_CLASSES = None  # derived from data + low_conf
 TARGET_SIZE = 28
 LOW_CONF_THRESHOLD = 0.6
-KL_WARMUP_EPOCHS = 5
+KL_WARMUP_EPOCHS = 10
 KL_START_WEIGHT = 0.02
 KL_WEIGHT = 0.45
 KL_DECAY_EPOCHS = EPOCHS - KL_WARMUP_EPOCHS
-KL_WEIGHT_END = 0.1
+KL_WEIGHT_END = 0.2
 LEARNING_RATE = 0.0005
 LR_WARMUP_EPOCHS = 4
 LR_START = 0.0002
@@ -65,10 +65,10 @@ PERCEPTUAL_END_WEIGHT = 0.0
 PERCEPTUAL_EPS = 1e-8
 PERCEPTUAL_EXTRACTOR_PATH = Path(__file__).parent / "mnist2_model"
 TV_WARMUP_EPOCHS = 5
-TV_START_WEIGHT = 0.2
-TV_PEAK_WEIGHT = 0.2
+TV_START_WEIGHT = 0.0
+TV_PEAK_WEIGHT = 0.0
 TV_DECAY_EPOCHS = EPOCHS - TV_WARMUP_EPOCHS
-TV_END_WEIGHT = 0.2
+TV_END_WEIGHT = 0.0
 LOG_NAME = "train_gen2b"
 
 def load_pbm(path):
@@ -633,12 +633,12 @@ def build_generator():
     ])
     x = tf.keras.layers.SpatialDropout2D(GEN_SPATIAL_DROPOUT)(x)
 
-    # post-FiLM refinement at 28x28 before the final 1x1
-    x28_refine = tf.keras.layers.Conv2D(32, 3, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
-    x28_refine = tf.keras.layers.LayerNormalization(center=True, scale=True)(x28_refine)
-    x28_refine = tf.keras.layers.Conv2D(32, 3, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x28_refine)
-    x28_refine = tf.keras.layers.LayerNormalization(center=True, scale=True)(x28_refine)
-    x = tf.keras.layers.Add()([x, x28_refine])
+    ## post-FiLM refinement at 28x28 before the final 1x1
+    #x28_refine = tf.keras.layers.Conv2D(32, 3, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
+    #x28_refine = tf.keras.layers.LayerNormalization(center=True, scale=True)(x28_refine)
+    #x28_refine = tf.keras.layers.Conv2D(32, 3, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x28_refine)
+    #x28_refine = tf.keras.layers.LayerNormalization(center=True, scale=True)(x28_refine)
+    #x = tf.keras.layers.Add()([x, x28_refine])
 
     x = tf.keras.layers.Conv2D(1, 1, padding="same", activation="sigmoid")(x)
 
@@ -958,13 +958,12 @@ def main():
         'conv28_d4',
         'conv28_fuse',
         'enc_ln28',
-        'conv14_down',
-        'enc_ln14_1',
-        'conv7_down',
-        'enc_ln7_1',
-        'conv7_deep2',
-        'enc_ln7_2',
-        'conv7_res1',
+        #'conv14_down',
+        #'enc_ln14_1',
+        #'conv7_down',
+        #'enc_ln7_1',
+        #'conv7_deep2',
+        #'enc_ln7_2',
         # CBAM sublayers
         'cbam28_ca_dense1',
         'cbam28_ca_dense2',
