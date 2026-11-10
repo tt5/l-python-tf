@@ -30,14 +30,14 @@ MAX_SAMPLES_PER_CLASS = args.max_samples_per_class
 SAMPLES_PER_EPOCH_PER_CLASS = args.samples_per_epoch_per_class
 
 # ─── Hyperparameters ──────────────────────────────────────────────
-LATENT_DIM = 256
+LATENT_DIM = 512
 EPOCHS = 130
-BATCH_SIZE = 128
+BATCH_SIZE = 512
 FREEZE_EPOCHS = 1
 NUM_CLASSES = None  # derived from data + low_conf
 TARGET_SIZE = 28
 LOW_CONF_THRESHOLD = 0.6
-KL_WARMUP_EPOCHS = 10
+KL_WARMUP_EPOCHS = 20
 KL_START_WEIGHT = 0.02
 KL_WEIGHT = 0.45
 KL_DECAY_EPOCHS = EPOCHS - KL_WARMUP_EPOCHS
@@ -69,7 +69,7 @@ TV_START_WEIGHT = 0.0
 TV_PEAK_WEIGHT = 0.0
 TV_DECAY_EPOCHS = EPOCHS - TV_WARMUP_EPOCHS
 TV_END_WEIGHT = 0.0
-LOG_NAME = "train_gen2b"
+LOG_NAME = "train_gen2"
 
 def load_pbm(path):
     """Load a P4 PBM file and return a 2D numpy array of 0/1 float32."""
@@ -477,7 +477,7 @@ def build_encoder():
     # Pool to vector
     x = tf.keras.layers.Conv2D(16, 1, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='cls_bottleneck')(x7)
     x = tf.keras.layers.Flatten(name='cls_flatten')(x)
-    x = tf.keras.layers.Dense(256, kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_main_proj')(x)
+    x = tf.keras.layers.Dense(512, kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_main_proj')(x)
     x = tf.keras.layers.LayerNormalization(name='enc_main_ln')(x)
     x = tf.keras.layers.Dropout(DENSE_DROPOUT, name='enc_main_drop')(x)
 
@@ -486,9 +486,9 @@ def build_encoder():
     x_direct = tf.keras.layers.Dense(512, kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_direct_proj1')(x_direct)
     x_direct = tf.keras.layers.LayerNormalization(name='enc_direct_ln1')(x_direct)
     x_direct = tf.keras.layers.Dropout(DENSE_DROPOUT, name='enc_direct_drop')(x_direct)
-    x_direct = tf.keras.layers.Dense(256, kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_direct_proj')(x_direct)
-    x_direct = tf.keras.layers.LayerNormalization(name='enc_direct_ln2')(x_direct)
-    x_direct = tf.keras.layers.Dropout(DENSE_DROPOUT, name='enc_direct_drop2')(x_direct)
+    #x_direct = tf.keras.layers.Dense(256, kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_direct_proj')(x_direct)
+    #x_direct = tf.keras.layers.LayerNormalization(name='enc_direct_ln2')(x_direct)
+    #x_direct = tf.keras.layers.Dropout(DENSE_DROPOUT, name='enc_direct_drop2')(x_direct)
 
 
     # Fuse the two branches: the pooled pyramid (global, position-invariant)
@@ -499,7 +499,7 @@ def build_encoder():
     # Concatenation lets the Dense learn the combination instead of presuming
     # a spatial reweighting.
     x = tf.keras.layers.Concatenate(name="enc_fuse_concat")([x, x_direct])
-    x = tf.keras.layers.Dense(256, kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_fuse_proj")(x)
+    x = tf.keras.layers.Dense(512, kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="enc_fuse_proj")(x)
     x = tf.keras.layers.LayerNormalization(name="enc_ln_fused")(x)
     x = tf.keras.layers.Dropout(DENSE_DROPOUT, name="enc_drop_fused")(x)
 
@@ -514,16 +514,13 @@ def build_generator():
     latent_input = tf.keras.layers.Input(shape=(LATENT_DIM,), name="latent_input")
     label_input = tf.keras.layers.Input(shape=(NUM_CLASSES,), name="label_input")
 
-    # Class conditioning via direct label input at each scale
     label_emb = tf.keras.layers.Dense(64, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="gen_label_emb")(label_input)
     label_emb = tf.keras.layers.Dropout(GEN_DENSE_DROPOUT, name="gen_label_emb_drop")(label_emb)
 
-    # Direct expansion: latent -> 7x7 spatial features, no discard
     x = tf.keras.layers.Dense(7 * 7 * 128, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(latent_input)
     x = tf.keras.layers.Reshape((7, 7, 128))(x)
     x = tf.keras.layers.LayerNormalization()(x)
 
-    # 7x7 stem: stabilize expanded features before residual block
     x = tf.keras.layers.Conv2D(128, 3, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = tf.keras.layers.LayerNormalization()(x)
     x = tf.keras.layers.Activation("relu")(x)
@@ -556,9 +553,6 @@ def build_generator():
     x = tf.keras.layers.Multiply()([x, se7])
 
     # ── 14x14 block ──────────────────────────────────────────────
-    # Learned 2x expansion. kernel_size=4 is divisible by stride=2, which keeps
-    # the overlap uniform -- kernel_size=3 with stride 2 is the classic
-    # checkerboard configuration.
     x = tf.keras.layers.Conv2DTranspose(64, 4, strides=2, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = tf.keras.layers.LayerNormalization(center=True, scale=True)(x)
     x = tf.keras.layers.Activation("relu")(x)
@@ -574,7 +568,6 @@ def build_generator():
     x = tf.keras.layers.Add()([x, skip7_up])
     x = tf.keras.layers.LayerNormalization(center=True, scale=True)(x)
 
-    # 14x14 block: 128 -> 64 channels
     channels14 = 64
     x14_pre = x
     x = label_cross_attention(x, label_input, channels14, L2_REG, emb=label_emb)
@@ -632,13 +625,6 @@ def build_generator():
         tf.keras.layers.Conv2D(32, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x28_pre),
     ])
     x = tf.keras.layers.SpatialDropout2D(GEN_SPATIAL_DROPOUT)(x)
-
-    ## post-FiLM refinement at 28x28 before the final 1x1
-    #x28_refine = tf.keras.layers.Conv2D(32, 3, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
-    #x28_refine = tf.keras.layers.LayerNormalization(center=True, scale=True)(x28_refine)
-    #x28_refine = tf.keras.layers.Conv2D(32, 3, padding="same", activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x28_refine)
-    #x28_refine = tf.keras.layers.LayerNormalization(center=True, scale=True)(x28_refine)
-    #x = tf.keras.layers.Add()([x, x28_refine])
 
     x = tf.keras.layers.Conv2D(1, 1, padding="same", activation="sigmoid")(x)
 
@@ -958,8 +944,8 @@ def main():
         'conv28_d4',
         'conv28_fuse',
         'enc_ln28',
-        #'conv14_down',
-        #'enc_ln14_1',
+        'conv14_down',
+        'enc_ln14_1',
         #'conv7_down',
         #'enc_ln7_1',
         #'conv7_deep2',
@@ -975,11 +961,11 @@ def main():
         'cbam14_sa_conv1',
         'cbam14_sa_conv2',
         'cbam14_ln',
-        'cbam7_ca_dense1',
-        'cbam7_ca_dense2',
-        'cbam7_sa_conv1',
-        'cbam7_sa_conv2',
-        'cbam7_ln',
+        #'cbam7_ca_dense1',
+        #'cbam7_ca_dense2',
+        #'cbam7_sa_conv1',
+        #'cbam7_sa_conv2',
+        #'cbam7_ln',
     ]
     frozen = [name for name in copied_layer_names if name in fusion_frozen]
     for name in frozen:
