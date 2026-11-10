@@ -69,7 +69,7 @@ TV_START_WEIGHT = 0.0
 TV_PEAK_WEIGHT = 0.0
 TV_DECAY_EPOCHS = EPOCHS - TV_WARMUP_EPOCHS
 TV_END_WEIGHT = 0.0
-LOG_NAME = "train_gen2"
+LOG_NAME = "train_gen2b"
 
 def load_pbm(path):
     """Load a P4 PBM file and return a 2D numpy array of 0/1 float32."""
@@ -637,6 +637,11 @@ class CVAE(tf.keras.Model):
         self.encoder = encoder
         self.generator = generator
         self.perceptual_extractor = perceptual_extractor
+        # Learnable decoder variance (Rybkin et al. 2021)
+        self.log_sigma = self.add_weight(name="log_sigma", shape=(), initializer="zeros", trainable=True)
+        # Conditional prior p(z|y)
+        self.prior_mean = self.add_weight(name="prior_mean", shape=(NUM_CLASSES, LATENT_DIM), initializer="zeros", trainable=True)
+        self.prior_log_var = self.add_weight(name="prior_log_var", shape=(NUM_CLASSES, LATENT_DIM), initializer="zeros", trainable=True)
         self.total_loss_tracker = tf.keras.metrics.Mean(name="total_loss")
         self.recon_loss_tracker = tf.keras.metrics.Mean(name="recon_loss")
         self.kl_loss_tracker = tf.keras.metrics.Mean(name="kl_loss")
@@ -694,7 +699,10 @@ class CVAE(tf.keras.Model):
             tv_loss = tf.reduce_mean(
                 tf.image.total_variation(reconstruction)
             )
-            kl_per_dim = -0.5 * (1 + z_log_var - tf.square(z_mean) - tf.exp(z_log_var))
+            label_idx = tf.argmax(labels, axis=1)
+            prior_mu = tf.gather(self.prior_mean, label_idx)
+            prior_lv = tf.gather(self.prior_log_var, label_idx)
+            kl_per_dim = 0.5 * (prior_lv - z_log_var + (tf.exp(z_log_var) + tf.square(z_mean - prior_mu)) / tf.exp(prior_lv) - 1.0)
             kl_per_dim = tf.maximum(kl_per_dim, KL_FREE_BITS)
             kl_loss = tf.reduce_mean(tf.reduce_sum(kl_per_dim, axis=1))
 
@@ -733,16 +741,16 @@ class CVAE(tf.keras.Model):
         z_mean, z_log_var, z = self.encoder([images, labels])
         reconstruction = self.generator([z, labels])
 
-        recon_loss = tf.reduce_mean(
-            tf.reduce_sum(
-                tf.keras.losses.binary_crossentropy(images, reconstruction),
-                axis=(1, 2)
-            )
-        )
+        sigma = tf.exp(self.log_sigma)
+        mse = tf.reduce_mean(tf.square(images - reconstruction))
+        recon_loss = mse / (2.0 * sigma * sigma) + tf.math.log(sigma)
         tv_loss = tf.reduce_mean(
             tf.image.total_variation(reconstruction)
         )
-        kl_per_dim = -0.5 * (1 + z_log_var - tf.square(z_mean) - tf.exp(z_log_var))
+        label_idx = tf.argmax(labels, axis=1)
+        prior_mu = tf.gather(self.prior_mean, label_idx)
+        prior_lv = tf.gather(self.prior_log_var, label_idx)
+        kl_per_dim = 0.5 * (prior_lv - z_log_var + (tf.exp(z_log_var) + tf.square(z_mean - prior_mu)) / tf.exp(prior_lv) - 1.0)
         kl_per_dim = tf.maximum(kl_per_dim, KL_FREE_BITS)
         kl_loss = tf.reduce_mean(tf.reduce_sum(kl_per_dim, axis=1))
 
