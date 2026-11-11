@@ -677,6 +677,7 @@ class CVAE(tf.keras.Model):
     def train_step(self, data):
         images, labels = data
         if AUGMENT:
+            n = tf.shape(images)[0]
             candidates = tf.concat([
                 images,
                 tf.image.rot90(images, k=1),
@@ -684,10 +685,11 @@ class CVAE(tf.keras.Model):
                 tf.image.rot90(images, k=3),
                 tf.image.transpose(images),
             ], axis=0)
-            n = tf.shape(images)[0]
-            idx = tf.random.uniform((n,), minval=0, maxval=5, dtype=tf.int32)
-            images = tf.gather(candidates, idx)
-            labels = tf.gather(labels, idx)
+            # candidates is 5 stacked copies of the batch, so sample i's
+            # transform t lives at row t * n + i. Labels stay with their
+            # samples.
+            t = tf.random.uniform((n,), minval=0, maxval=5, dtype=tf.int32)
+            images = tf.gather(candidates, t * n + tf.range(n))
         with tf.GradientTape() as tape:
             z_mean, z_log_var, z = self.encoder([images, labels])
             reconstruction = self.generator([z, labels])
