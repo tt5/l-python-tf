@@ -55,6 +55,10 @@ GEN_SPATIAL_DROPOUT = 0.0
 GEN_DENSE_DROPOUT = 0.0
 AUGMENT = True
 RECON_LOSS_WEIGHT = 2.0
+# Gaussian decoder: recon term is (P/2) * log MSE, with P = pixels per image
+# and sigma^2 set analytically to the batch MSE.
+PIXELS_PER_IMAGE = TARGET_SIZE * TARGET_SIZE
+RECON_EPS = 1e-8
 PERCEPTUAL_WARMUP_EPOCHS = 5
 PERCEPTUAL_START_WEIGHT = 0.0
 #PERCEPTUAL_PEAK_WEIGHT = 1
@@ -69,7 +73,7 @@ TV_START_WEIGHT = 0.0
 TV_PEAK_WEIGHT = 0.0
 TV_DECAY_EPOCHS = EPOCHS - TV_WARMUP_EPOCHS
 TV_END_WEIGHT = 0.0
-LOG_NAME = "train_gen2"
+LOG_NAME = "train_gen2b"
 
 def load_pbm(path):
     """Load a P4 PBM file and return a 2D numpy array of 0/1 float32."""
@@ -519,7 +523,7 @@ def build_generator():
 
     x = tf.keras.layers.Dense(7 * 7 * 128, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(latent_input)
     x = tf.keras.layers.Reshape((7, 7, 128))(x)
-    x = tf.keras.layers.LayerNormalization()(x)
+    #x = tf.keras.layers.LayerNormalization()(x)
 
     x = tf.keras.layers.Conv2D(128, 3, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = tf.keras.layers.LayerNormalization()(x)
@@ -637,8 +641,6 @@ class CVAE(tf.keras.Model):
         self.encoder = encoder
         self.generator = generator
         self.perceptual_extractor = perceptual_extractor
-        # Learnable decoder variance (Rybkin et al. 2021)
-        self.log_sigma = self.add_weight(name="log_sigma", shape=(), initializer="zeros", trainable=True)
         # Conditional prior p(z|y)
         self.prior_mean = self.add_weight(name="prior_mean", shape=(NUM_CLASSES, LATENT_DIM), initializer="zeros", trainable=True)
         self.prior_log_var = self.add_weight(name="prior_log_var", shape=(NUM_CLASSES, LATENT_DIM), initializer="zeros", trainable=True)
@@ -690,12 +692,7 @@ class CVAE(tf.keras.Model):
             z_mean, z_log_var, z = self.encoder([images, labels])
             reconstruction = self.generator([z, labels])
 
-            recon_loss = tf.reduce_mean(
-                tf.reduce_sum(
-                    tf.keras.losses.binary_crossentropy(images, reconstruction),
-                    axis=(1, 2)
-                )
-            )
+            recon_loss = gaussian_recon_loss(images, reconstruction)
             tv_loss = tf.reduce_mean(
                 tf.image.total_variation(reconstruction)
             )
@@ -741,9 +738,7 @@ class CVAE(tf.keras.Model):
         z_mean, z_log_var, z = self.encoder([images, labels])
         reconstruction = self.generator([z, labels])
 
-        sigma = tf.exp(self.log_sigma)
-        mse = tf.reduce_mean(tf.square(images - reconstruction))
-        recon_loss = mse / (2.0 * sigma * sigma) + tf.math.log(sigma)
+        recon_loss = gaussian_recon_loss(images, reconstruction)
         tv_loss = tf.reduce_mean(
             tf.image.total_variation(reconstruction)
         )
@@ -787,6 +782,27 @@ class CVAE(tf.keras.Model):
         if noise is None:
             noise = tf.random.normal(shape=(1, LATENT_DIM))
         return self.generator([noise, label_oh])
+
+
+def gaussian_recon_loss(images, reconstruction):
+    """Gaussian decoder with analytically optimal variance.
+
+    For x|z,y ~ N(x_hat, sigma^2 I) the per-sample negative log likelihood is
+    ||x_hat - x||^2 / (2 sigma^2) + P log sigma + const. Maximising it with
+    respect to sigma gives sigma^2 = MSE, and substituting that optimum back
+    collapses the recon term to (P/2) * log MSE + const. So the loss is the
+    log of the batchwise MSE rather than the MSE itself: the 1/MSE gradient
+    scaling stops reconstruction being dominated by whichever batches are
+    currently easiest, which is the mechanism the paper reports the diversity
+    gain from.
+
+    sigma^2 is a batchwise scalar, so the MSE is reduced over both the batch
+    and the pixel axes. Gradients flow through it -- the substitution is an
+    algebraic identity up to a constant, so this is equivalent to treating
+    sigma^2 as the detached batch MSE.
+    """
+    mse = tf.reduce_mean(tf.square(images - reconstruction))
+    return 0.5 * PIXELS_PER_IMAGE * tf.math.log(mse + RECON_EPS)
 
 
 def perceptual_scale_mse(real, fake):
