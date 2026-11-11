@@ -19,7 +19,7 @@ import tensorflow as tf
 SCRIPT_DIR = Path(__file__).resolve().parent
 DEFAULT_PBM_DIR = SCRIPT_DIR.parent.parent / "telephonegame" / "data" / "pbm_test"
 DEFAULT_CLS_MODEL = SCRIPT_DIR / "mnist2_model.onnx"
-DEFAULT_GEN_MODEL = SCRIPT_DIR / "cvae2_generator.onnx"
+DEFAULT_GEN_MODEL = SCRIPT_DIR / "cvae2_prior_generator.onnx"
 
 TARGET_SIZE = 28
 LOW_CONF_THRESHOLD = 0.6

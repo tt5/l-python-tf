@@ -10,6 +10,7 @@ Usage:
 Saves:
     - cvae2_encoder.onnx
     - cvae2_generator.onnx
+    - cvae2_prior_generator.onnx
 """
 
 import argparse
@@ -38,10 +39,10 @@ NUM_CLASSES = None  # derived from data + low_conf
 TARGET_SIZE = 28
 LOW_CONF_THRESHOLD = 0.6
 KL_WARMUP_EPOCHS = 40
-KL_START_WEIGHT = 0.03
-KL_WEIGHT = 0.4
+KL_START_WEIGHT = 0.05
+KL_WEIGHT = 1.0
 KL_DECAY_EPOCHS = EPOCHS - KL_WARMUP_EPOCHS
-KL_WEIGHT_END = 0.3
+KL_WEIGHT_END = 0.5
 LEARNING_RATE = 0.0005
 LR_WARMUP_EPOCHS = 5
 LR_START = 0.0002
@@ -54,7 +55,7 @@ DENSE_DROPOUT = 0.0
 GEN_SPATIAL_DROPOUT = 0.0
 GEN_DENSE_DROPOUT = 0.0
 AUGMENT = True
-RECON_LOSS_WEIGHT = 2.0
+RECON_LOSS_WEIGHT = 0.1
 # Gaussian decoder: recon term is (P/2) * log MSE, with P = pixels per image
 # and sigma^2 set analytically to the batch MSE.
 PIXELS_PER_IMAGE = TARGET_SIZE * TARGET_SIZE
@@ -1066,6 +1067,46 @@ def main():
     gen_path = save_dir / "cvae2_generator.onnx"
     onnx.save(onnx_model, str(gen_path))
     print(f"\nGenerator saved to {gen_path}")
+
+    # Prior-conditioned generator: (noise, label) -> image
+    # Folds the learned conditional prior p(z|y) into the graph so a consumer
+    # can feed standard-normal noise instead of needing prior_mean /
+    # prior_log_var as a sidecar. The label input is one-hot, so a bias-free
+    # Dense over it is exactly a per-row gather of the prior table. The
+    # generator's own label input is reused, so the graph has one label input.
+    prior_mu_table = cvae.prior_mean.numpy().astype(np.float32)
+    prior_std_table = np.exp(0.5 * cvae.prior_log_var.numpy()).astype(np.float32)
+
+    noise_input = tf.keras.layers.Input(shape=(LATENT_DIM,), name="noise_input")
+    prior_label_input = generator.get_layer("label_input").output
+    prior_mu_layer = tf.keras.layers.Dense(
+        LATENT_DIM, use_bias=False, trainable=False, name="prior_mu_table"
+    )
+    prior_std_layer = tf.keras.layers.Dense(
+        LATENT_DIM, use_bias=False, trainable=False, name="prior_std_table"
+    )
+    prior_mu = prior_mu_layer(prior_label_input)
+    prior_std = prior_std_layer(prior_label_input)
+    prior_mu_layer.set_weights([prior_mu_table])
+    prior_std_layer.set_weights([prior_std_table])
+    prior_z = tf.keras.layers.Add(name="prior_z")([
+        prior_mu,
+        tf.keras.layers.Multiply(name="prior_scale")([prior_std, noise_input]),
+    ])
+    prior_generator = tf.keras.Model(
+        [noise_input, prior_label_input],
+        generator([prior_z, prior_label_input]),
+        name="prior_generator",
+    )
+
+    prior_spec = (
+        tf.TensorSpec((None, LATENT_DIM), tf.float32, name="noise_input"),
+        tf.TensorSpec((None, NUM_CLASSES), tf.float32, name="label_input"),
+    )
+    onnx_model, _ = tf2onnx.convert.from_keras(prior_generator, input_signature=prior_spec)
+    prior_path = save_dir / "cvae2_prior_generator.onnx"
+    onnx.save(onnx_model, str(prior_path))
+    print(f"Prior generator saved to {prior_path}")
 
     # Encoder: (image, label) -> z_mean, z_log_var, z
     enc_spec = (

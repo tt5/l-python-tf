@@ -274,3 +274,15 @@ python train_cvae.py --samples-per-epoch-per-class 20000
   Class 2: 70.5% correctly classified (705/1000), avg confidence: 97.8%
   Class 3: 89.8% correctly classified (898/1000), avg confidence: 99.6%
   Class 4: 28.6% correctly classified (286/1000), avg confidence: 91.9%
+
+  Class 0: 8.6% correctly classified (86/1000), avg confidence: 95.2%
+  Class 1: 2.4% correctly classified (24/1000), avg confidence: 79.2%
+  Class 2: 5.8% correctly classified (58/1000), avg confidence: 94.5%
+  Class 3: 100.0% correctly classified (1000/1000), avg confidence: 100.0%
+  Class 4: 42.2% correctly classified (422/1000), avg confidence: 90.1%
+
+  Class 0: 46.4% correctly classified (464/1000), avg confidence: 97.6%
+  Class 1: 17.1% correctly classified (171/1000), avg confidence: 93.3%
+  Class 2: 25.2% correctly classified (252/1000), avg confidence: 94.9%
+  Class 3: 100.0% correctly classified (1000/1000), avg confidence: 100.0%
+  Class 4: 29.0% correctly classified (290/1000), avg confidence: 87.8%
