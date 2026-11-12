@@ -24,7 +24,7 @@ save_dir = Path(__file__).resolve().parent
 
 # ─── Load models ────────────────────────────────────────────────────
 print("Loading generator (ONNX)...")
-gen_session = ort.InferenceSession(str(save_dir / "cvae_generator.onnx"))
+gen_session = ort.InferenceSession(str(save_dir / "cvae_prior_generator.onnx"))
 gen_input_names = [inp.name for inp in gen_session.get_inputs()]
 gen_output_name = gen_session.get_outputs()[0].name
 

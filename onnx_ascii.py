@@ -29,7 +29,7 @@ gen_images = gen_session.run([gen_output_name], gen_inputs)[0][0, :, :, 0]
 if gen_images.max() > 1.0:
     gen_images = gen_images / 255.0
 
-img = (gen_images > 0.5).astype(np.float32)
+#img = (gen_images > 0.5).astype(np.float32)
 img = gen_images
 
 chars = " .:-=+*#%@"

@@ -23,8 +23,8 @@ from utils.mnist_loader import load_data
 
 # ─── Config ────────────────────────────────────────────────────────
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "synthetic" / "data"
-LATENT_DIM = 512
-EPOCHS = 270
+LATENT_DIM = 576
+EPOCHS = 280
 BATCH_SIZE = 512
 NUM_CLASSES = 4
 
@@ -44,12 +44,12 @@ MAX_SAMPLES_PER_CLASS = args.max_samples_per_class
 SAMPLES_PER_EPOCH_PER_CLASS = args.samples_per_epoch_per_class
 PBM_DIR = Path(args.pbm_dir) if args.pbm_dir else None
 
-LR = 0.0025
+LR = 0.002
 LR_WARMUP_START = 0.00005
-LR_WARMUP_EPOCHS = 10
+LR_WARMUP_EPOCHS = 60
 LR_DECAY_EPOCHS = EPOCHS - LR_WARMUP_EPOCHS
 LR_END = 0.00005
-INFO_NCE_WEIGHT = 0.01
+INFO_NCE_WEIGHT = 0.011
 TEMPERATURE = 0.9
 PIXEL_POS_WEIGHT = 1.0
 DROPOUT = 0.3
@@ -57,7 +57,7 @@ SPATIAL_DROPOUT = 0.0
 L2_REG = 0.00002
 # VAE-GAN hybrid: adversarial term + discriminator LR
 ADV_LAMBDA = 1.0 # warmup from 0
-ADV_WARMUP_EPOCHS = 100
+ADV_WARMUP_EPOCHS = 110
 DISC_LR = 0.0002
 DISC_LR_END = 0.00005
 D_BATCH_INTERVAL = 1  # update discriminator every N batches (G updates every batch)
@@ -69,8 +69,8 @@ KL_WEIGHT_TARGET = 0.0037
 KL_WARMUP_EPOCHS = 80
 KL_DECAY_EPOCHS = 120
 
-PIXEL_WEIGHT_START = 1.3 * 50
-PIXEL_WEIGHT_TARGET = 0.7 * 50
+PIXEL_WEIGHT_START = 1.3 * 40
+PIXEL_WEIGHT_TARGET = 1.0 * 40
 PIXEL_DECAY_EPOCHS = EPOCHS - 1
 
 #PERC_WARMUP_START = 0.01
@@ -81,7 +81,7 @@ PERC_WEIGHT_START = 0.0
 PERC_WEIGHT_TARGET = 0.0
 PERC_WARMUP_EPOCHS = 70
 PERC_DECAY_EPOCHS = EPOCHS - PERC_WARMUP_EPOCHS - 1
-LOG_NAME = 'logs/gen1'
+LOG_NAME = 'logs/gen1n'
 
 def weighted_pixel_loss(target, reconstruction):
     """Foreground-weighted pixel BCE, as a PER-PIXEL MEAN.
@@ -983,5 +983,21 @@ if os.path.exists(best_generator_path):
 
 # ─── Save ─────────────────────────────────────────────────────────
 save_dir = os.path.dirname(os.path.abspath(__file__))
+
+# Encoder (image, label) -> z_mean, z_log_var, z. Load it back with
+# custom_objects={"CollabModulation": CollabModulation}.
+encoder.save(os.path.join(save_dir, "cvae_encoder.h5"))
+print(f"\nEncoder saved to {save_dir}/cvae_encoder.h5")
+
+# Learned conditional prior p(z|y) -- the distribution z should be sampled
+# from at generation time. Without it the generator can only be driven with
+# N(0, I), which is not the distribution it was trained on.
+np.savez(
+    os.path.join(save_dir, "cvae_prior.npz"),
+    prior_mean=vae.prior_mean.numpy().astype(np.float32),
+    prior_log_var=vae.prior_log_var.numpy().astype(np.float32),
+)
+print(f"Prior saved to {save_dir}/cvae_prior.npz")
+
 generator.save(os.path.join(save_dir, "cvae_generator.h5"))
 print(f"\nGenerator saved to {save_dir}/cvae_generator.h5")
