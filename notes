@@ -231,6 +231,11 @@ python train_cvae.py --samples-per-epoch-per-class 20000
 ─── Synthetic class evaluation (generated on-the-fly) ───
   Class 3: 92.0% correctly classified (920/1000)
 
+  Class 0: 98.9% correctly classified (989/1000), avg confidence: 99.9%
+  Class 1: 54.6% correctly classified (546/1000), avg confidence: 95.5%
+  Class 2: 89.0% correctly classified (890/1000), avg confidence: 99.3%
+  Class 3: 100.0% correctly classified (1000/1000), avg confidence: 100.0%
+
 --- 2
 
   Class 0: 395/400 = 98.8%
