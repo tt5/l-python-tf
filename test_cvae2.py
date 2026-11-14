@@ -177,6 +177,7 @@ def main():
         noise = np.random.normal(size=(SAMPLES_PER_CLASS, LATENT_DIM)).astype(np.float32)
 
         gen_inputs = {
+            # changed "noise" to to "latent"
             latent_input_name: noise,
             label_input_name: label_oh,
         }

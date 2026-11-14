@@ -32,17 +32,17 @@ SAMPLES_PER_EPOCH_PER_CLASS = args.samples_per_epoch_per_class
 
 # ─── Hyperparameters ──────────────────────────────────────────────
 LATENT_DIM = 512
-EPOCHS = 140
+EPOCHS = 150
 BATCH_SIZE = 512
 FREEZE_EPOCHS = 1
 NUM_CLASSES = None  # derived from data + low_conf
 TARGET_SIZE = 28
 LOW_CONF_THRESHOLD = 0.6
-KL_WARMUP_EPOCHS = 40
+KL_WARMUP_EPOCHS = 50
 KL_START_WEIGHT = 0.05
 KL_WEIGHT = 1.0
 KL_DECAY_EPOCHS = EPOCHS - KL_WARMUP_EPOCHS
-KL_WEIGHT_END = 0.5
+KL_WEIGHT_END = 0.6
 LEARNING_RATE = 0.0005
 LR_WARMUP_EPOCHS = 5
 LR_START = 0.0002
@@ -55,7 +55,7 @@ DENSE_DROPOUT = 0.0
 GEN_SPATIAL_DROPOUT = 0.0
 GEN_DENSE_DROPOUT = 0.0
 AUGMENT = True
-RECON_LOSS_WEIGHT = 0.1
+RECON_LOSS_WEIGHT = 0.05
 # Gaussian decoder: recon term is (P/2) * log MSE, with P = pixels per image
 # and sigma^2 set analytically to the batch MSE.
 PIXELS_PER_IMAGE = TARGET_SIZE * TARGET_SIZE
@@ -74,7 +74,7 @@ TV_START_WEIGHT = 0.0
 TV_PEAK_WEIGHT = 0.0
 TV_DECAY_EPOCHS = EPOCHS - TV_WARMUP_EPOCHS
 TV_END_WEIGHT = 0.0
-LOG_NAME = "train_gen2b"
+LOG_NAME = "train_gen2"
 
 def load_pbm(path):
     """Load a P4 PBM file and return a 2D numpy array of 0/1 float32."""
@@ -971,8 +971,8 @@ def main():
         'conv28_d4',
         'conv28_fuse',
         'enc_ln28',
-        'conv14_down',
-        'enc_ln14_1',
+        #'conv14_down',
+        #'enc_ln14_1',
         #'conv7_down',
         #'enc_ln7_1',
         #'conv7_deep2',
@@ -983,11 +983,11 @@ def main():
         'cbam28_sa_conv1',
         'cbam28_sa_conv2',
         'cbam28_ln',
-        'cbam14_ca_dense1',
-        'cbam14_ca_dense2',
-        'cbam14_sa_conv1',
-        'cbam14_sa_conv2',
-        'cbam14_ln',
+        #'cbam14_ca_dense1',
+        #'cbam14_ca_dense2',
+        #'cbam14_sa_conv1',
+        #'cbam14_sa_conv2',
+        #'cbam14_ln',
         #'cbam7_ca_dense1',
         #'cbam7_ca_dense2',
         #'cbam7_sa_conv1',
@@ -1068,7 +1068,7 @@ def main():
     onnx.save(onnx_model, str(gen_path))
     print(f"\nGenerator saved to {gen_path}")
 
-    # Prior-conditioned generator: (noise, label) -> image
+    # Prior-conditioned generator: (standard-normal noise, label) -> image
     # Folds the learned conditional prior p(z|y) into the graph so a consumer
     # can feed standard-normal noise instead of needing prior_mean /
     # prior_log_var as a sidecar. The label input is one-hot, so a bias-free
@@ -1077,7 +1077,10 @@ def main():
     prior_mu_table = cvae.prior_mean.numpy().astype(np.float32)
     prior_std_table = np.exp(0.5 * cvae.prior_log_var.numpy()).astype(np.float32)
 
-    noise_input = tf.keras.layers.Input(shape=(LATENT_DIM,), name="noise_input")
+    # Named "latent_input" rather than "noise_input" so this graph is a drop-in
+    # for cvae2_generator.onnx: consumers pick the latent input by that name and
+    # feed N(0, I), which is correct now that the prior transform is internal.
+    noise_input = tf.keras.layers.Input(shape=(LATENT_DIM,), name="latent_input")
     prior_label_input = generator.get_layer("label_input").output
     prior_mu_layer = tf.keras.layers.Dense(
         LATENT_DIM, use_bias=False, trainable=False, name="prior_mu_table"
@@ -1100,7 +1103,7 @@ def main():
     )
 
     prior_spec = (
-        tf.TensorSpec((None, LATENT_DIM), tf.float32, name="noise_input"),
+        tf.TensorSpec((None, LATENT_DIM), tf.float32, name="latent_input"),
         tf.TensorSpec((None, NUM_CLASSES), tf.float32, name="label_input"),
     )
     onnx_model, _ = tf2onnx.convert.from_keras(prior_generator, input_signature=prior_spec)
