@@ -32,7 +32,7 @@ SAMPLES_PER_EPOCH_PER_CLASS = args.samples_per_epoch_per_class
 
 # ─── Hyperparameters ──────────────────────────────────────────────
 LATENT_DIM = 512
-EPOCHS = 130
+EPOCHS = 140
 BATCH_SIZE = 512
 FREEZE_EPOCHS = 1
 NUM_CLASSES = None  # derived from data + low_conf

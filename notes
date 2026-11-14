@@ -238,23 +238,14 @@ python train_cvae.py --samples-per-epoch-per-class 20000
 
 --- 2
 
-  Class 0: 395/400 = 98.8%
-  Class 1: 376/400 = 94.0%
-  Class 2: 389/400 = 97.2%
-  Class 3: 400/400 = 100.0%
-  Class low_conf: 305/400 = 76.2%
+─── Per-class accuracy ───
+  Class 0: 196/200 = 98.0%
+  Class 1: 179/200 = 89.5%
+  Class 2: 185/200 = 92.5%
+  Class 3: 200/200 = 100.0%
+  Class low_conf: 178/200 = 89.0%
 
-  Class 0: 26.3% correctly classified (263/1000), avg confidence: 94.2%
-  Class 1: 16.9% correctly classified (169/1000), avg confidence: 87.0%
-  Class 2: 75.9% correctly classified (759/1000), avg confidence: 94.6%
-  Class 3: 73.8% correctly classified (738/1000), avg confidence: 94.8%
-  Class 4: 27.7% correctly classified (277/1000), avg confidence: 85.6%
-
-  Class 0: 395/400 = 98.8%
-  Class 1: 367/400 = 91.8%
-  Class 2: 361/400 = 90.2%
-  Class 3: 399/400 = 99.8%
-  Class low_conf: 350/400 = 87.5%
+Overall accuracy: 938/1000 = 93.8%
 
   Class 0: 35.3% correctly classified (353/1000), avg confidence: 96.6%
   Class 1: 16.8% correctly classified (168/1000), avg confidence: 95.4%
@@ -291,3 +282,9 @@ python train_cvae.py --samples-per-epoch-per-class 20000
   Class 2: 25.2% correctly classified (252/1000), avg confidence: 94.9%
   Class 3: 100.0% correctly classified (1000/1000), avg confidence: 100.0%
   Class 4: 29.0% correctly classified (290/1000), avg confidence: 87.8%
+
+  Class 0: 51.0% correctly classified (510/1000), avg confidence: 96.6%
+  Class 1: 15.3% correctly classified (153/1000), avg confidence: 84.8%
+  Class 2: 26.3% correctly classified (263/1000), avg confidence: 89.7%
+  Class 3: 100.0% correctly classified (1000/1000), avg confidence: 100.0%
+  Class 4: 28.9% correctly classified (289/1000), avg confidence: 78.4%

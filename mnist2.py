@@ -54,7 +54,8 @@ BASE_LR = 0.001
 LR_START = 0.00001
 LR_WARMUP_EPOCHS = 10
 LR_END = 0.0001
-AUGMENT = True  # On-the-fly augmentation: random rotate/transpose
+AUGMENT = True  # On-the-fly augmentation: random rotate/transpose/translate
+TRANSLATE_MAX = 1  # max integer-pixel shift per axis; 0 disables
 GAUSSIAN_NOISE_STD_START = 0.00003
 GAUSSIAN_NOISE_STD_END = 0.0
 GAUSSIAN_NOISE_DECAY_EPOCHS = 2
@@ -104,8 +105,21 @@ class LinearDecayNoise(tf.keras.callbacks.Callback):
                 tf.summary.scalar('noise_std', std, step=epoch)
 
 
+def translate(grid, dy, dx):
+    """Integer-pixel translation, zero-filled.
+
+    No interpolation, so a binary image stays binary -- unlike a sub-pixel
+    shift, which would put grey values into the training targets.
+    """
+    h, w = grid.shape
+    padded = np.pad(grid, TRANSLATE_MAX, mode="constant", constant_values=0.0)
+    y0 = TRANSLATE_MAX - dy
+    x0 = TRANSLATE_MAX - dx
+    return padded[y0:y0 + h, x0:x0 + w]
+
+
 class AugmentGenerator(tf.keras.utils.Sequence):
-    """On-the-fly augmentation: random rotate 90° and transpose."""
+    """On-the-fly augmentation: random rotate 90°, transpose, translate."""
     def __init__(self, images, labels, batch_size, augment=True):
         self.images = images
         self.labels = labels
@@ -128,6 +142,10 @@ class AugmentGenerator(tf.keras.utils.Sequence):
                     images[i] = np.rot90(images[i], k=k)
                 if np.random.random() < 0.5:
                     images[i] = np.transpose(images[i])
+                dy = np.random.randint(-TRANSLATE_MAX, TRANSLATE_MAX + 1)
+                dx = np.random.randint(-TRANSLATE_MAX, TRANSLATE_MAX + 1)
+                if dy != 0 or dx != 0:
+                    images[i] = translate(images[i], dy, dx)
 
         return images, labels
 
