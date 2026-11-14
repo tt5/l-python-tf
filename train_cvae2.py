@@ -33,13 +33,13 @@ SAMPLES_PER_EPOCH_PER_CLASS = args.samples_per_epoch_per_class
 # ─── Hyperparameters ──────────────────────────────────────────────
 LATENT_DIM = 512
 EPOCHS = 150
-BATCH_SIZE = 512
+BATCH_SIZE = 768
 FREEZE_EPOCHS = 1
 NUM_CLASSES = None  # derived from data + low_conf
 TARGET_SIZE = 28
 LOW_CONF_THRESHOLD = 0.6
-KL_WARMUP_EPOCHS = 50
-KL_START_WEIGHT = 0.05
+KL_WARMUP_EPOCHS = 60
+KL_START_WEIGHT = 0.5
 KL_WEIGHT = 1.0
 KL_DECAY_EPOCHS = EPOCHS - KL_WARMUP_EPOCHS
 KL_WEIGHT_END = 0.6
@@ -55,7 +55,7 @@ DENSE_DROPOUT = 0.0
 GEN_SPATIAL_DROPOUT = 0.0
 GEN_DENSE_DROPOUT = 0.0
 AUGMENT = True
-RECON_LOSS_WEIGHT = 0.05
+RECON_LOSS_WEIGHT = 0.07
 # Gaussian decoder: recon term is (P/2) * log MSE, with P = pixels per image
 # and sigma^2 set analytically to the batch MSE.
 PIXELS_PER_IMAGE = TARGET_SIZE * TARGET_SIZE
@@ -530,6 +530,8 @@ def build_generator():
     x = tf.keras.layers.LayerNormalization()(x)
     x = tf.keras.layers.Activation("relu")(x)
 
+    skip7 = x
+
     # Class conditioning at 7x7
     x7_pre = x
     x = label_cross_attention(x, label_input, 128, L2_REG, emb=label_emb)
@@ -537,9 +539,6 @@ def build_generator():
         x,
         tf.keras.layers.Conv2D(128, 1, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x7_pre),
     ])
-
-    # ── 7x7 block ───────────────────────────────────────────────
-    skip7 = x
 
     # 7x7 block: 128 channels
     x7_res = x
@@ -573,6 +572,8 @@ def build_generator():
     x = tf.keras.layers.Add()([x, skip7_up])
     x = tf.keras.layers.LayerNormalization(center=True, scale=True)(x)
 
+    skip14 = x
+
     channels14 = 64
     x14_pre = x
     x = label_cross_attention(x, label_input, channels14, L2_REG, emb=label_emb)
@@ -591,7 +592,6 @@ def build_generator():
         tf.keras.layers.Conv2D(64, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x14_pre),
     ])
 
-    skip14 = x
     x = tf.keras.layers.SpatialDropout2D(GEN_SPATIAL_DROPOUT)(x)
 
     # ── 28x28 block ──────────────────────────────────────────────

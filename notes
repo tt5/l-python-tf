@@ -288,3 +288,9 @@ Overall accuracy: 938/1000 = 93.8%
   Class 2: 26.3% correctly classified (263/1000), avg confidence: 89.7%
   Class 3: 100.0% correctly classified (1000/1000), avg confidence: 100.0%
   Class 4: 28.9% correctly classified (289/1000), avg confidence: 78.4%
+
+  Class 0: 100.0% correctly classified (1000/1000), avg confidence: 100.0%
+  Class 1: 69.3% correctly classified (693/1000), avg confidence: 95.4%
+  Class 2: 40.9% correctly classified (409/1000), avg confidence: 96.4%
+  Class 3: 32.9% correctly classified (329/1000), avg confidence: 96.9%
+  Class 4: 33.1% correctly classified (331/1000), avg confidence: 78.1%
