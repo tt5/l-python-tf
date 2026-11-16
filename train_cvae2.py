@@ -54,6 +54,8 @@ SPATIAL_DROPOUT = 0.0
 DENSE_DROPOUT = 0.0
 GEN_SPATIAL_DROPOUT = 0.0
 GEN_DENSE_DROPOUT = 0.0
+# Generator seed: latent -> (7, 7, SEED_CHANNELS) -> 1x1 conv up to 7x7x128.
+SEED_CHANNELS = max(16, LATENT_DIM // 16)
 AUGMENT = True
 RECON_LOSS_WEIGHT = 0.07
 # Gaussian decoder: recon term is (P/2) * log MSE, with P = pixels per image
@@ -74,7 +76,7 @@ TV_START_WEIGHT = 0.0
 TV_PEAK_WEIGHT = 0.0
 TV_DECAY_EPOCHS = EPOCHS - TV_WARMUP_EPOCHS
 TV_END_WEIGHT = 0.0
-LOG_NAME = "train_gen2"
+LOG_NAME = "train_gen2b"
 
 def load_pbm(path):
     """Load a P4 PBM file and return a 2D numpy array of 0/1 float32."""
@@ -522,9 +524,21 @@ def build_generator():
     label_emb = tf.keras.layers.Dense(64, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name="gen_label_emb")(label_input)
     label_emb = tf.keras.layers.Dropout(GEN_DENSE_DROPOUT, name="gen_label_emb_drop")(label_emb)
 
-    x = tf.keras.layers.Dense(7 * 7 * 128, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(latent_input)
-    x = tf.keras.layers.Reshape((7, 7, 128))(x)
-    #x = tf.keras.layers.LayerNormalization()(x)
+    # Latent -> compact spatial seed, then a 1x1 conv expands the channels.
+    # A direct Dense(7*7*128) spends ~3.2M parameters producing 49 independent
+    # 128-d outputs; routing through SEED_CHANNELS shares the expansion across
+    # positions and cuts that to ~0.8M.
+    x = tf.keras.layers.Dense(
+        7 * 7 * SEED_CHANNELS, activation="relu",
+        kernel_regularizer=tf.keras.regularizers.l2(L2_REG),
+    )(latent_input)
+    x = tf.keras.layers.Reshape((7, 7, SEED_CHANNELS))(x)
+
+    x = tf.keras.layers.Conv2D(
+        128, 1, padding="same", kernel_regularizer=tf.keras.regularizers.l2(L2_REG),
+    )(x)
+    x = tf.keras.layers.LayerNormalization()(x)
+    x = tf.keras.layers.Activation("relu")(x)
 
     x = tf.keras.layers.Conv2D(128, 3, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG))(x)
     x = tf.keras.layers.LayerNormalization()(x)
