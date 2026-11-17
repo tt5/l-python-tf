@@ -32,7 +32,7 @@ SAMPLES_PER_EPOCH_PER_CLASS = args.samples_per_epoch_per_class
 
 # ─── Hyperparameters ──────────────────────────────────────────────
 LATENT_DIM = 512
-EPOCHS = 170
+EPOCHS = 200
 BATCH_SIZE = 768
 FREEZE_EPOCHS = 1
 NUM_CLASSES = None  # derived from data + low_conf
@@ -55,17 +55,16 @@ DENSE_DROPOUT = 0.0
 GEN_SPATIAL_DROPOUT = 0.0
 GEN_DENSE_DROPOUT = 0.0
 # Generator seed: latent -> (7, 7, SEED_CHANNELS) -> 1x1 conv up to 7x7x128.
-SEED_CHANNELS = max(16, LATENT_DIM // 16)
+SEED_CHANNELS = max(16, LATENT_DIM // 8)
 AUGMENT = True
 RECON_LOSS_WEIGHT = 0.07
 # Gaussian decoder: recon term is (P/2) * log MSE, with P = pixels per image
 # and sigma^2 set analytically to the batch MSE.
 PIXELS_PER_IMAGE = TARGET_SIZE * TARGET_SIZE
 RECON_EPS = 1e-8
-PERCEPTUAL_WARMUP_EPOCHS = 5
+PERCEPTUAL_WARMUP_EPOCHS = EPOCHS // 4
 PERCEPTUAL_START_WEIGHT = 0.0
-#PERCEPTUAL_PEAK_WEIGHT = 1
-PERCEPTUAL_PEAK_WEIGHT = 0
+PERCEPTUAL_PEAK_WEIGHT = 1
 PERCEPTUAL_DECAY_EPOCHS = EPOCHS - PERCEPTUAL_WARMUP_EPOCHS
 #PERCEPTUAL_END_WEIGHT = 0.1
 PERCEPTUAL_END_WEIGHT = 0.0
@@ -484,7 +483,7 @@ def build_encoder():
     # Pool to vector
     x = tf.keras.layers.Conv2D(16, 1, padding='same', kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='cls_bottleneck')(x7)
     x = tf.keras.layers.Flatten(name='cls_flatten')(x)
-    x = tf.keras.layers.Dense(512, kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_main_proj')(x)
+    x = tf.keras.layers.Dense(1024, kernel_regularizer=tf.keras.regularizers.l2(L2_REG), name='enc_main_proj')(x)
     x = tf.keras.layers.LayerNormalization(name='enc_main_ln')(x)
     x = tf.keras.layers.Dropout(DENSE_DROPOUT, name='enc_main_drop')(x)
 
