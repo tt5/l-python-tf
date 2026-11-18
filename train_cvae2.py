@@ -42,13 +42,13 @@ KL_WARMUP_EPOCHS = 80
 KL_START_WEIGHT = 0.6
 KL_WEIGHT = 1.0
 KL_DECAY_EPOCHS = EPOCHS - KL_WARMUP_EPOCHS
-KL_WEIGHT_END = 0.76
+KL_WEIGHT_END = 0.77
 LEARNING_RATE = 0.0005
 LR_WARMUP_EPOCHS = 5
 LR_START = 0.0002
 LR_DECAY_EPOCHS = EPOCHS - LR_WARMUP_EPOCHS
 LR_END = 0.00001
-L2_REG = 0.000008
+L2_REG = 0.000009
 KL_FREE_BITS = 0.0
 SPATIAL_DROPOUT = 0.0
 DENSE_DROPOUT = 0.0
@@ -57,7 +57,7 @@ GEN_DENSE_DROPOUT = 0.0
 # Generator seed: latent -> (7, 7, SEED_CHANNELS) -> 1x1 conv up to 7x7x128.
 SEED_CHANNELS = max(16, LATENT_DIM // 8)
 AUGMENT = True
-RECON_LOSS_WEIGHT = 0.072
+RECON_LOSS_WEIGHT = 0.073
 # Gaussian decoder: recon term is (P/2) * log MSE, with P = pixels per image
 # and sigma^2 set analytically to the batch MSE.
 PIXELS_PER_IMAGE = TARGET_SIZE * TARGET_SIZE
@@ -71,10 +71,10 @@ PERCEPTUAL_EPS = 1e-8
 PERCEPTUAL_EXTRACTOR_PATH = Path(__file__).parent / "mnist2_model"
 TV_WARMUP_EPOCHS = 5
 TV_START_WEIGHT = 0.0
-TV_PEAK_WEIGHT = 0.011
+TV_PEAK_WEIGHT = 0.02
 TV_DECAY_EPOCHS = EPOCHS - TV_WARMUP_EPOCHS
-TV_END_WEIGHT = 0.011
-LOG_NAME = "train_gen2"
+TV_END_WEIGHT = 0.02
+LOG_NAME = "train_gen2b"
 
 def load_pbm(path):
     """Load a P4 PBM file and return a 2D numpy array of 0/1 float32."""
