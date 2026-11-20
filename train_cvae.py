@@ -26,7 +26,7 @@ DATA_DIR = Path(__file__).resolve().parent.parent.parent / "synthetic" / "data"
 LATENT_DIM = 576
 EPOCHS = 280
 BATCH_SIZE = 512
-NUM_CLASSES = 4
+NUM_CLASSES = 5
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--num-classes", type=int, default=NUM_CLASSES)
@@ -81,7 +81,7 @@ PERC_WEIGHT_START = 0.0
 PERC_WEIGHT_TARGET = 0.0
 PERC_WARMUP_EPOCHS = 70
 PERC_DECAY_EPOCHS = EPOCHS - PERC_WARMUP_EPOCHS - 1
-LOG_NAME = 'logs/gen1n'
+LOG_NAME = 'logs/gen1'
 
 def weighted_pixel_loss(target, reconstruction):
     """Foreground-weighted pixel BCE, as a PER-PIXEL MEAN.

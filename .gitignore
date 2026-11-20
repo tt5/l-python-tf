@@ -8,7 +8,7 @@ mnist_model_probe
 **/*.png
 data
 __pycache__
-cvae_generator_savedmodel
+*_savedmodel
 logs
 **/*.npy
 **/*.onnx

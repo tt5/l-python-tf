@@ -44,197 +44,19 @@ gradient accumulation
 
 1:
 
-  Class 0: 84.3% correctly classified (843/1000), avg confidence: 99.4%
-  Class 1: 55.4% correctly classified (554/1000), avg confidence: 96.0%
-  Class 2: 90.6% correctly classified (906/1000), avg confidence: 99.0%
+python mnist.py --samples-per-epoch-per-class 10000
+python train_cvae.py --samples-per-epoch-per-class 4000
+  Class 0: 98.5% correctly classified (985/1000), avg confidence: 100.0%
+  Class 1: 67.6% correctly classified (676/1000), avg confidence: 96.7%
+  Class 2: 72.9% correctly classified (729/1000), avg confidence: 95.0%
   Class 3: 100.0% correctly classified (1000/1000), avg confidence: 100.0%
-  Class 4: 100.0% correctly classified (1000/1000), avg confidence: 100.0%
+  Class 4: 62.4% correctly classified (624/1000), avg confidence: 93.6%
 
 ─── Real data classification (from synthetic project) ───
   Class 0: 100.0% correctly classified (1000/1000)
-  Class 1: 98.5% correctly classified (985/1000)
-  Class 2: 96.8% correctly classified (968/1000)
-  Class 3: 99.7% correctly classified (997/1000)
-
-─── Synthetic class evaluation (generated on-the-fly) ───
-  Class 4: 100.0% correctly classified (1000/1000)
-
-1, veagan:
-
-  Class 0: 56.9% correctly classified (569/1000), avg confidence: 98.3%
-  Class 1: 30.5% correctly classified (305/1000), avg confidence: 93.6%
-  Class 2: 89.8% correctly classified (898/1000), avg confidence: 98.6%
-  Class 3: 94.0% correctly classified (940/1000), avg confidence: 99.6%
-  Class 4: 93.3% correctly classified (933/1000), avg confidence: 99.8%
-
-─── Real data classification (from synthetic project) ───
-  Class 0: 100.0% correctly classified (1000/1000)
-  Class 1: 98.5% correctly classified (985/1000)
-  Class 2: 96.8% correctly classified (968/1000)
-  Class 3: 99.7% correctly classified (997/1000)
-
-─── Synthetic class evaluation (generated on-the-fly) ───
-  Class 4: 100.0% correctly classified (1000/1000)
-
-python train_cvae.py --samples-per-epoch-per-class 12000
-
-  Class 0: 99.9% correctly classified (999/1000), avg confidence: 100.0%
-  Class 1: 51.2% correctly classified (512/1000), avg confidence: 95.7%
-  Class 2: 92.7% correctly classified (927/1000), avg confidence: 99.2%
-  Class 3: 88.4% correctly classified (884/1000), avg confidence: 99.4%
-  Class 4: 100.0% correctly classified (1000/1000), avg confidence: 100.0%
-
-─── Real data classification (from synthetic project) ───
-  Class 0: 100.0% correctly classified (1000/1000)
-  Class 1: 98.5% correctly classified (985/1000)
-  Class 2: 96.8% correctly classified (968/1000)
-  Class 3: 99.7% correctly classified (997/1000)
-
-python train_cvae.py --samples-per-epoch-per-class 10000
-
-  Class 0: 50.7% correctly classified (507/1000), avg confidence: 98.0%
-  Class 1: 36.1% correctly classified (361/1000), avg confidence: 96.8%
-  Class 2: 81.6% correctly classified (816/1000), avg confidence: 98.0%
-  Class 3: 97.7% correctly classified (977/1000), avg confidence: 99.9%
-  Class 4: 100.0% correctly classified (1000/1000), avg confidence: 100.0%
-
-─── Real data classification (from synthetic project) ───
-  Class 0: 100.0% correctly classified (1000/1000)
-  Class 1: 98.5% correctly classified (985/1000)
-  Class 2: 96.8% correctly classified (968/1000)
-  Class 3: 99.7% correctly classified (997/1000)
-
-─── Synthetic class evaluation (generated on-the-fly) ───
-  Class 4: 100.0% correctly classified (1000/1000)
-
-  Class 0: 0.5% correctly classified (5/1000), avg confidence: 100.0%
-  Class 1: 0.6% correctly classified (6/1000), avg confidence: 89.1%
-  Class 2: 0.9% correctly classified (9/1000), avg confidence: 89.7%
-  Class 3: 99.9% correctly classified (999/1000), avg confidence: 100.0%
-  Class 4: 99.9% correctly classified (999/1000), avg confidence: 100.0%
-
-python train_cvae.py --samples-per-epoch-per-class 8000
-  Class 0: 80.5% correctly classified (805/1000), avg confidence: 99.3%
-  Class 1: 8.7% correctly classified (87/1000), avg confidence: 91.2%
-  Class 2: 8.0% correctly classified (80/1000), avg confidence: 92.7%
-  Class 3: 58.3% correctly classified (583/1000), avg confidence: 98.7%
-
-  Class 0: 72.8% correctly classified (728/1000), avg confidence: 99.3%
-  Class 1: 20.9% correctly classified (209/1000), avg confidence: 95.8%
-  Class 2: 5.3% correctly classified (53/1000), avg confidence: 86.2%
-  Class 3: 31.0% correctly classified (310/1000), avg confidence: 96.9%
-
-python train_cvae.py --samples-per-epoch-per-class 20000
-  Class 0: 73.6% correctly classified (736/1000), avg confidence: 99.1%
-  Class 1: 30.7% correctly classified (307/1000), avg confidence: 94.8%
-  Class 2: 23.5% correctly classified (235/1000), avg confidence: 90.6%
-  Class 3: 66.3% correctly classified (663/1000), avg confidence: 98.0%
-
-python train_cvae.py --samples-per-epoch-per-class 20000
-  Class 0: 87.1% correctly classified (871/1000), avg confidence: 99.6%
-  Class 1: 43.0% correctly classified (430/1000), avg confidence: 95.1%
-  Class 2: 65.2% correctly classified (652/1000), avg confidence: 96.5%
-  Class 3: 89.7% correctly classified (897/1000), avg confidence: 99.5%
-
-python train_cvae.py --samples-per-epoch-per-class 20000
-  Class 0: 69.5% correctly classified (695/1000), avg confidence: 98.9%
-  Class 1: 34.3% correctly classified (343/1000), avg confidence: 93.8%
-  Class 2: 68.9% correctly classified (689/1000), avg confidence: 96.4%
-  Class 3: 84.9% correctly classified (849/1000), avg confidence: 98.6%
-
-python train_cvae.py --samples-per-epoch-per-class 20000
-  Class 0: 83.3% correctly classified (833/1000), avg confidence: 99.3%
-  Class 1: 45.6% correctly classified (456/1000), avg confidence: 95.7%
-  Class 2: 87.0% correctly classified (870/1000), avg confidence: 98.4%
-  Class 3: 95.7% correctly classified (957/1000), avg confidence: 99.8%
-
-python train_cvae.py --samples-per-epoch-per-class 20000
-  Class 0: 92.0% correctly classified (920/1000), avg confidence: 99.8%
-  Class 1: 56.8% correctly classified (568/1000), avg confidence: 97.0%
-  Class 2: 83.2% correctly classified (832/1000), avg confidence: 97.1%
-  Class 3: 97.2% correctly classified (972/1000), avg confidence: 99.8%
-
-python train_cvae.py --samples-per-epoch-per-class 20000
-  Class 0: 97.1% correctly classified (971/1000), avg confidence: 99.9%
-  Class 1: 63.9% correctly classified (639/1000), avg confidence: 96.8%
-  Class 2: 85.6% correctly classified (856/1000), avg confidence: 97.5%
-  Class 3: 98.8% correctly classified (988/1000), avg confidence: 99.9%
-
-  Class 0: 91.5% correctly classified (915/1000), avg confidence: 99.4%
-  Class 1: 60.1% correctly classified (601/1000), avg confidence: 96.3%
-  Class 2: 91.1% correctly classified (911/1000), avg confidence: 98.5%
-  Class 3: 99.7% correctly classified (997/1000), avg confidence: 100.0%
-
-  Class 0: 98.2% correctly classified (982/1000), avg confidence: 99.8%
-  Class 1: 43.5% correctly classified (435/1000), avg confidence: 94.2%
-  Class 2: 88.5% correctly classified (885/1000), avg confidence: 99.0%
-  Class 3: 99.8% correctly classified (998/1000), avg confidence: 100.0%
-
-  Class 0: 98.6% correctly classified (986/1000), avg confidence: 99.9%
-  Class 1: 48.4% correctly classified (484/1000), avg confidence: 94.3%
-  Class 2: 90.1% correctly classified (901/1000), avg confidence: 99.5%
-  Class 3: 100.0% correctly classified (1000/1000), avg confidence: 100.0%
-
-  Class 0: 99.9% correctly classified (999/1000), avg confidence: 100.0%
-  Class 1: 59.5% correctly classified (595/1000), avg confidence: 95.8%
-  Class 2: 92.6% correctly classified (926/1000), avg confidence: 99.5%
-  Class 3: 100.0% correctly classified (1000/1000), avg confidence: 100.0%
-
-  Class 0: 99.4% correctly classified (994/1000), avg confidence: 100.0%
-  Class 1: 57.2% correctly classified (572/1000), avg confidence: 95.4%
-  Class 2: 91.9% correctly classified (919/1000), avg confidence: 99.0%
-  Class 3: 100.0% correctly classified (1000/1000), avg confidence: 100.0%
-
-10000
-  Class 0: 98.6% correctly classified (986/1000), avg confidence: 99.9%
-  Class 1: 49.0% correctly classified (490/1000), avg confidence: 93.7%
-  Class 2: 89.6% correctly classified (896/1000), avg confidence: 99.1%
-  Class 3: 100.0% correctly classified (1000/1000), avg confidence: 100.0%
-
-2000
-  Class 0: 88.2% correctly classified (882/1000), avg confidence: 99.6%
-  Class 1: 50.4% correctly classified (504/1000), avg confidence: 95.3%
-  Class 2: 89.3% correctly classified (893/1000), avg confidence: 98.8%
-  Class 3: 100.0% correctly classified (1000/1000), avg confidence: 100.0%
-
-4000
-  Class 0: 90.4% correctly classified (904/1000), avg confidence: 99.8%
-  Class 1: 23.5% correctly classified (235/1000), avg confidence: 91.4%
-  Class 2: 80.9% correctly classified (809/1000), avg confidence: 99.5%
-  Class 3: 100.0% correctly classified (1000/1000), avg confidence: 100.0%
-
-  Class 0: 95.7% correctly classified (957/1000), avg confidence: 99.9%
-  Class 1: 49.2% correctly classified (492/1000), avg confidence: 94.7%
-  Class 2: 83.2% correctly classified (832/1000), avg confidence: 99.5%
-  Class 3: 100.0% correctly classified (1000/1000), avg confidence: 100.0%
-
-  Class 0: 97.4% correctly classified (974/1000), avg confidence: 99.8%
-  Class 1: 46.6% correctly classified (466/1000), avg confidence: 94.4%
-  Class 2: 83.6% correctly classified (836/1000), avg confidence: 99.2%
-  Class 3: 100.0% correctly classified (1000/1000), avg confidence: 100.0%
-
-  Class 0: 71.0% correctly classified (710/1000), avg confidence: 99.4%
-  Class 1: 28.8% correctly classified (288/1000), avg confidence: 93.6%
-  Class 2: 65.7% correctly classified (657/1000), avg confidence: 98.2%
-  Class 3: 69.8% correctly classified (698/1000), avg confidence: 100.0%
-
-  Class 0: 98.0% correctly classified (980/1000), avg confidence: 99.9%
-  Class 1: 43.4% correctly classified (434/1000), avg confidence: 93.7%
-  Class 2: 83.0% correctly classified (830/1000), avg confidence: 99.6%
-  Class 3: 100.0% correctly classified (1000/1000), avg confidence: 100.0%
-
-─── Real data classification (from synthetic project) ───
-  Class 0: 100.0% correctly classified (1000/1000)
-  Class 1: 98.9% correctly classified (989/1000)
-  Class 2: 99.1% correctly classified (991/1000)
-
-─── Synthetic class evaluation (generated on-the-fly) ───
-  Class 3: 92.0% correctly classified (920/1000)
-
-  Class 0: 98.9% correctly classified (989/1000), avg confidence: 99.9%
-  Class 1: 54.6% correctly classified (546/1000), avg confidence: 95.5%
-  Class 2: 89.0% correctly classified (890/1000), avg confidence: 99.3%
-  Class 3: 100.0% correctly classified (1000/1000), avg confidence: 100.0%
+  Class 1: 96.1% correctly classified (961/1000)
+  Class 2: 79.2% correctly classified (792/1000)
+  Class 3: 100.0% correctly classified (1000/1000)
 
 --- 2
 
@@ -342,3 +164,10 @@ Overall accuracy: 938/1000 = 93.8%
   Class 2: 36.5% correctly classified (365/1000), avg confidence: 96.5%
   Class 3: 28.6% correctly classified (286/1000), avg confidence: 96.4%
   Class 4: 36.2% correctly classified (362/1000), avg confidence: 79.5%
+
+cvae3 with stage 2 data
+  Class digit_0: 86.1% correct (4304/5000), avg confidence: 97.1%
+  Class digit_1: 31.7% correct (1586/5000), avg confidence: 84.6%
+  Class digit_2: 21.1% correct (1055/5000), avg confidence: 79.7%
+  Class digit_3: 96.1% correct (4803/5000), avg confidence: 99.6%
+  Class low_conf: 28.4% correct (1419/5000), avg confidence: 74.8%

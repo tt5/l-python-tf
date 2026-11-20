@@ -37,7 +37,7 @@ except Exception:
             return super()._resource_apply_sparse(grad, var, indices, apply_state=apply_state)
 
 DEFAULT_PBM_DIR = Path(__file__).resolve().parent / "../../telephonegame/data2/pbm"
-TB_LOG_DIR = Path(__file__).resolve().parent / "logs" / "mnist3b"
+TB_LOG_DIR = Path(__file__).resolve().parent / "logs" / "mnist3n"
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--data-dir", type=Path, default=DEFAULT_PBM_DIR, help="PBM data directory")
@@ -311,20 +311,20 @@ def main():
     x = L.Multiply()([x, sax])
     # 14x14 -> 7x7 with residual skip
     out_14 = x
-    x = L.Conv2D(64, 3, strides=2, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(1e-5), name='conv7_base')(x)
-    skip_14_to_7 = L.Conv2D(64, 1, strides=2, padding='same', kernel_regularizer=tf.keras.regularizers.l2(1e-5))(out_14)
+    x = L.Conv2D(128, 3, strides=2, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(1e-5), name='conv7_base')(x)
+    skip_14_to_7 = L.Conv2D(128, 1, strides=2, padding='same', kernel_regularizer=tf.keras.regularizers.l2(1e-5))(out_14)
     x = L.LayerNormalization()(x)
     x = L.Add()([x, skip_14_to_7])
     x = L.SpatialDropout2D(SPATIAL_DROPOUT)(x)
-    x = _cbam(x, 64)
+    x = _cbam(x, 128)
     seb = L.GlobalAveragePooling2D()(x)
-    seb = L.Dense(64 // 16, activation="relu")(seb)
-    seb = L.Dense(64, activation="sigmoid")(seb)
-    seb = L.Reshape((1, 1, 64))(seb)
+    seb = L.Dense(128 // 16, activation="relu")(seb)
+    seb = L.Dense(128, activation="sigmoid")(seb)
+    seb = L.Reshape((1, 1, 128))(seb)
     x = L.Multiply()([x, seb])
-    x = L.Conv2D(64, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(1e-5), name='conv7_deep1')(x)
+    x = L.Conv2D(128, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(1e-5), name='conv7_deep1')(x)
     x = L.LayerNormalization()(x)
-    x = L.Conv2D(64, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(1e-5), name='conv7_deep2')(x)
+    x = L.Conv2D(128, 3, padding='same', activation='relu', kernel_regularizer=tf.keras.regularizers.l2(1e-5), name='conv7_deep2')(x)
     x = L.LayerNormalization()(x)
     x = L.SpatialDropout2D(SPATIAL_DROPOUT)(x)
     # Pooled conv output at 14x14 and 7x7 for multi-scale feature extraction

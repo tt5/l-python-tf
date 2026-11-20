@@ -20,7 +20,7 @@ np.set_printoptions(threshold=sys.maxsize)
 np.set_printoptions(linewidth=np.inf)
 
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "synthetic" / "data"
-NUM_CLASSES = 4
+NUM_CLASSES = 5
 EPOCHS = 40
 BATCH_SIZE = 128
 BASE_LR = 0.00005
