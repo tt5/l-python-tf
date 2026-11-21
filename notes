@@ -185,3 +185,10 @@ cvae3 with stage 2 data
   Class 3: 26.7% correctly classified (267/1000), avg confidence: 91.0%
   Class 4: 82.2% correctly classified (822/1000), avg confidence: 95.3%
   Class 5: 43.5% correctly classified (435/1000), avg confidence: 71.2%
+
+  Class 0: 98.5% correctly classified (985/1000), avg confidence: 99.8%
+  Class 1: 56.6% correctly classified (566/1000), avg confidence: 91.0%
+  Class 2: 55.2% correctly classified (552/1000), avg confidence: 93.3%
+  Class 3: 54.0% correctly classified (540/1000), avg confidence: 94.8%
+  Class 4: 81.2% correctly classified (812/1000), avg confidence: 94.4%
+  Class 5: 40.6% correctly classified (406/1000), avg confidence: 72.2%

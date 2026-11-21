@@ -32,7 +32,7 @@ SAMPLES_PER_EPOCH_PER_CLASS = args.samples_per_epoch_per_class
 
 # ─── Hyperparameters ──────────────────────────────────────────────
 LATENT_DIM = 512
-EPOCHS = 220
+EPOCHS = 240
 BATCH_SIZE = 768
 FREEZE_EPOCHS = 1
 NUM_CLASSES = None  # derived from data + low_conf
@@ -42,7 +42,7 @@ KL_WARMUP_EPOCHS = 80
 KL_START_WEIGHT = 0.6
 KL_WEIGHT = 1.0
 KL_DECAY_EPOCHS = EPOCHS - KL_WARMUP_EPOCHS
-KL_WEIGHT_END = 0.77
+KL_WEIGHT_END = 0.78
 LEARNING_RATE = 0.0005
 LR_WARMUP_EPOCHS = 5
 LR_START = 0.0002
@@ -69,12 +69,12 @@ PERCEPTUAL_DECAY_EPOCHS = EPOCHS - PERCEPTUAL_WARMUP_EPOCHS
 PERCEPTUAL_END_WEIGHT = 1.0
 PERCEPTUAL_EPS = 1e-8
 PERCEPTUAL_EXTRACTOR_PATH = Path(__file__).parent / "mnist2_model"
-TV_WARMUP_EPOCHS = 5
+TV_WARMUP_EPOCHS = 100
 TV_START_WEIGHT = 0.0
-TV_PEAK_WEIGHT = 0.02
+TV_PEAK_WEIGHT = 0.03
 TV_DECAY_EPOCHS = EPOCHS - TV_WARMUP_EPOCHS
 TV_END_WEIGHT = 0.02
-LOG_NAME = "train_gen2"
+LOG_NAME = "train_gen2b"
 
 def load_pbm(path):
     """Load a P4 PBM file and return a 2D numpy array of 0/1 float32."""
