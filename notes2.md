@@ -20,3 +20,7 @@ train_cvae.py, train_cvae2.py, train_cvae3.py
 interference:
 
 mnist_model.onnx, mnist2_model.onnx, mnist3_model.onnx
+
+# Links
+
+https://github.com/K-H-Ismail/Dilated-Convolution-with-Learnable-Spacings-PyTorch

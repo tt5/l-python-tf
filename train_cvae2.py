@@ -32,7 +32,7 @@ SAMPLES_PER_EPOCH_PER_CLASS = args.samples_per_epoch_per_class
 
 # ─── Hyperparameters ──────────────────────────────────────────────
 LATENT_DIM = 512
-EPOCHS = 200
+EPOCHS = 220
 BATCH_SIZE = 768
 FREEZE_EPOCHS = 1
 NUM_CLASSES = None  # derived from data + low_conf
@@ -57,7 +57,7 @@ GEN_DENSE_DROPOUT = 0.0
 # Generator seed: latent -> (7, 7, SEED_CHANNELS) -> 1x1 conv up to 7x7x128.
 SEED_CHANNELS = max(16, LATENT_DIM // 8)
 AUGMENT = True
-RECON_LOSS_WEIGHT = 0.074
+RECON_LOSS_WEIGHT = 0.075
 # Gaussian decoder: recon term is (P/2) * log MSE, with P = pixels per image
 # and sigma^2 set analytically to the batch MSE.
 PIXELS_PER_IMAGE = TARGET_SIZE * TARGET_SIZE
