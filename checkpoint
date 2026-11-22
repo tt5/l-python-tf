@@ -1,2 +1,0 @@
-model_checkpoint_path: "best_recon.weights"
-all_model_checkpoint_paths: "best_recon.weights"

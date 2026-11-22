@@ -15,3 +15,4 @@ logs
 best_model.weights*
 best_recon.weights*
 _probe*.py
+cvae_prior.npz
